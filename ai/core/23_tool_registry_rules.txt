@@ -1,0 +1,61 @@
+# TOOL REGISTRY RULES
+
+## Tool Definitions
+
+Tools are defined in config/tools.json and registered with the LLM API as function definitions.
+
+## Tool Calling Protocol
+
+1. LLM decides to call a tool → emits a function call
+2. Backend receives function call → validates against registry
+3. tool_executor.py is invoked with: tool_name + args as JSON
+4. Tool module executes → returns JSON result
+5. Result returned to LLM as function result
+6. LLM continues execution
+
+## Tool Result Format
+
+All tools MUST return:
+```json
+{
+  "status": "ok" | "error" | "partial",
+  "result": <any>,
+  "error": "<message if error>",
+  "metadata": {
+    "tool": "<tool_name>",
+    "duration_ms": <int>
+  }
+}
+```
+
+## Adding New Tools
+
+To add a tool:
+1. Create the Python module in tools/{category}/{name}.py
+2. Implement the `execute(**kwargs)` function
+3. Add the tool definition to config/tools.json
+4. The tool is automatically registered with the LLM on next session start
+
+## Tool Permissions
+
+All tools are available to the orchestrator.
+Sub-agents have restricted tool sets (defined in config/agents.json → each agent's "tools" list).
+
+## Tool Versioning
+
+When updating a tool:
+- Change the module (tools/{category}/{name}.py)
+- If interface changed: update config/tools.json
+- No restart needed for Python tool changes
+- Backend restart needed for config changes
+
+## Tool Error Standards
+
+Tools should NEVER crash silently. Always:
+```python
+try:
+    result = do_work()
+    return {"status": "ok", "result": result, "metadata": {...}}
+except Exception as e:
+    return {"status": "error", "error": str(e), "result": None, "metadata": {...}}
+```

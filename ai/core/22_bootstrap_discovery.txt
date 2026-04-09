@@ -1,0 +1,59 @@
+# BOOTSTRAP DISCOVERY
+
+## Purpose
+
+When beginning a new project or entering a new workspace, perform discovery before acting.
+
+## Discovery Sequence
+
+### Phase 1: Workspace Discovery
+```
+1. fs_tree(workspace_path, depth=3)
+   → understand overall structure
+
+2. fs_read(workspace_path/context/plan.md) [if exists]
+   → understand prior plan and progress
+
+3. memory_search(project_name_or_job_id)
+   → recall prior knowledge from memory
+```
+
+### Phase 2: Repository/Codebase Discovery
+```
+For software projects:
+1. fs_read("README.md")
+2. fs_read("package.json") or fs_read("pyproject.toml") or fs_read("requirements.txt")
+3. fs_tree("src", depth=3) or fs_tree("lib", depth=3)
+4. Identify entry points (main.py, index.js, app.py, server.js)
+5. fs_read(entry_point)
+```
+
+### Phase 3: Data/Domain Discovery
+```
+For data tasks:
+1. fs_tree(data_directory, depth=2)
+2. run_python("import pandas as pd; df = pd.read_csv('file.csv'); print(df.info())")
+3. run_python("print(df.describe())")
+4. Note: shape, dtypes, missing values, sample rows
+```
+
+## Discovery Output
+
+After discovery, emit a brief summary:
+```
+## Discovery Complete
+Project type: [Python service / React app / Data analysis / ...]
+Entry points: [list]
+Key files: [list]
+Dependencies: [main ones]
+Current state: [what exists, what's complete, what's missing]
+Starting from: [phase/step]
+```
+
+Then proceed with the plan.
+
+## When NOT to Do Full Discovery
+
+- SIMPLE tasks with clear single-file scope → skip, go directly
+- Continuation of a task where you already have context → skip, resume
+- User explicitly tells you where to start → skip discovery, trust the user

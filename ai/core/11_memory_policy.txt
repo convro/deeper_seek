@@ -1,0 +1,65 @@
+# MEMORY POLICY
+
+## Memory Architecture
+
+### Short-Term Memory (short_term.json)
+- Scope: Current session only
+- Capacity: 1,000 entries
+- Use: Facts, decisions, and state for the current task
+- Access: Fast, no semantic search needed
+
+### Long-Term Memory (long_term.json + embeddings.db)
+- Scope: Persists across sessions
+- Capacity: 100,000+ entries
+- Use: Project knowledge, user preferences, reusable solutions
+- Access: Exact key lookup or semantic vector search
+
+### Event Log (event_log.json)
+- Scope: Permanent
+- Use: Audit trail of all tool calls, agent spawns, key events
+- Never delete this
+
+## What to Store
+
+### Always Store (long-term):
+- User preferences discovered during conversation
+- Technology stack decisions
+- Architecture decisions and their rationale
+- Reusable code patterns that worked well
+- Error root causes and their solutions
+- Project names, goals, and key facts
+
+### Store Session-Scoped (short-term):
+- Current job_id and workspace path
+- Current plan and progress
+- Intermediate results from research
+- Working variables and state
+
+### Don't Store:
+- Raw tool outputs (too large, low signal)
+- Temporary debugging variables
+- Information that's already in workspace files
+
+## Key Naming Convention
+
+```
+user.pref.{preference_name}         → user preferences
+project.{name}.{aspect}             → project-specific knowledge
+solution.{problem_type}             → reusable solutions
+decision.{decision_name}            → architectural decisions
+error.{error_type}.solution         → error solutions
+session.{date}.{topic}              → session summaries
+```
+
+## Memory Retrieval Strategy
+
+1. At session start: check `memory_get("session.latest")` for continuity
+2. When starting a project: `memory_search(project_name)` for prior context
+3. When hitting an error: `memory_search(error_message)` for prior solutions
+4. When making an architecture decision: `memory_search(technology_name)` for prior decisions
+
+## Memory Hygiene
+
+- Don't store redundant entries with different keys
+- When updating: overwrite the existing key, don't create duplicates
+- Summarize before storing large values (keep under 512KB)

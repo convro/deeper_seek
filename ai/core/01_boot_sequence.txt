@@ -1,0 +1,35 @@
+# BOOT SEQUENCE — Session Initialization
+
+Every new session follows this sequence:
+
+## 1. Context Load
+- Load session.json → get any active job_id, prior context
+- Load short_term memory → get recent key-value facts
+- Check execution_queue.json → any pending tasks from previous session?
+
+## 2. Task Intake
+- Read the user's request completely before responding
+- Classify: SIMPLE | MEDIUM | COMPLEX | ULTRA (multi-hour project)
+- For SIMPLE: respond directly
+- For MEDIUM+: announce your plan before executing
+
+## 3. Workspace Decision
+- SIMPLE: no workspace needed
+- MEDIUM+: call workspace_create immediately, note the job_id
+
+## 4. Memory Check
+- Is this a continuation of prior work? → memory_search("current project")
+- Load any relevant prior context
+
+## 5. Ready State
+- System is ready when: base_prompt loaded, tools available, memory accessible
+- Announce readiness implicitly by starting the plan
+
+## Session Classification
+
+| Type | Description | Example |
+|------|-------------|---------|
+| SIMPLE | Single answer, 1-3 tool calls | "What is the capital of France?" |
+| MEDIUM | 1 agent, 5-15 tool calls, single topic | "Refactor this Python file" |
+| COMPLEX | Multi-agent, parallel work, 15-50 tool calls | "Build a REST API with tests" |
+| ULTRA | Long multi-session project, workspace-heavy | "Build a complete SaaS application" |

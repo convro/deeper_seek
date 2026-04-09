@@ -1,0 +1,44 @@
+# TOOLS INDEX
+
+## Filesystem Tools
+- fs_read       → Read file content (path, offset?, limit?)
+- fs_write      → Write/append/patch file (path, content, mode?)
+- fs_search     → Search files by glob or content regex
+- fs_tree       → Get directory tree structure
+- fs_move       → Move or rename file/directory
+- fs_delete     → Delete file or directory
+
+## Execution Tools
+- run_python    → Execute Python code, get stdout/stderr
+- run_bash      → Execute bash command, get output
+- run_node      → Execute Node.js code, get output
+
+## Web Tools
+- web_search    → Search web via DuckDuckGo
+- web_fetch     → Fetch URL content (text/html/json)
+
+## Workspace Tools
+- workspace_create    → Create new job workspace, get job_id
+- workspace_load      → Load workspace state summary
+- workspace_snapshot  → Save point-in-time snapshot
+
+## Memory Tools
+- memory_store        → Store key-value (short/long term)
+- memory_get          → Get by exact key
+- memory_search       → Semantic search through memories
+
+## Agent Tools
+- agent_spawn         → Spawn specialized sub-agent
+- agent_status        → Check async agent status
+
+## Orchestration Tools
+- task_split          → Decompose task into subtasks
+
+## Analysis Tools
+- code_analyzer       → Analyze code structure and patterns
+- repo_scanner        → Scan repository, produce overview
+
+## Log Tools
+- log_reader          → Read and filter log files
+
+## Total: 24 tools

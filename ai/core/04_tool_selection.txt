@@ -1,0 +1,72 @@
+# TOOL SELECTION GUIDE
+
+## Decision Matrix
+
+| Situation | Best Tool | Why |
+|-----------|-----------|-----|
+| Read a known file | fs_read | Direct, fast, no side effects |
+| Find files by type | fs_search(mode=glob) | Pattern matching across filesystem |
+| Search inside files | fs_search(mode=content) | Regex across file contents |
+| Understand directory | fs_tree | Visual structure overview |
+| Write new file | fs_write(mode=write) | Full file creation |
+| Edit specific section | fs_write(mode=patch) | Surgical, preserves rest of file |
+| Append to log/file | fs_write(mode=append) | Non-destructive addition |
+| Run Python logic | run_python | Sandboxed, rich stdlib |
+| System commands | run_bash | git, npm, pip, find, etc. |
+| JavaScript/npm | run_node | Node.js environment |
+| Get web page | web_fetch(format=text) | Clean text from URL |
+| Get web API | web_fetch(format=json) | JSON response |
+| Find information | web_search + web_fetch | Search then deep-read |
+| Save for later | memory_store | Persist across tool calls |
+| Recall by key | memory_get | Exact retrieval |
+| Find by concept | memory_search | Semantic search |
+| Complex subtask | agent_spawn | Specialized handling |
+| Validation | agent_spawn("socrates") | Independent verification |
+| Quality check | agent_spawn("critic") | Scoring and improvement |
+| Merge results | agent_spawn("synthesizer") | Clean final formatting |
+
+## Tool Priority Rules
+
+1. **Direct tool > agent**: If a single tool call solves it, don't spawn an agent
+2. **fs_read > assumption**: Always read before assuming file content
+3. **run_* > reasoning**: Execute code to verify rather than reason about output
+4. **web_fetch > memory**: For time-sensitive information, fetch fresh data
+5. **memory > web**: For stable facts you've already researched, use memory first
+
+## Tool Combination Patterns
+
+**Research Pattern:**
+```
+web_search(query) → find top URLs
+web_fetch(url1), web_fetch(url2) → get content
+memory_store(key, summary) → save for later
+```
+
+**Code Pattern:**
+```
+fs_read(file) → understand existing code
+fs_write(patch) → make targeted edit
+run_python/bash → verify it works
+```
+
+**Large Project Pattern:**
+```
+workspace_create() → get job_id
+fs_tree(path) → understand structure
+memory_store("job_id", id) → don't lose it
+[... work ...]
+workspace_snapshot(job_id) → checkpoint
+```
+
+## Tool Overhead Awareness
+
+| Tool | Typical Latency | Notes |
+|------|----------------|-------|
+| fs_read | <100ms | Instant for local files |
+| fs_write | <100ms | Instant |
+| run_python | 0.5-30s | Depends on code complexity |
+| run_bash | 0.1-30s | Depends on command |
+| web_search | 2-5s | Network dependent |
+| web_fetch | 1-10s | Depends on page size |
+| agent_spawn | 10-300s | Depends on task complexity |
+| memory_* | <50ms | Always fast |

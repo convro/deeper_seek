@@ -1,0 +1,59 @@
+# REFLECTION RULES
+
+## What is Reflection?
+
+Reflection is the practice of reviewing your own work before delivering it.
+Every significant output should pass a self-review.
+
+## Reflection Checklist
+
+### For Code Output:
+- [ ] Does it actually solve the stated problem?
+- [ ] Are there obvious bugs or edge cases?
+- [ ] Did I run it? Does it produce the expected output?
+- [ ] Is the structure clean and readable?
+- [ ] Are there missing error handlers that will crash it?
+- [ ] Did I handle the most likely input variations?
+
+### For Research/Analysis Output:
+- [ ] Does this answer the actual question?
+- [ ] Is the information current and accurate?
+- [ ] Did I consider alternative perspectives?
+- [ ] Are there gaps in my coverage?
+- [ ] Is the structure logical and easy to follow?
+
+### For Plans:
+- [ ] Is every step actionable and concrete?
+- [ ] Are dependencies correctly identified?
+- [ ] Are there missing steps?
+- [ ] Is the complexity estimate realistic?
+- [ ] Is the parallelism optimal?
+
+## When to Do Deep Reflection
+
+- **Always**: Before delivering final output
+- **Especially**: When the task is ambiguous, complex, or has been revised multiple times
+- **Trigger**: When something feels off but you can't pinpoint it
+
+## Reflection via Socrates Agent
+
+For high-stakes outputs:
+1. Complete the output
+2. spawn("socrates", task="Review this output: {output_summary} for: {original_task}")
+3. Socrates will: find logical errors, contradictions, missing coverage
+4. Fix any issues found
+5. Then deliver
+
+## Reflection Loop Limit
+
+Don't reflect indefinitely. Maximum 2 reflection cycles per output.
+After 2 cycles: deliver with an honest note about remaining uncertainties.
+
+## Self-Improvement Signal
+
+After every session, reflect on:
+- What worked well in this task?
+- What approach would I do differently?
+- Are there patterns worth storing in long-term memory?
+
+Store key learnings: `memory_store("learning.{date}.{topic}", insight, tier="long")`

@@ -1,0 +1,66 @@
+# STOP CONDITIONS
+
+## When to Stop and Deliver Results
+
+### Natural Completion
+- All planned steps are ✅ complete
+- Final output is in workspace/output/
+- Output has been validated (or explicitly not validated by user request)
+- User's original request is fully addressed
+
+### Forced Stop: Resource Limits
+- Tool call count > 100 in one session → stop, deliver what you have, report status
+- Agent depth > 4 levels → stop spawning, complete with current agents
+- Context > 55,000 tokens → compress and save state before continuing
+- Workspace size > 500MB → alert user
+
+### Forced Stop: Repeated Failures
+- Same operation failed 3+ times with different approaches → escalate to user
+- Agent spawning fails twice → fall back to direct tool calls
+- All available approaches exhausted → report with full diagnostic
+
+### User-Initiated Stop
+- User says "stop", "pause", "enough", "that's fine" → stop immediately
+- Save current state to workspace if in progress
+- Report what was completed and what remains
+
+## Graceful Shutdown Sequence
+
+When stopping (for any reason):
+1. Emit clear "Stopping" marker
+2. Save current state: workspace_snapshot(job_id)
+3. Store progress in memory: `memory_store("session.progress", summary, tier="long")`
+4. Update context/plan.md with current step status
+5. Report to user: what's done, what's incomplete, next steps
+
+## Partial Completion Report
+
+```
+## Partial Results
+
+### Completed:
+- [x] Step 1: [description]
+- [x] Step 2: [description]
+
+### Incomplete:
+- [ ] Step 3: [description] — stopped because [reason]
+- [ ] Step 4: [description]
+
+### Output Files (available now):
+- workspace/{job_id}/output/[file] — [description]
+
+### To Resume:
+Tell me to continue and I'll pick up from Step 3.
+Session state saved at: workspace/{job_id}/context/plan.md
+```
+
+## Quality Gate Stop
+
+Before delivering final output, check:
+- [ ] Does it actually answer the user's question?
+- [ ] Is the output complete (not truncated)?
+- [ ] Are promised files actually written to workspace?
+- [ ] Is code tested/verified?
+- [ ] No placeholder content ("TODO", "...", "[implement here]")?
+
+If ANY of these fail: do NOT deliver yet. Fix first.

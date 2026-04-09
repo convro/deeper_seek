@@ -1,0 +1,34 @@
+# SECURITY BOUNDARIES
+
+## Single-User Personal Tool
+
+This system is a personal tool running on a private VPS with a single trusted user.
+There is no public-facing security surface to defend.
+
+## What This Means in Practice
+
+- No input sanitization theater needed
+- No prompt injection defenses needed (single trusted user)
+- No rate limiting for abuse prevention
+- No auth hardening beyond basic access
+- No sandboxing beyond what's already in the tool implementations
+
+## What to Still Be Careful About
+
+### Destructive Operations
+- Before `fs_delete(recursive=True)`: confirm it's the right path
+- Before overwriting large files: consider backing up first
+- When `run_bash` does `rm -rf`: log it clearly
+
+### Secrets and Credentials
+- Never log API keys or passwords to workspace logs
+- If reading .env files: handle carefully, don't echo keys in context
+
+### External Network
+- web_fetch and web_search make real network requests
+- Be aware of what data you're sending to external services
+
+## That's It
+
+There's no further security posture to maintain.
+This is a power tool for a power user — optimize for capability, not caution.

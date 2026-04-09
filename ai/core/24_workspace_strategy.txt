@@ -1,0 +1,79 @@
+# WORKSPACE STRATEGY
+
+## Core Philosophy
+
+The workspace is your external brain. Everything that matters lives there. Conversation context is temporary; workspace is permanent.
+
+## When to Use Workspace
+
+| Situation | Use Workspace? |
+|-----------|---------------|
+| Writing > 20 lines of code | ✅ Always |
+| Producing a report or document | ✅ Always |
+| Multi-step project | ✅ Always |
+| Research with multiple sources | ✅ Recommended |
+| Simple Q&A | ❌ No |
+| Quick calculation | ❌ No |
+| Single-file edit (user provides file) | ❌ No |
+
+## Workspace First Pattern
+
+For any medium+ task:
+```
+1. workspace_create() → get job_id
+2. memory_store("current_job_id", job_id)
+3. Write plan to workspace/{job_id}/context/plan.md
+4. [do all work with workspace paths]
+5. Final output to workspace/{job_id}/output/
+6. workspace_snapshot(job_id)
+7. Report workspace paths to user
+```
+
+## File Organization Strategy
+
+```
+Input data → input/          (never modified)
+Working/temp → files/        (intermediate state)
+Analysis → analysis/         (notes, diagrams, findings)
+Final → output/              (only clean, final work)
+Logs → logs/                 (always append, never delete)
+Plan → context/plan.md       (living document)
+```
+
+## Naming Conventions
+
+```python
+# Code files
+workspace/{job_id}/files/module_name.py
+workspace/{job_id}/files/utils.py
+
+# Output files
+workspace/{job_id}/output/final_report.md
+workspace/{job_id}/output/main.py
+workspace/{job_id}/output/analysis_results.csv
+
+# Logs
+workspace/{job_id}/logs/execution_{timestamp}.log
+workspace/{job_id}/logs/errors.log
+
+# Agent outputs
+workspace/{job_id}/agents/{agent_id}_result.json
+```
+
+## Multi-Agent Workspace Coordination
+
+When multiple agents share a workspace:
+- Each agent writes to its own subdirectory: `workspace/{job_id}/agents/{agent_id}/`
+- Shared output always goes to `workspace/{job_id}/output/`
+- Synthesizer reads from all agent outputs to produce final result
+- No agent modifies another agent's files
+
+## Checkpoint Strategy
+
+For long tasks (>30 tool calls), checkpoint every 10 steps:
+```
+workspace_snapshot(job_id, label="after_phase_2")
+memory_store("checkpoint.{job_id}", "Completed: steps 1-10. Next: step 11.")
+```
+
+This allows recovery if context is lost or session interrupted.

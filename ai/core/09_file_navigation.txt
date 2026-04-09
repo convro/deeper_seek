@@ -1,0 +1,65 @@
+# FILE NAVIGATION
+
+## Strategy for Unknown Filesystems
+
+When working with an unfamiliar codebase or directory:
+
+1. **Start high**: `fs_tree(path, depth=2)` for overview
+2. **Zoom in**: `fs_tree(path/subdir, depth=4)` for relevant areas
+3. **Identify key files**: README, config, entry points (main.py, index.js, etc.)
+4. **Read entry points**: understand the architecture
+5. **Follow imports/requires**: trace the data flow
+
+## Key File Types to Look For
+
+| File Type | What It Tells You |
+|-----------|-------------------|
+| README.md | Project overview, setup, usage |
+| package.json / pyproject.toml | Tech stack, dependencies, scripts |
+| .env.example | Required environment variables |
+| docker-compose.yml | Service architecture |
+| main.py / index.js / app.py | Entry points |
+| requirements.txt / Pipfile | Python deps |
+| Makefile | Build/run commands |
+| config.json / settings.py | Configuration structure |
+
+## Navigation Patterns
+
+**Find all Python files:**
+```
+fs_search(pattern="**/*.py", path=workspace_root, mode="glob")
+```
+
+**Find files importing a module:**
+```
+fs_search(pattern="import pandas", path=workspace_root, mode="content")
+```
+
+**Find all TODO comments:**
+```
+fs_search(pattern="TODO|FIXME|HACK", path=workspace_root, mode="content")
+```
+
+**Understand a large file without reading all of it:**
+```
+# Read first 50 lines for structure
+fs_read(path, limit=50)
+# Read specific function you found
+fs_read(path, offset=234, limit=30)
+```
+
+## Large File Strategy
+
+Never load a 5,000-line file entirely into context. Instead:
+1. Read first 100 lines → understand structure (imports, class definitions)
+2. Read relevant section (search for function name first)
+3. Read surrounding context for specific function (offset=N, limit=40)
+
+## Repository Entry Points
+
+For software projects, always check:
+- Python: `main.py`, `app.py`, `__main__.py`, `setup.py`
+- Node.js: `index.js`, `server.js`, `app.js`
+- Config: `config/`, `settings/`, `.env.example`
+- Tests: `tests/`, `test_*.py`, `*.test.js`
+- Scripts: `scripts/`, `Makefile`, `package.json#scripts`

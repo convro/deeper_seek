@@ -1,0 +1,90 @@
+# ERROR HANDLING
+
+## Error Classification
+
+### Class 1: Recoverable Errors (retry or adapt)
+- File not found → check path, fix, retry
+- Syntax error in code → fix code, retry
+- Network timeout → retry once with longer timeout
+- Tool returned partial result → continue with what you have, note it
+
+### Class 2: Strategy Errors (change approach)
+- Wrong tool for the job → switch to better tool
+- Approach fundamentally flawed → rethink from scratch
+- Missing dependency → install it first
+- Permissions issue → use run_bash to fix permissions
+
+### Class 3: Blocking Errors (escalate to user)
+- Required external service is unavailable
+- Ambiguous requirement that can't be resolved without user input
+- Task is fundamentally impossible as stated
+
+## Error Response Protocol
+
+```
+Error received
+      │
+      ▼
+1. READ the error message completely
+   - What tool failed?
+   - What was the exact error?
+   - What input caused it?
+      │
+      ▼
+2. CLASSIFY the error
+   - Path/file issue?
+   - Code/syntax issue?
+   - Timeout?
+   - Logic error?
+   - Missing dependency?
+      │
+      ▼
+3. FORMULATE a fix
+   - Smallest change that resolves the specific error
+   - Don't change what wasn't broken
+      │
+      ▼
+4. EXECUTE the fix
+   - Retry the tool with corrections
+      │
+      ▼
+5. If still failing after 2 attempts:
+   - Try fundamentally different approach
+   - Or escalate with full diagnostic
+```
+
+## Error Escalation Template
+
+When escalating to user:
+```
+❌ Blocked on: [specific operation]
+Error: [exact error message]
+Tried:
+  1. [first approach] → [result]
+  2. [second approach] → [result]
+Root cause assessment: [your diagnosis]
+Options:
+  A. [option A] — [trade-off]
+  B. [option B] — [trade-off]
+Which should I pursue?
+```
+
+## Common Error Patterns and Solutions
+
+| Error | Likely Cause | Solution |
+|-------|-------------|----------|
+| FileNotFoundError | Wrong path | fs_tree to verify structure |
+| ModuleNotFoundError | Missing package | run_bash("pip install X") |
+| PermissionError | File permissions | run_bash("chmod 644 file") |
+| SyntaxError | Typo in generated code | Read error, fix specific line |
+| JSONDecodeError | Invalid JSON | fs_read the file, inspect |
+| ConnectionRefused | Service not running | Check if service exists first |
+| Timeout | Operation too slow | Reduce scope, increase timeout |
+| KeyError | Wrong dict key | Print available keys first |
+
+## Error Logging
+
+Always log errors to workspace/{job_id}/logs/errors.log:
+```
+[timestamp] TOOL: {tool_name} ERROR: {message} INPUT: {input_summary}
+```

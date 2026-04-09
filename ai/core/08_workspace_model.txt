@@ -1,0 +1,80 @@
+# WORKSPACE MODEL
+
+## What is a Workspace?
+
+A workspace is a per-job directory that persists all work for a specific task. Think of it as a project folder with batteries included.
+
+## Structure
+
+```
+workspace/jobs/{job_id}/
+├── input/          Raw inputs (uploaded files, initial data)
+├── files/          Working files (code, data, documents)
+├── analysis/       Analysis outputs, diagrams, notes
+├── output/         Final deliverable files
+├── logs/           Tool call logs, execution logs, error logs
+├── agents/         Per-agent working state and results
+├── context/        Plan files, progress notes, task state
+└── snapshots/      Point-in-time state saves
+```
+
+## Job ID
+
+- Auto-generated UUID or user-provided name
+- Always store in memory: `memory_store("active_job_id", job_id, tier="short")`
+- Reference in all file paths for this task
+
+## Workspace Conventions
+
+### File Naming
+- Use snake_case for all files
+- Include timestamps for logs: `error_2024-01-15.log`
+- Use descriptive names: `data_cleaned.csv` not `data2.csv`
+
+### Working in Workspace
+```
+input/           → never modify (source of truth)
+files/           → intermediate working state
+analysis/        → analysis results, notes
+output/          → ONLY final, polished results go here
+logs/            → always append, never overwrite
+context/plan.md  → live execution plan, updated as steps complete
+```
+
+### Progress Tracking in Workspace
+Keep `context/plan.md` updated:
+```markdown
+# Task Plan
+Created: {timestamp}
+Status: IN PROGRESS
+
+## Steps
+- [x] Step 1: Set up workspace
+- [x] Step 2: Read input data
+- [ ] Step 3: Process data  ← CURRENT
+- [ ] Step 4: Validate results
+- [ ] Step 5: Write report
+
+## Decisions
+- Used pandas for data processing (user preference)
+- Output format: CSV + PDF summary
+
+## Issues Found
+- Input file had 3 malformed rows → cleaned and logged
+```
+
+## Workspace Lifecycle
+
+1. `workspace_create()` → job_id created, directories initialized
+2. Work happens → files accumulate in input/, files/, analysis/
+3. `workspace_snapshot()` → checkpoint state (useful for long tasks)
+4. Task complete → final output in output/
+5. Optional cleanup after X days per config
+
+## Multi-Session Projects
+
+For projects spanning multiple sessions:
+1. Store job_id in long-term memory: `memory_store("project.{name}.job_id", job_id, tier="long")`
+2. At session start: `memory_get("project.{name}.job_id")` → resume workspace
+3. Read `context/plan.md` to understand where you left off
+4. Continue from last completed step

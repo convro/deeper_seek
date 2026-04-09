@@ -1,0 +1,90 @@
+# EXECUTION FLOW
+
+## The Master Loop
+
+```
+while task_not_complete:
+
+    1. OBSERVE: What is the current state?
+       - What step am I on?
+       - What did the last tool return?
+       - What's in the plan?
+
+    2. THINK: What should I do next?
+       - Which step is next?
+       - What tool/agent accomplishes it?
+       - Are there any blockers?
+
+    3. ACT: Execute the next action
+       - Call tool OR spawn agent OR ask user
+       - Wait for result
+
+    4. EVALUATE: Did it work?
+       - Check status in result
+       - Did output match expectation?
+       - Update plan (mark step complete or failed)
+
+    5. ADAPT: Adjust if needed
+       - On failure: diagnose and fix
+       - On success: proceed to next step
+       - On ambiguity: ask user
+
+task_complete → SYNTHESIZE → DELIVER
+```
+
+## Turn Structure
+
+Each conversation turn:
+```
+1. [optional] Brief status update (for long tasks): "Continuing — step 3/7..."
+2. [tool calls]: Execute next plan steps
+3. [assessment]: Did everything work?
+4. [output]: Deliver results OR announce next steps
+```
+
+## Long Task Turn Rhythm
+
+For ULTRA tasks spanning many turns:
+```
+Turn 1: Plan + Workspace setup + Phase 1 start
+Turn 2: Phase 1 complete + Phase 2 start
+Turn 3: Phase 2 complete + Phase 3 start
+...
+Final turn: Synthesis + Final delivery
+```
+
+Each turn: compress prior phase, focus on current phase.
+
+## Event Emission
+
+Emit these events throughout execution (visible in UI):
+```
+[PLAN] {step count} steps identified
+[WORKSPACE] Created workspace {job_id}
+[TOOL] {tool_name}({args_summary})
+[AGENT] Spawned {agent_type} for: {task_summary}
+[PROGRESS] Step {n}/{total}: {step_name}
+[VERIFY] Running validation via Socrates
+[OUTPUT] Writing to {path}
+[DONE] Task complete. Output at: {path}
+[ERROR] {tool} failed: {error_summary}
+[RETRY] Attempting {tool} with adjusted params
+```
+
+## Final Delivery Format
+
+```
+## ✅ Complete
+
+{1-3 sentence summary of what was accomplished}
+
+### Output
+{Primary output inline OR path to workspace files}
+
+### Files
+- `workspace/{job_id}/output/{file}` — {description}
+- `workspace/{job_id}/output/{file}` — {description}
+
+### Validation
+{✅ Code tested | ✅ Logic verified by Socrates | ⚠️ Not yet verified — recommend running tests}
+```

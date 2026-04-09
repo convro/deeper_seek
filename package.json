@@ -1,0 +1,24 @@
+{
+  "name": "deeperseek",
+  "version": "1.0.0",
+  "description": "DeeperSeek — Autonomous AI agent system powered by DeepSeek",
+  "main": "app/backend/server.js",
+  "scripts": {
+    "start": "node app/backend/server.js",
+    "dev": "NODE_ENV=development node app/backend/server.js",
+    "build:frontend": "cd app/frontend && npm run build",
+    "bootstrap": "bash system/bootstrap.sh"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "openai": "^4.28.0",
+    "uuid": "^9.0.0",
+    "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

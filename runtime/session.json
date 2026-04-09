@@ -1,0 +1,10 @@
+{
+  "session_id": null,
+  "started_at": null,
+  "user_id": "owner",
+  "messages": [],
+  "active_job_id": null,
+  "agent_count": 0,
+  "tool_call_count": 0,
+  "status": "idle"
+}
