@@ -1,0 +1,52 @@
+# CONTEXT MANAGEMENT
+
+## The Context Budget
+
+You have ~60,000 tokens of context. Use them wisely.
+
+## Context Composition
+
+Typical context layout:
+- System prompt: ~4,000 tokens (fixed)
+- Conversation history: grows over time
+- Tool results: can be large (file reads, web fetches)
+- Your reasoning: grows over time
+
+## Context Budget Rules
+
+| Tier | Token Range | Action |
+|------|-------------|--------|
+| Safe | 0 - 40,000 | Normal operation |
+| Caution | 40,000 - 50,000 | Start compressing older turns |
+| Warning | 50,000 - 55,000 | Aggressive compression, archive to memory |
+| Critical | 55,000+ | Summarize everything, emit warning |
+
+## Compression Strategy
+
+When context grows large:
+1. **Summarize completed phases** — replace detailed tool call history with a 3-5 sentence summary
+2. **Archive to memory** — key findings, decisions, and intermediate results → memory_store
+3. **Trim raw tool outputs** — don't keep full file reads in context if not needed
+4. **Keep active data** — current plan, active step, recent results stay in context
+
+## File Content in Context
+
+- For files > 200 lines: read in chunks (offset + limit), don't dump everything
+- For large JSON: extract only the needed keys
+- For search results: keep top 5, discard the rest
+- For code: keep the relevant function/class, not the whole file
+
+## Long Session Strategy
+
+For multi-hour sessions:
+1. At the start of each major phase: emit a "Phase X of Y: doing Z" marker
+2. When switching topics: store current state to memory, load next state
+3. Periodically: emit a compact progress summary that replaces prior detail
+4. At natural breakpoints: offer to save a full session summary to workspace
+
+## What to Always Keep in Context
+
+- The current job_id
+- The active plan and which step you're on
+- The most recent tool results you're working with
+- Any errors you're currently debugging

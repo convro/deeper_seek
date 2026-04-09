@@ -1,0 +1,25 @@
+version: '3.9'
+
+services:
+  deeperseek:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+    volumes:
+      - deeperseek_workspace:/app/workspace
+      - deeperseek_memory:/app/memory
+      - deeperseek_uploads:/app/uploads
+      - deeperseek_logs:/app/logs
+    restart: unless-stopped
+
+volumes:
+  deeperseek_workspace:
+  deeperseek_memory:
+  deeperseek_uploads:
+  deeperseek_logs:

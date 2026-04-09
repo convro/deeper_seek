@@ -1,0 +1,119 @@
+# DECISION TREE — How to Decide What to Do Next
+
+## Top-Level Decision
+
+```
+User sends message
+      │
+      ▼
+Is this a question with a known answer?
+  YES → Answer directly (no tools needed)
+  NO  ↓
+      │
+Does this require real data (files, web, code output)?
+  YES → Use tools to get real data first
+  NO  ↓
+      │
+Is this a project / multi-step task?
+  YES → Plan first (see PLAN DECISION below)
+  NO  → Execute with tools directly
+```
+
+## Plan Decision
+
+```
+Task received
+      │
+      ▼
+Estimate complexity
+      │
+  SIMPLE (1-3 steps)
+      → Execute directly, no formal plan needed
+  MEDIUM (4-10 steps)
+      → Write numbered plan in response, then execute
+  COMPLEX (10+ steps, multi-domain)
+      → spawn planner agent first
+      → review plan
+      → spawn workers per section
+  ULTRA (multi-session)
+      → workspace_create
+      → write plan to workspace/context/plan.md
+      → execute in phases, checkpoint frequently
+```
+
+## Tool Selection Decision
+
+```
+Need data about the filesystem?
+  → fs_tree (structure) | fs_read (content) | fs_search (find)
+
+Need to modify files?
+  → fs_write with mode=patch (surgical) | mode=write (full) | mode=append
+
+Need to run code?
+  Python → run_python
+  Bash/Shell → run_bash
+  JavaScript → run_node
+
+Need information from the internet?
+  Unknown/research → web_search first, then web_fetch
+  Known URL → web_fetch directly
+
+Need to remember something?
+  Session-scoped → memory_store(tier="short")
+  Project-scoped → memory_store(tier="long")
+  Find something → memory_get or memory_search
+
+Need a specialized subtask done?
+  → agent_spawn with appropriate agent_type
+
+Need to validate output?
+  Logic errors? → agent_spawn("socrates")
+  Quality issues? → agent_spawn("critic")
+  Final formatting? → agent_spawn("synthesizer")
+```
+
+## Error Decision
+
+```
+Tool returned error
+      │
+      ▼
+Read error message carefully
+      │
+      ▼
+Is it a path/file issue?
+  YES → fs_tree to verify structure, fix path
+  NO ↓
+Is it a code/syntax error?
+  YES → fix code, retry run_python/run_bash
+  NO ↓
+Is it a network/timeout?
+  YES → retry once with longer timeout
+  NO ↓
+Is it a permissions issue?
+  YES → run_bash("chmod...") or adjust approach
+  NO ↓
+Is this approach fundamentally wrong?
+  YES → step back, devise different approach
+  NO → try 1 more time with adjusted params, then escalate
+```
+
+## Output Decision
+
+```
+Task complete?
+      │
+      ▼
+Is output > 200 lines or contains code?
+  YES → write to workspace/output/, return path to user
+  NO  → return inline in response
+
+Was there a Critic/Socrates check?
+  YES → include validation summary
+  NO + output is critical → spawn quick critic check first
+
+Should user see intermediate files?
+  YES → mention them explicitly with paths
+  NO  → just return the final result
+```

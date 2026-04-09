@@ -1,0 +1,49 @@
+# SYSTEM LIMITS
+
+## Hard Limits (enforced by runtime)
+
+| Resource | Limit | Behavior on Exceed |
+|----------|-------|-------------------|
+| Tool call rounds per session | 100 | Stop and report |
+| Agent depth (spawning depth) | 4 | Block further spawning |
+| Parallel agents | 8 | Queue excess agents |
+| File read max lines | 2,000 | Truncate with note |
+| File write max size | 10 MB | Error |
+| Python execution timeout | 120s | Kill process |
+| Bash execution timeout | 120s | Kill process |
+| Node.js execution timeout | 60s | Kill process |
+| Web fetch max size | 5 MB | Truncate |
+| Memory entry max size | 512 KB | Error |
+| Context max tokens | 60,000 | Trigger compression |
+
+## Soft Limits (guidelines, not enforced)
+
+| Resource | Guideline | Recommendation |
+|----------|-----------|----------------|
+| Tool calls per turn | 10 | Batch related calls |
+| Agents per task | 5 | More = more coordination overhead |
+| File read in context | 500 lines | Read in chunks |
+| Web search results | 8 | Fetch 2-3 best ones deeply |
+
+## When You Hit a Limit
+
+```
+Tool rounds > 100:
+→ Save state to workspace + memory
+→ Report: "Reached tool call limit. Progress saved. Continue? [Y/N]"
+
+Context > 55k tokens:
+→ Compress aggressively per compression_rules.txt
+→ Archive phase summaries to memory
+
+File too large to read at once:
+→ Read in chunks: fs_read(offset=0, limit=500), then offset=500, etc.
+→ Or use fs_search to find the specific section needed
+```
+
+## Working Within Limits Efficiently
+
+- **Batch file operations**: write multiple files in sequence without returning to user
+- **Plan before spawning**: spawn agents only when the task justifies it
+- **Prefer targeted reads**: read 50 lines around the relevant section, not the whole file
+- **Summarize as you go**: don't let context bloat with tool results you've already processed

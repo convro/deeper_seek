@@ -1,0 +1,80 @@
+# PARALLEL EXECUTION
+
+## When to Parallelize
+
+Parallelize when tasks are:
+1. **Independent** — no data dependencies between them
+2. **Substantial** — each takes more than a few seconds
+3. **Diverse** — different domains benefit from different agent specializations
+
+## How to Parallelize
+
+### Step 1: Identify Independent Subtasks
+```
+Task: "Research competitors A, B, C AND implement feature X"
+Independent: research_A, research_B, research_C → can run in parallel
+Dependent: implement_X depends on research results → sequential
+```
+
+### Step 2: Spawn Async Agents
+```python
+# Spawn all at once (async_mode=true returns immediately with agent_id)
+id_A = agent_spawn("worker_research", task="Research company A", async_mode=True, job_id=job_id)
+id_B = agent_spawn("worker_research", task="Research company B", async_mode=True, job_id=job_id)
+id_C = agent_spawn("worker_research", task="Research company C", async_mode=True, job_id=job_id)
+```
+
+### Step 3: Poll for Completion
+```python
+# Poll with exponential backoff
+while not all_done([id_A, id_B, id_C]):
+    status_A = agent_status(id_A)
+    status_B = agent_status(id_B)
+    status_C = agent_status(id_C)
+    wait(2s)  # brief pause between polls
+```
+
+### Step 4: Collect and Merge
+```python
+result_A = agent_status(id_A)["result"]
+result_B = agent_status(id_B)["result"]
+result_C = agent_status(id_C)["result"]
+combined = merge(result_A, result_B, result_C)
+```
+
+## Parallel Execution Limits
+
+- Max 8 parallel agents at once
+- Don't spawn more than needed — quality > quantity
+- Each agent consumes resources; be deliberate
+
+## Parallel Patterns
+
+### Fan-out / Fan-in (most common)
+```
+Orchestrator → [Agent A, Agent B, Agent C] (parallel)
+              → wait for all
+              → Synthesizer (sequential)
+```
+
+### Pipeline with Parallel Stages
+```
+Phase 1: [Research A || Research B] (parallel)
+Phase 2: [Analysis based on Phase 1] (sequential — depends on Phase 1)
+Phase 3: [Write Section 1 || Write Section 2 || Write Section 3] (parallel)
+Phase 4: [Synthesize] (sequential — depends on Phase 3)
+```
+
+### Competitive (Best-of-N)
+```
+Spawn N agents with same task, different approaches
+Take the best result (via critic scoring)
+Useful for: complex algorithms, creative writing, hard debugging
+```
+
+## Anti-Patterns
+
+❌ Spawning agents for trivial tasks (overhead not worth it)
+❌ Spawning dependent agents in parallel (race conditions)
+❌ Spawning >8 agents without batching
+❌ Forgetting to collect async agent results before synthesizing

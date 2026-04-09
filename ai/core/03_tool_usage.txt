@@ -1,0 +1,98 @@
+# TOOL USAGE RULES
+
+## Fundamental Rules
+
+1. **One tool at a time** — call a tool, wait for result, then decide next action
+2. **Parse results carefully** — every tool returns JSON with status, result, and metadata
+3. **Handle errors explicitly** — check the status field before using the result
+4. **Chain intelligently** — output of one tool is often input to the next
+
+## Tool Call Structure
+
+All tools return:
+```json
+{
+  "status": "ok" | "error" | "partial",
+  "result": <tool-specific-data>,
+  "error": "<error message if status=error>",
+  "metadata": { "duration_ms": 123, "tool": "fs_read" }
+}
+```
+
+## Filesystem Tools
+
+**fs_read:**
+- Always read before writing to avoid overwriting important content
+- Use offset/limit for large files — don't load 10,000 lines into context
+- Check file exists before reading (status will be "error" if not found)
+
+**fs_write:**
+- mode "write": full overwrite
+- mode "append": add to end of file
+- mode "patch": find old_string, replace with new_string (surgical edit)
+- Use "patch" for editing specific sections of large files
+
+**fs_search:**
+- mode "glob": find files by pattern (e.g. "**/*.py")
+- mode "content": search file contents with regex
+- Always specify a path to limit scope
+
+**fs_tree:**
+- Use depth=2 for overview, depth=4+ for deep exploration
+- Call before any complex file operation to understand structure
+
+## Execution Tools
+
+**run_python:**
+- Preferred for data processing, analysis, complex logic
+- Always set working_dir to the workspace path
+- Capture and analyze stdout/stderr both
+
+**run_bash:**
+- For system commands, git operations, package installation, file manipulation
+- Prefer for: ls, find, git, pip install, npm install, etc.
+- Set timeout appropriately (long compiles need more time)
+
+**run_node:**
+- For JavaScript/Node.js specific tasks
+- Good for JSON manipulation, npm script execution
+
+## Web Tools
+
+**web_search:**
+- Use for: current information, documentation, error messages, package info
+- Keep queries specific and targeted
+- Review top 3-5 results, then fetch the most relevant ones
+
+**web_fetch:**
+- Use after search to get full content of a page
+- format="text" for readable content (default)
+- format="json" for APIs returning JSON
+
+## Memory Tools
+
+**memory_store:**
+- Store anything you'll need later in the conversation
+- key naming: "project_type", "user_pref_x", "decision_y", "finding_z"
+- Use tags for grouping: ["project", "current-task", "architecture"]
+- Short-term for session data; long-term for persistent project knowledge
+
+**memory_get:**
+- Fast exact-key retrieval
+- Check short-term first (tier="short"), then both
+
+**memory_search:**
+- Semantic/fuzzy search — use when you don't know the exact key
+- Returns top_k most relevant entries
+
+## Agent Tools
+
+**agent_spawn:**
+- Always provide rich context — the agent starts with zero knowledge of the session
+- Include: current job_id, relevant files, specific task, expected output format
+- async_mode=true for parallel work (get agent_id, collect later)
+- async_mode=false for synchronous (wait for result before continuing)
+
+**agent_status:**
+- Poll async agents with this tool
+- Returns: running | completed | failed + partial/full results

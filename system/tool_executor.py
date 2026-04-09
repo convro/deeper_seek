@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""
+tool_executor.py — Central dispatcher for all tool calls.
+
+Called by Node.js backend via subprocess:
+  echo '{"tool": "fs_read", "args": {"path": "/some/file"}}' | python3 tool_executor.py
+
+Returns JSON to stdout.
+"""
+
+import sys
+import json
+import os
+import time
+import traceback
+import importlib.util
+
+# Add project root to path
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, PROJECT_ROOT)
+
+# Tool → module path mapping
+TOOL_MAP = {
+    # Filesystem
+    "fs_read":          "tools/filesystem/fs_read.py",
+    "fs_write":         "tools/filesystem/fs_write.py",
+    "fs_search":        "tools/filesystem/fs_search.py",
+    "fs_tree":          "tools/filesystem/fs_tree.py",
+    "fs_move":          "tools/filesystem/fs_move.py",
+    "fs_delete":        "tools/filesystem/fs_delete.py",
+    # Execution
+    "run_python":       "tools/execution/run_python.py",
+    "run_bash":         "tools/execution/run_bash.py",
+    "run_node":         "tools/execution/run_node.py",
+    # Web
+    "web_fetch":        "tools/web/web_fetch.py",
+    "web_search":       "tools/web/web_search.py",
+    # Workspace
+    "workspace_create":   "tools/workspace/workspace_create.py",
+    "workspace_load":     "tools/workspace/workspace_load.py",
+    "workspace_snapshot": "tools/workspace/workspace_snapshot.py",
+    # Memory
+    "memory_store":       "tools/memory/memory_store.py",
+    "memory_get":         "tools/memory/memory_get.py",
+    "memory_search":      "tools/memory/memory_vector_search.py",
+    # Agents
+    "agent_spawn":        "tools/agents/agent_spawn.py",
+    "agent_status":       "tools/agents/agent_status.py",
+    # Analysis
+    "code_analyzer":      "tools/analysis/code_analyzer.py",
+    # Logs
+    "log_reader":         "tools/logs/log_reader.py",
+}
+
+
+def load_module(module_path: str):
+    """Dynamically load a Python module from a file path."""
+    abs_path = os.path.join(PROJECT_ROOT, module_path)
+    spec = importlib.util.spec_from_file_location("tool_module", abs_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def execute_tool(tool_name: str, args: dict) -> dict:
+    start = time.time()
+
+    if tool_name not in TOOL_MAP:
+        return {
+            "status": "error",
+            "result": None,
+            "error": f"Unknown tool: '{tool_name}'. Available: {sorted(TOOL_MAP.keys())}",
+            "metadata": {"tool": tool_name, "duration_ms": 0},
+        }
+
+    module_path = TOOL_MAP[tool_name]
+    abs_path = os.path.join(PROJECT_ROOT, module_path)
+
+    if not os.path.exists(abs_path):
+        return {
+            "status": "error",
+            "result": None,
+            "error": f"Tool module not found: {abs_path}",
+            "metadata": {"tool": tool_name, "duration_ms": 0},
+        }
+
+    try:
+        module = load_module(module_path)
+        result = module.execute(**args)
+        return result
+    except Exception as e:
+        tb = traceback.format_exc()
+        return {
+            "status": "error",
+            "result": None,
+            "error": f"Tool execution exception: {str(e)}\n{tb}",
+            "metadata": {"tool": tool_name, "duration_ms": int((time.time() - start) * 1000)},
+        }
+
+
+def main():
+    try:
+        raw = sys.stdin.read().strip()
+        if not raw:
+            print(json.dumps({"status": "error", "error": "Empty input", "result": None}))
+            return
+
+        request = json.loads(raw)
+        tool_name = request.get("tool")
+        args = request.get("args", {})
+
+        if not tool_name:
+            print(json.dumps({"status": "error", "error": "Missing 'tool' field", "result": None}))
+            return
+
+        result = execute_tool(tool_name, args)
+        print(json.dumps(result, ensure_ascii=False, default=str))
+
+    except json.JSONDecodeError as e:
+        print(json.dumps({"status": "error", "error": f"Invalid JSON input: {e}", "result": None}))
+    except Exception as e:
+        print(json.dumps({
+            "status": "error",
+            "error": f"Executor error: {str(e)}\n{traceback.format_exc()}",
+            "result": None
+        }))
+
+
+if __name__ == "__main__":
+    main()

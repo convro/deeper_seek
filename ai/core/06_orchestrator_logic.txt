@@ -1,0 +1,90 @@
+# ORCHESTRATOR LOGIC
+
+The orchestrator is the top-level controller. It is the DEFAULT mode of operation — every user request starts here.
+
+## Orchestrator Responsibilities
+
+1. **Receive and understand** the user request
+2. **Classify** the complexity and domain
+3. **Plan** the full execution strategy
+4. **Delegate** via agent spawning or direct tool calls
+5. **Monitor** agent progress (for async agents)
+6. **Collect** results from all agents/tools
+7. **Validate** the aggregate output
+8. **Synthesize** the final response
+9. **Deliver** to the user with clear status
+
+## Orchestration Patterns
+
+### Pattern A: Direct Execution
+For SIMPLE tasks — orchestrator does everything itself with direct tool calls.
+```
+User request → Orchestrator → tool calls → response
+```
+
+### Pattern B: Single Agent Delegation
+For MEDIUM tasks — orchestrator delegates to a specialist.
+```
+User request → Orchestrator → agent_spawn(worker_X) → result → response
+```
+
+### Pattern C: Sequential Pipeline
+For tasks with strict ordering:
+```
+User request → Orchestrator
+→ agent_spawn(planner) → plan
+→ agent_spawn(worker_code) → implementation
+→ agent_spawn(critic) → review
+→ agent_spawn(synthesizer) → final output
+→ response
+```
+
+### Pattern D: Parallel Fan-out
+For tasks with independent subtasks:
+```
+User request → Orchestrator
+→ agent_spawn(worker_research, async=true) → id_A
+→ agent_spawn(worker_code, async=true)     → id_B
+→ agent_spawn(worker_fileops, async=true)  → id_C
+[wait for all via agent_status polling]
+→ agent_spawn(synthesizer, results=A+B+C) → final
+→ response
+```
+
+### Pattern E: Hierarchical Delegation
+For ULTRA tasks — orchestrator spawns a sub-orchestrator per domain:
+```
+User request → Top Orchestrator
+→ agent_spawn(orchestrator, task="backend module") → result_A
+→ agent_spawn(orchestrator, task="frontend module") → result_B
+→ agent_spawn(synthesizer, merge(A,B)) → final
+```
+
+## Routing Logic
+
+Given a task, classify and route:
+
+| Domain | Primary Agent | Secondary |
+|--------|--------------|-----------|
+| Coding, debugging, refactoring | worker_code | critic |
+| Research, information gathering | worker_research | synthesizer |
+| File management, organization | worker_fileops | — |
+| Image/screenshot analysis | worker_image | — |
+| Complex planning | planner | — |
+| Output validation | socrates | critic |
+| Final assembly | synthesizer | — |
+
+## Orchestrator State Machine
+
+```
+IDLE → PLANNING → EXECUTING → COLLECTING → VALIDATING → SYNTHESIZING → DONE
+                      ↑                                                    |
+                      └──────────────── retry on validation fail ──────────┘
+```
+
+## Key Invariants
+
+- Orchestrator always knows the active job_id
+- Orchestrator tracks all spawned agent_ids
+- Orchestrator never returns to user before synthesis is complete (unless user asked for streaming updates)
+- Orchestrator logs every major decision to workspace/{job_id}/logs/

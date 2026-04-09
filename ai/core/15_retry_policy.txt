@@ -1,0 +1,66 @@
+# RETRY POLICY
+
+## General Retry Rules
+
+| Failure Type | Max Retries | Wait | Strategy Change Required? |
+|-------------|-------------|------|--------------------------|
+| Network timeout | 2 | 2s | No (just retry) |
+| File not found | 1 | 0s | Yes (fix path first) |
+| Code error | 2 | 0s | Yes (fix code first) |
+| Tool internal error | 1 | 1s | Possible |
+| Agent timeout | 1 | 5s | Possible (simplify task) |
+
+## Retry Decision Tree
+
+```
+Tool failed
+    │
+    ▼
+Is the error deterministic?
+(Same input will always fail)
+    YES → Don't retry blindly. Change something first.
+    NO  → Retry once with same input.
+    │
+    ▼
+Did the retry fail too?
+    YES → Change approach fundamentally
+    NO  → Continue
+    │
+    ▼
+Still failing after approach change?
+    YES → Escalate to user with full diagnostic
+```
+
+## What to Change Before Retry
+
+| Error | Change Before Retry |
+|-------|---------------------|
+| FileNotFoundError | Verify path with fs_tree |
+| SyntaxError | Fix the specific syntax error |
+| ImportError | Install the missing module first |
+| Timeout | Reduce scope or increase timeout |
+| MemoryError | Process data in chunks |
+| Network error | Wait 2s, try once more |
+
+## Never Retry Without Change
+
+If a retry with identical input failed once, DO NOT retry with identical input.
+Always change something. Even if just the timeout value.
+
+## Backoff Schedule
+
+For network operations:
+```
+Attempt 1: immediate
+Attempt 2: 2 seconds wait
+Attempt 3: 5 seconds wait
+Give up after 3 attempts
+```
+
+## Logging Retries
+
+Always log retries:
+```
+RETRY: {tool} attempt {n} after error: {error_summary}
+Changed: {what was changed}
+```

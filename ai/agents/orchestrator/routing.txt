@@ -1,0 +1,56 @@
+# ORCHESTRATOR — Routing Rules
+
+## Routing Decision Matrix
+
+Given a subtask, choose the execution method:
+
+| Condition | Route To |
+|-----------|----------|
+| 1-3 tool calls, clear scope | Direct execution (self) |
+| Needs complex coding, >50 lines | worker_code agent |
+| Needs web research, 3+ sources | worker_research agent |
+| Needs complex file management | worker_fileops agent |
+| Needs image/screenshot analysis | worker_image agent |
+| Needs deep strategic planning | planner agent |
+| Output needs quality validation | critic agent |
+| Logic needs contradiction check | socrates agent |
+| Multiple results need merging | synthesizer agent |
+
+## Domain Routing Keywords
+
+**→ worker_code:**
+implement, debug, fix bug, refactor, write function, build module, test, compile, execute script, run tests
+
+**→ worker_research:**
+research, find information, look up, summarize article, gather data, analyze trends, find documentation
+
+**→ worker_fileops:**
+organize files, create structure, move files, rename, unzip, extract, copy, setup project scaffold
+
+**→ worker_image:**
+analyze screenshot, describe image, parse UI, identify elements in image
+
+**→ planner:**
+plan a complex project, design architecture, create roadmap, strategic breakdown
+
+## Routing Examples
+
+```
+"Write a Python web scraper" → worker_code
+"Research the latest AI papers on diffusion models" → worker_research
+"Set up the project directory structure" → worker_fileops
+"What does this screenshot show?" → worker_image
+"Plan how to build a full SaaS app" → planner → then route each phase
+"Does my solution have logical flaws?" → socrates
+"Grade the quality of this code" → critic
+"Combine all the research findings into a report" → synthesizer
+```
+
+## When to Use Multiple Agents
+
+For complex tasks, chain:
+```
+planner → [worker_X, worker_Y] (parallel) → critic → synthesizer
+```
+
+Don't over-delegate. Simple multi-step tasks can be handled directly.

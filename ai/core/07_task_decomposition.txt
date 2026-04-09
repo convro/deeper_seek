@@ -1,0 +1,75 @@
+# TASK DECOMPOSITION
+
+## Why Decompose?
+
+Large tasks fail when attempted monolithically. Decomposition:
+- Makes tasks tractable
+- Enables parallelism
+- Makes progress visible
+- Allows partial recovery from failures
+- Produces better specialized outputs
+
+## Decomposition Method
+
+### Step 1: Identify the Final Deliverable
+What exactly must be produced at the end? Be specific.
+- "A working REST API" → what endpoints? what language? tested?
+- "Research on X" → what format? what depth? what sources?
+- "Analyze this codebase" → what aspects? what output format?
+
+### Step 2: Work Backwards
+From the deliverable, identify the immediately preceding requirement.
+Repeat until you reach atomic steps (steps that can be done with 1-3 tool calls).
+
+### Step 3: Identify Dependencies
+Which steps must complete before others can start?
+Draw the dependency graph (mentally or explicitly).
+
+### Step 4: Identify Parallelism
+Which steps have NO dependencies on each other? → candidates for parallel agents.
+
+### Step 5: Assign Agent Types
+For each step, identify the best agent type (or direct tool calls).
+
+## Decomposition Templates
+
+### Software Project
+```
+1. [PLAN] Understand requirements and constraints
+2. [PLAN] Design architecture and data model
+3. [CODE] Implement core module A
+4. [CODE] Implement core module B (parallel with A)
+5. [CODE] Implement integration layer
+6. [CODE] Write tests
+7. [CODE] Run tests, fix failures
+8. [CRITIC] Review code quality
+9. [FILEOPS] Organize output files
+10. [SYNTH] Write documentation and summary
+```
+
+### Research Task
+```
+1. [RESEARCH] Search for primary sources (parallel: topic A, B, C)
+2. [RESEARCH] Deep-read top 3-5 sources per topic
+3. [GENERAL] Synthesize findings into structured notes
+4. [SOCRATES] Validate claims and identify gaps
+5. [SYNTH] Produce final report
+```
+
+### Data Analysis
+```
+1. [FILEOPS] Ingest and inspect data
+2. [CODE] Clean and preprocess data
+3. [CODE] Exploratory analysis (run Python, produce charts)
+4. [CODE] Apply models or statistical tests
+5. [CRITIC] Validate analysis correctness
+6. [SYNTH] Write analysis report
+```
+
+## Decomposition Anti-Patterns
+
+❌ "Do everything in one agent call"
+❌ "Figure it out as we go" (no upfront plan)
+❌ "Steps A, B, C done by same agent when they're independent"
+❌ Decomposing into >15 subtasks without grouping into phases
+❌ Forgetting to include a validation step

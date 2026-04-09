@@ -1,0 +1,249 @@
+{
+  "tool_registry": {
+    "fs_read": {
+      "module": "tools/filesystem/fs_read.py",
+      "description": "Read content of a file",
+      "parameters": {
+        "path": {"type": "string", "description": "Absolute or workspace-relative file path"},
+        "offset": {"type": "integer", "description": "Line offset to start reading from", "default": 0},
+        "limit": {"type": "integer", "description": "Max lines to read", "default": 500}
+      },
+      "required": ["path"],
+      "timeout_ms": 5000
+    },
+    "fs_write": {
+      "module": "tools/filesystem/fs_write.py",
+      "description": "Write or append content to a file. Creates parent directories automatically.",
+      "parameters": {
+        "path": {"type": "string", "description": "File path to write to"},
+        "content": {"type": "string", "description": "Content to write"},
+        "mode": {"type": "string", "enum": ["write", "append", "patch"], "default": "write"},
+        "old_string": {"type": "string", "description": "String to replace (required for patch mode)"},
+        "new_string": {"type": "string", "description": "Replacement string (required for patch mode)"}
+      },
+      "required": ["path", "content"],
+      "timeout_ms": 5000
+    },
+    "fs_search": {
+      "module": "tools/filesystem/fs_search.py",
+      "description": "Search for files by glob pattern or search file contents with regex",
+      "parameters": {
+        "pattern": {"type": "string", "description": "Glob or regex pattern"},
+        "path": {"type": "string", "description": "Root directory to search in", "default": "."},
+        "mode": {"type": "string", "enum": ["glob", "content"], "default": "glob"},
+        "case_sensitive": {"type": "boolean", "default": false}
+      },
+      "required": ["pattern"],
+      "timeout_ms": 15000
+    },
+    "fs_tree": {
+      "module": "tools/filesystem/fs_tree.py",
+      "description": "Get directory tree structure",
+      "parameters": {
+        "path": {"type": "string", "description": "Root directory"},
+        "depth": {"type": "integer", "description": "Max depth", "default": 3},
+        "include_hidden": {"type": "boolean", "default": false}
+      },
+      "required": ["path"],
+      "timeout_ms": 10000
+    },
+    "fs_move": {
+      "module": "tools/filesystem/fs_move.py",
+      "description": "Move or rename a file or directory",
+      "parameters": {
+        "src": {"type": "string", "description": "Source path"},
+        "dst": {"type": "string", "description": "Destination path"}
+      },
+      "required": ["src", "dst"],
+      "timeout_ms": 5000
+    },
+    "fs_delete": {
+      "module": "tools/filesystem/fs_delete.py",
+      "description": "Delete a file or directory",
+      "parameters": {
+        "path": {"type": "string", "description": "Path to delete"},
+        "recursive": {"type": "boolean", "default": false}
+      },
+      "required": ["path"],
+      "timeout_ms": 5000
+    },
+    "run_python": {
+      "module": "tools/execution/run_python.py",
+      "description": "Execute Python code in sandboxed subprocess and return stdout/stderr",
+      "parameters": {
+        "code": {"type": "string", "description": "Python code to execute"},
+        "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
+        "working_dir": {"type": "string", "description": "Working directory for execution"}
+      },
+      "required": ["code"],
+      "timeout_ms": 60000
+    },
+    "run_bash": {
+      "module": "tools/execution/run_bash.py",
+      "description": "Execute bash command and return output",
+      "parameters": {
+        "command": {"type": "string", "description": "Bash command to run"},
+        "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
+        "working_dir": {"type": "string", "description": "Working directory"}
+      },
+      "required": ["command"],
+      "timeout_ms": 60000
+    },
+    "run_node": {
+      "module": "tools/execution/run_node.py",
+      "description": "Execute Node.js code and return output",
+      "parameters": {
+        "code": {"type": "string", "description": "JavaScript code to execute"},
+        "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30}
+      },
+      "required": ["code"],
+      "timeout_ms": 60000
+    },
+    "web_fetch": {
+      "module": "tools/web/web_fetch.py",
+      "description": "Fetch a URL and return its content (HTML stripped to text)",
+      "parameters": {
+        "url": {"type": "string", "description": "URL to fetch"},
+        "format": {"type": "string", "enum": ["text", "html", "json"], "default": "text"},
+        "timeout": {"type": "integer", "default": 15}
+      },
+      "required": ["url"],
+      "timeout_ms": 30000
+    },
+    "web_search": {
+      "module": "tools/web/web_search.py",
+      "description": "Search the web using DuckDuckGo and return results",
+      "parameters": {
+        "query": {"type": "string", "description": "Search query"},
+        "num_results": {"type": "integer", "default": 8, "description": "Number of results"}
+      },
+      "required": ["query"],
+      "timeout_ms": 20000
+    },
+    "workspace_create": {
+      "module": "tools/workspace/workspace_create.py",
+      "description": "Create a new job workspace with structured directories",
+      "parameters": {
+        "job_id": {"type": "string", "description": "Unique job identifier (auto-generated if omitted)"},
+        "description": {"type": "string", "description": "Job description"}
+      },
+      "required": [],
+      "timeout_ms": 5000
+    },
+    "workspace_load": {
+      "module": "tools/workspace/workspace_load.py",
+      "description": "Load and summarize a workspace's current state",
+      "parameters": {
+        "job_id": {"type": "string", "description": "Job ID to load"}
+      },
+      "required": ["job_id"],
+      "timeout_ms": 10000
+    },
+    "workspace_snapshot": {
+      "module": "tools/workspace/workspace_snapshot.py",
+      "description": "Save a snapshot of current workspace state",
+      "parameters": {
+        "job_id": {"type": "string", "description": "Job ID to snapshot"},
+        "label": {"type": "string", "description": "Snapshot label"}
+      },
+      "required": ["job_id"],
+      "timeout_ms": 10000
+    },
+    "memory_store": {
+      "module": "tools/memory/memory_store.py",
+      "description": "Store a key-value entry in memory (short or long term)",
+      "parameters": {
+        "key": {"type": "string", "description": "Memory key"},
+        "value": {"type": "string", "description": "Value to store"},
+        "tier": {"type": "string", "enum": ["short", "long"], "default": "short"},
+        "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags for retrieval"}
+      },
+      "required": ["key", "value"],
+      "timeout_ms": 3000
+    },
+    "memory_get": {
+      "module": "tools/memory/memory_get.py",
+      "description": "Retrieve a memory entry by key",
+      "parameters": {
+        "key": {"type": "string", "description": "Memory key to retrieve"},
+        "tier": {"type": "string", "enum": ["short", "long", "both"], "default": "both"}
+      },
+      "required": ["key"],
+      "timeout_ms": 3000
+    },
+    "memory_search": {
+      "module": "tools/memory/memory_vector_search.py",
+      "description": "Semantic search through stored memories",
+      "parameters": {
+        "query": {"type": "string", "description": "Search query"},
+        "top_k": {"type": "integer", "default": 5}
+      },
+      "required": ["query"],
+      "timeout_ms": 10000
+    },
+    "agent_spawn": {
+      "module": "tools/agents/agent_spawn.py",
+      "description": "Spawn a sub-agent with a specific role to handle a subtask",
+      "parameters": {
+        "agent_type": {"type": "string", "description": "Agent type (orchestrator/planner/worker_general/worker_code/worker_research/worker_fileops/worker_image/critic/socrates/synthesizer)"},
+        "task": {"type": "string", "description": "Task description for the agent"},
+        "context": {"type": "string", "description": "Additional context to provide the agent"},
+        "async_mode": {"type": "boolean", "default": false, "description": "Run agent asynchronously and return agent_id"},
+        "job_id": {"type": "string", "description": "Workspace job ID for the agent to work in"}
+      },
+      "required": ["agent_type", "task"],
+      "timeout_ms": 300000
+    },
+    "agent_status": {
+      "module": "tools/agents/agent_status.py",
+      "description": "Check status of a running async agent",
+      "parameters": {
+        "agent_id": {"type": "string", "description": "Agent ID to check"}
+      },
+      "required": ["agent_id"],
+      "timeout_ms": 3000
+    },
+    "task_split": {
+      "module": "tools/orchestration/task_split.py",
+      "description": "Decompose a complex task into an ordered list of subtasks with dependencies",
+      "parameters": {
+        "task": {"type": "string", "description": "Task to decompose"},
+        "max_subtasks": {"type": "integer", "default": 10}
+      },
+      "required": ["task"],
+      "timeout_ms": 5000
+    },
+    "code_analyzer": {
+      "module": "tools/analysis/code_analyzer.py",
+      "description": "Analyze code structure, complexity, and patterns",
+      "parameters": {
+        "path": {"type": "string", "description": "File or directory to analyze"},
+        "language": {"type": "string", "description": "Programming language (auto-detect if omitted)"}
+      },
+      "required": ["path"],
+      "timeout_ms": 30000
+    },
+    "repo_scanner": {
+      "module": "tools/analysis/repo_scanner.py",
+      "description": "Scan a repository and produce structural overview",
+      "parameters": {
+        "path": {"type": "string", "description": "Repository root path"},
+        "include_stats": {"type": "boolean", "default": true}
+      },
+      "required": ["path"],
+      "timeout_ms": 30000
+    },
+    "log_reader": {
+      "module": "tools/logs/log_reader.py",
+      "description": "Read and filter log files",
+      "parameters": {
+        "log_file": {"type": "string", "description": "Log file path"},
+        "level": {"type": "string", "enum": ["debug", "info", "warn", "error"], "description": "Minimum log level filter"},
+        "tail": {"type": "integer", "description": "Read last N lines", "default": 100},
+        "grep": {"type": "string", "description": "Filter lines containing this string"}
+      },
+      "required": ["log_file"],
+      "timeout_ms": 5000
+    }
+  }
+}

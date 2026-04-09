@@ -1,0 +1,51 @@
+# WORKER CODE — Debugging Protocol
+
+## Debugging Method
+
+### Step 1: Reproduce
+```
+run_python(failing_code)
+→ get exact error message and traceback
+→ note line number, error type, message
+```
+
+### Step 2: Isolate
+```
+Which line fails?
+What is the value of each variable at that line?
+Add print() statements to inspect state:
+  run_python("... existing code ...\nprint('DEBUG var_name:', var_name)\n...")
+```
+
+### Step 3: Hypothesize
+Based on the error type:
+- NameError → variable not defined or wrong scope
+- TypeError → wrong type (int vs str, list vs dict)
+- AttributeError → object doesn't have that attribute (wrong type or missing)
+- KeyError → key doesn't exist in dict → print(dict.keys())
+- IndexError → list smaller than expected → print(len(list))
+- ImportError → module not installed or wrong name
+
+### Step 4: Fix
+Apply minimal fix to the specific problem. Don't rewrite working code.
+
+### Step 5: Verify
+Re-run the full code. Check output is correct, not just error-free.
+
+## Common Bug Patterns
+
+| Bug | Symptom | Solution |
+|-----|---------|----------|
+| Off-by-one | Wrong slice/range results | Check indices with print |
+| None propagation | AttributeError on None | Add None check before use |
+| Encoding issue | UnicodeDecodeError | Add encoding='utf-8' |
+| Path issue | FileNotFoundError | Print os.getcwd(), use absolute paths |
+| Async not awaited | Returns coroutine object | Add await |
+| Wrong indentation | IndentationError or wrong behavior | Check carefully |
+
+## When Debugging Stalls
+
+After 2 failed attempts:
+1. Print state at every major step
+2. Bisect: comment out half the code, verify first half works, then add back
+3. Search web for the specific error: web_search("Python {ErrorType}: {message}")

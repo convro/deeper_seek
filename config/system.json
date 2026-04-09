@@ -1,0 +1,72 @@
+{
+  "name": "DeeperSeek",
+  "version": "1.0.0",
+  "description": "Autonomous AI agent system powered by DeepSeek",
+
+  "llm": {
+    "provider": "deepseek",
+    "base_url": "https://api.deepseek.com",
+    "models": {
+      "orchestrator": "deepseek-reasoner",
+      "worker": "deepseek-chat",
+      "fast": "deepseek-chat"
+    },
+    "defaults": {
+      "temperature": 0.6,
+      "max_tokens": 8192,
+      "top_p": 0.95
+    },
+    "orchestrator_temperature": 0.3,
+    "stream": true
+  },
+
+  "server": {
+    "host": "0.0.0.0",
+    "port": 3000,
+    "frontend_port": 5173,
+    "websocket_port": 3001
+  },
+
+  "paths": {
+    "workspace": "./workspace/jobs",
+    "memory": "./memory",
+    "uploads": "./uploads",
+    "logs": "./logs",
+    "tools": "./tools",
+    "ai_core": "./ai/core",
+    "ai_agents": "./ai/agents",
+    "runtime": "./runtime",
+    "tmp": "./tmp"
+  },
+
+  "runtime": {
+    "max_tool_call_rounds": 50,
+    "max_agent_depth": 4,
+    "max_parallel_agents": 8,
+    "tool_timeout_ms": 60000,
+    "agent_timeout_ms": 300000,
+    "context_max_tokens": 60000,
+    "context_trim_target": 45000
+  },
+
+  "memory": {
+    "short_term_max_entries": 500,
+    "long_term_enabled": true,
+    "embedding_model": "local",
+    "auto_summarize_after": 20
+  },
+
+  "workspace": {
+    "auto_create": true,
+    "snapshot_interval_minutes": 5,
+    "max_file_size_mb": 50,
+    "max_job_size_mb": 500
+  },
+
+  "logging": {
+    "level": "debug",
+    "console": true,
+    "file": true,
+    "websocket_events": true
+  }
+}

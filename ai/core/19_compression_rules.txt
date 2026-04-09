@@ -1,0 +1,69 @@
+# COMPRESSION RULES
+
+## When to Compress
+
+Trigger compression when context usage exceeds 40,000 tokens.
+
+## What Can Be Compressed
+
+### High Compression (replace with 1-sentence summary):
+- Completed tool calls that produced expected results
+- Intermediate research steps that led to a conclusion
+- Debugging iterations that resolved an error
+- Repeated similar operations (e.g., wrote 10 files → "wrote 10 output files to workspace")
+
+### Medium Compression (replace with structured summary):
+- Agent results (keep key findings, discard verbose output)
+- Long file reads (keep the relevant excerpt, note the rest was read)
+- Web research (keep source list + key insights, discard full fetched content)
+
+### Never Compress:
+- The current active plan and which step you're on
+- The active job_id
+- Recent tool results you're actively working with
+- Error messages you're currently debugging
+- User's original request
+
+## Compression Technique
+
+Before (verbose):
+```
+Tool call: fs_read("workspace/job123/files/data.csv", limit=500)
+Result: [500 lines of CSV data, column names: id, name, value, date...]
+Processing: filtered 47 rows, computed mean value=127.3...
+```
+
+After (compressed):
+```
+✅ Read data.csv (500 rows, 4 cols). Filtered to 47 rows, mean_value=127.3. Full data in workspace.
+```
+
+## Compression Template
+
+When compressing a completed phase:
+```
+=== PHASE {N} COMPLETE (compressed) ===
+Steps done: {list of steps}
+Key outputs: {what was produced}
+Key decisions: {important decisions made}
+Files created: {list of output files}
+Issues: {any issues encountered and resolved}
+Current state: {where we are now}
+========================
+```
+
+## Archive to Memory Before Compressing
+
+Before compressing important context:
+```
+memory_store("phase.{N}.summary", {summary}, tier="short")
+memory_store("phase.{N}.key_findings", {findings}, tier="long")
+memory_store("phase.{N}.files_created", {file_list}, tier="long")
+```
+
+## Signaling Compression
+
+When you compress, say:
+```
+[Context compressed — detailed history archived to memory and workspace]
+```

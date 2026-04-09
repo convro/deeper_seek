@@ -1,0 +1,16 @@
+{
+  "structure": {
+    "input": "input/",
+    "files": "files/",
+    "analysis": "analysis/",
+    "output": "output/",
+    "logs": "logs/",
+    "agents": "agents/",
+    "context": "context/",
+    "snapshots": "snapshots/"
+  },
+  "auto_index": true,
+  "snapshot_on_complete": true,
+  "cleanup_after_days": 30,
+  "compress_after_days": 7
+}

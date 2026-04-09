@@ -1,0 +1,96 @@
+# ASYNC AGENTS
+
+## Async vs Sync Agent Execution
+
+### Synchronous (async_mode=false, default)
+- Spawn agent → wait → get result
+- Use when: you need the result before proceeding
+- Example: planning must complete before coding starts
+
+### Asynchronous (async_mode=true)
+- Spawn agent → get agent_id immediately → continue other work → collect result later
+- Use when: the task is independent and you have other work to do in parallel
+- Example: research tasks while code agent is writing
+
+## Async Agent Lifecycle
+
+```
+agent_spawn(async_mode=true)
+    → returns { "agent_id": "uuid", "status": "running" }
+
+[do other work here]
+
+agent_status("uuid")
+    → { "status": "running|completed|failed", "result": ..., "progress": 0-100 }
+
+[poll until completed]
+collect result → use in next step
+```
+
+## Polling Strategy
+
+Use exponential backoff to avoid hammering:
+```
+poll after 5s
+poll after 10s
+poll after 20s
+poll after 30s (keep at 30s for long tasks)
+```
+
+Maximum wait per agent: 5 minutes (configurable in config/limits.json)
+
+## Async Batch Pattern
+
+```python
+# Launch all
+agents = [
+    agent_spawn("worker_research", task=t, async_mode=True, job_id=job_id)
+    for t in tasks
+]
+
+# Collect all
+while not all_done(agents):
+    for a in agents:
+        if a.status == "running":
+            a.status = agent_status(a.agent_id)
+    wait(5s)
+
+results = [a.result for a in agents]
+```
+
+## Agent Context Passing
+
+When spawning async agents, give them everything they need:
+```
+agent_spawn(
+    agent_type="worker_code",
+    task="Implement the authentication module according to the spec",
+    context="""
+    Job ID: {job_id}
+    Spec file: workspace/{job_id}/analysis/auth_spec.md
+    Tech stack: Python, FastAPI, JWT
+    Output to: workspace/{job_id}/files/auth/
+    Tests to: workspace/{job_id}/files/tests/test_auth.py
+    """,
+    job_id=job_id,
+    async_mode=True
+)
+```
+
+The agent will use this context to orient itself and use the shared workspace correctly.
+
+## Shared Workspace in Async Mode
+
+Multiple agents can work on the same workspace simultaneously IF:
+- They write to different directories
+- They don't modify shared files
+
+If agents need to collaborate on shared files: use sequential spawning.
+
+## Failed Async Agents
+
+When agent_status returns "failed":
+1. Read the error from the result field
+2. Analyze if the failure is recoverable
+3. Re-spawn with corrected task/context if needed
+4. If consistently failing: escalate to user with diagnosis

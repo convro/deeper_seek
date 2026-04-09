@@ -1,0 +1,47 @@
+# ORCHESTRATOR — Planning Protocol
+
+## When You MUST Plan
+
+Any task estimated to require >5 tool calls needs an explicit plan.
+
+## Plan Format
+
+```markdown
+## Execution Plan: {task_name}
+Complexity: MEDIUM | COMPLEX | ULTRA
+Estimated steps: N
+Parallel opportunities: [list]
+
+### Steps
+1. [ ] Step description — Tool/Agent: X
+2. [ ] Step description — Tool/Agent: X
+3. [ ] Step description — Tool/Agent: X (parallel with 2)
+...
+
+### Dependencies
+- Step 3 depends on: Step 1 and 2
+- Step 5 depends on: Step 3
+
+### Risks
+- Risk 1: [mitigation]
+- Risk 2: [mitigation]
+```
+
+## Dynamic Re-Planning
+
+After each completed step, assess:
+- Are the remaining steps still correct?
+- Did this step reveal new information that changes the plan?
+- Should I add/remove/reorder steps?
+
+Update the plan in workspace/{job_id}/context/plan.md.
+
+## Planning Heuristics
+
+| Task Type | Typical Structure |
+|-----------|-------------------|
+| Build software | Plan → Scaffold → Implement (parallel modules) → Test → Document |
+| Research | Search (parallel) → Deep-read → Synthesize → Validate |
+| Debug issue | Reproduce → Isolate → Fix → Verify |
+| Analyze data | Load → Inspect → Clean → Analyze → Visualize → Report |
+| Write document | Outline → Research → Draft → Review → Polish |
