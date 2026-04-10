@@ -1,66 +1,125 @@
-import React, { useRef, useEffect, useState } from 'react';
-import type { ChatMessage, ToolCallRecord } from './state';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
+import type { ChatMessage, ToolCallRecord, Attachment } from './state';
+import { generateLocalId } from './state';
 import { Spinner, TypingDots, ThinkingBlock, ToolCallBadge } from './components';
 import { Markdown } from './markdown';
 
-// ── Message bubble ────────────────────────────────────────────────────────
+const MAX_INLINE_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
 
-interface MsgProps { message: ChatMessage }
+// ── Attachment helpers ────────────────────────────────────────────────────
 
-function UserMessage({ message }: MsgProps) {
+function isImage(mime: string) {
+  return mime.startsWith('image/');
+}
+
+async function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsText(file);
+  });
+}
+
+// ── User message ──────────────────────────────────────────────────────────
+
+function AttachmentChip({ att }: { att: Attachment }) {
+  if (isImage(att.type) && att.previewUrl) {
+    return (
+      <div className="att-image-preview">
+        <img src={att.previewUrl} alt={att.name} />
+        <span className="att-image-name">{att.name}</span>
+      </div>
+    );
+  }
   return (
-    <div className="anim-fade-up" style={{
-      display: 'flex',
-      justifyContent: 'flex-end',
-      padding: '4px 0',
-    }}>
-      <div style={{
-        maxWidth: 'min(75%, 620px)',
-        background: 'var(--accent2)',
-        color: '#fff',
-        padding: '10px 15px',
-        borderRadius: '18px 18px 4px 18px',
-        fontSize: 15,
-        lineHeight: 1.6,
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
-      }}>
-        {message.content}
+    <div className="att-file-chip">
+      <span className="att-file-icon">{fileIcon(att.name)}</span>
+      <span className="att-file-name">{att.name}</span>
+      <span className="att-file-size">{fmtBytes(att.size)}</span>
+    </div>
+  );
+}
+
+function fmtBytes(b: number): string {
+  if (b < 1024) return `${b}B`;
+  if (b < 1_048_576) return `${Math.round(b / 1024)}KB`;
+  return `${(b / 1_048_576).toFixed(1)}MB`;
+}
+
+function fileIcon(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() || '';
+  if (['py'].includes(ext))                         return '🐍';
+  if (['js','ts','tsx','jsx'].includes(ext))         return '📜';
+  if (['json'].includes(ext))                        return '{}';
+  if (['md','txt'].includes(ext))                    return '📝';
+  if (['pdf'].includes(ext))                         return '📕';
+  if (['sh','bash'].includes(ext))                   return '⚙';
+  if (['html','css'].includes(ext))                  return '🌐';
+  if (['png','jpg','jpeg','gif','webp','svg'].includes(ext)) return '🖼';
+  if (['zip','tar','gz'].includes(ext))              return '📦';
+  if (['csv','tsv'].includes(ext))                   return '📊';
+  return '📄';
+}
+
+function UserMessage({ message }: { message: ChatMessage }) {
+  const hasAtts = message.attachments && message.attachments.length > 0;
+
+  return (
+    <div className="msg-row msg-row-user anim-fade-up">
+      <div className="msg-user-bubble">
+        {/* Attachments above text */}
+        {hasAtts && (
+          <div className="msg-attachments">
+            {message.attachments!.map(a => (
+              <AttachmentChip key={a.localId} att={a} />
+            ))}
+          </div>
+        )}
+        {message.content && (
+          <div className="msg-user-text">{message.content}</div>
+        )}
       </div>
     </div>
   );
 }
 
-function AssistantMessage({ message }: MsgProps) {
+// ── Assistant message ─────────────────────────────────────────────────────
+
+function AssistantMessage({ message }: { message: ChatMessage }) {
   const isThinking = message.status === 'thinking';
   const isError    = message.status === 'error';
 
   return (
-    <div className="anim-fade-up" style={{
-      display: 'flex',
-      gap: 10,
-      padding: '4px 0',
-      maxWidth: '100%',
-    }}>
+    <div className="msg-row msg-row-ai anim-fade-up">
       {/* Avatar */}
-      <div style={{
-        width: 28, height: 28,
-        borderRadius: '50%',
-        background: 'linear-gradient(135deg, var(--accent2), var(--purple))',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 13,
-        flexShrink: 0,
-        marginTop: 2,
-      }}>
-        🧠
+      <div className="msg-ai-avatar">
+        <img
+          src="https://r.convro.eu/content/Stable/realises/ds73"
+          alt="DS"
+          style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+          onError={e => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none';
+            (e.currentTarget.parentNode as HTMLElement).textContent = '🧠';
+          }}
+        />
       </div>
 
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Thinking indicator */}
+      <div className="msg-ai-body">
+        {/* Thinking */}
         {isThinking && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text2)', fontSize: 13 }}>
+          <div className="msg-thinking-row">
             <TypingDots />
-            <span>Thinking…</span>
+            <span className="msg-thinking-label">Thinking…</span>
           </div>
         )}
 
@@ -69,40 +128,32 @@ function AssistantMessage({ message }: MsgProps) {
           <ThinkingBlock content={message.reasoning} />
         )}
 
-        {/* Tool calls */}
+        {/* Tool badges */}
         {message.toolCalls && message.toolCalls.length > 0 && (
-          <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap' }}>
+          <div className="msg-tool-badges">
             {message.toolCalls.map(tc => <ToolCallBadge key={tc.id} tc={tc} />)}
           </div>
         )}
 
         {/* Content */}
         {!isThinking && message.content && (
-          <div style={{
-            color: isError ? 'var(--red)' : 'var(--text)',
-            lineHeight: 1.7,
-          }}>
+          <div className={`msg-ai-content ${isError ? 'msg-error' : ''}`}>
             <Markdown content={message.content} />
           </div>
         )}
 
-        {/* Cursor blink while streaming */}
+        {/* Streaming cursor */}
         {message.status === 'streaming' && (
-          <span style={{
-            display: 'inline-block',
-            width: 2, height: '1em',
-            background: 'var(--text2)',
-            verticalAlign: 'text-bottom',
-            marginLeft: 2,
-            animation: 'blink 1s step-end infinite',
-          }} />
+          <span className="msg-cursor" />
         )}
 
-        {/* Meta (usage, rounds) */}
+        {/* Meta */}
         {message.status === 'done' && message.usage && (
-          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)', display: 'flex', gap: 10 }}>
-            {message.rounds && <span>{message.rounds} round{message.rounds > 1 ? 's' : ''}</span>}
-            <span>↑{message.usage.prompt_tokens} ↓{message.usage.completion_tokens} tokens</span>
+          <div className="msg-meta">
+            {message.rounds != null && (
+              <span>{message.rounds} round{message.rounds !== 1 ? 's' : ''}</span>
+            )}
+            <span>↑{message.usage.prompt_tokens} ↓{message.usage.completion_tokens} tok</span>
           </div>
         )}
       </div>
@@ -123,43 +174,26 @@ export function MessagesList({ messages }: MessagesListProps) {
 
   if (messages.length === 0) {
     return (
-      <div style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 12,
-        color: 'var(--text3)',
-        padding: '40px 20px',
-        textAlign: 'center',
-      }}>
-        <div style={{ fontSize: 52 }}>🧠</div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text2)' }}>DeeperSeek</div>
-        <div style={{ fontSize: 14, color: 'var(--text3)', maxWidth: 380 }}>
-          Autonomous AI agent with tools, memory, and multi-agent orchestration.
+      <div className="empty-state">
+        <img
+          src="https://r.convro.eu/content/Stable/realises/ds73"
+          alt="DeeperSeek"
+          className="empty-logo"
+          onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+        />
+        <div className="empty-title">DeeperSeek</div>
+        <div className="empty-subtitle">
+          Autonomous AI agent with tools, memory, and multi-agent orchestration.<br />
           Ask anything — it plans, executes, and delivers real results.
         </div>
-        <div style={{
-          display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 8,
-        }}>
+        <div className="empty-suggestions">
           {[
-            'Write a Python scraper for this website',
+            'Write a Python web scraper',
             'Analyze this codebase and find bugs',
             'Research the latest AI papers',
             'Build a REST API with tests',
           ].map(ex => (
-            <div key={ex} style={{
-              background: 'var(--bg3)',
-              border: '1px solid var(--border)',
-              borderRadius: 20,
-              padding: '6px 14px',
-              fontSize: 12,
-              color: 'var(--text2)',
-              cursor: 'default',
-            }}>
-              {ex}
-            </div>
+            <div key={ex} className="suggestion-chip">{ex}</div>
           ))}
         </div>
       </div>
@@ -167,37 +201,41 @@ export function MessagesList({ messages }: MessagesListProps) {
   }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {messages.map(msg => (
+    <div className="messages-list">
+      {messages.map(msg =>
         msg.role === 'user'
           ? <UserMessage key={msg.id} message={msg} />
           : <AssistantMessage key={msg.id} message={msg} />
-      ))}
+      )}
       <div ref={bottomRef} />
     </div>
   );
 }
 
-// ── Input area ────────────────────────────────────────────────────────────
+// ── Input area (with attachments) ─────────────────────────────────────────
 
 interface InputAreaProps {
-  onSend: (text: string) => void;
+  onSend: (text: string, attachments?: Attachment[]) => void;
   disabled: boolean;
 }
 
 export function InputArea({ onSend, disabled }: InputAreaProps) {
-  const [value, setValue] = useState('');
+  const [value,       setValue]       = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attLoading,  setAttLoading]  = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const submit = () => {
+  const submit = useCallback(() => {
     const t = value.trim();
-    if (!t || disabled) return;
-    onSend(t);
+    if ((!t && attachments.length === 0) || disabled) return;
+    onSend(t, attachments.length > 0 ? attachments : undefined);
     setValue('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
-  };
+    setAttachments([]);
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    // Revoke object URLs
+    attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl); });
+  }, [value, attachments, disabled, onSend]);
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
@@ -206,70 +244,147 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setValue(e.target.value);
     e.target.style.height = 'auto';
-    e.target.style.height = Math.min(e.target.scrollHeight, 180) + 'px';
+    e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
   };
 
+  const processFiles = useCallback(async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (!list.length) return;
+    setAttLoading(true);
+    const results: Attachment[] = [];
+
+    for (const file of list) {
+      const att: Attachment = {
+        localId: generateLocalId(),
+        name:    file.name,
+        type:    file.type || 'application/octet-stream',
+        size:    file.size,
+      };
+
+      if (isImage(file.type)) {
+        att.previewUrl = URL.createObjectURL(file);
+        if (file.size <= MAX_INLINE_IMAGE_BYTES) {
+          try { att.data = await readFileAsBase64(file); } catch {}
+        }
+      } else if (
+        file.type.startsWith('text/') ||
+        ['application/json', 'application/xml'].includes(file.type) ||
+        /\.(txt|md|json|csv|tsv|xml|yaml|yml|py|js|ts|sh|html|css)$/i.test(file.name)
+      ) {
+        try {
+          const text = await readFileAsText(file);
+          att.text = text.slice(0, 50_000); // limit to 50k chars
+        } catch {}
+      }
+
+      results.push(att);
+    }
+
+    setAttachments(prev => [...prev, ...results]);
+    setAttLoading(false);
+  }, []);
+
+  const removeAtt = (localId: string) => {
+    setAttachments(prev => {
+      const att = prev.find(a => a.localId === localId);
+      if (att?.previewUrl) URL.revokeObjectURL(att.previewUrl);
+      return prev.filter(a => a.localId !== localId);
+    });
+  };
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.length) {
+      processFiles(e.target.files);
+      e.target.value = '';
+    }
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files.length) processFiles(e.dataTransfer.files);
+  };
+
+  const canSend = (value.trim() || attachments.length > 0) && !disabled && !attLoading;
+
   return (
-    <div style={{
-      padding: '10px 16px 14px',
-      background: 'var(--bg)',
-      borderTop: '1px solid var(--border)',
-    }}>
-      <div style={{
-        display: 'flex',
-        gap: 8,
-        alignItems: 'flex-end',
-        background: 'var(--bg3)',
-        border: `1px solid ${disabled ? 'var(--border)' : 'var(--border)'}`,
-        borderRadius: 14,
-        padding: '6px 6px 6px 14px',
-        transition: 'border-color 0.15s',
-      }}
-        onFocus={() => {}}
-      >
+    <div
+      className="input-area"
+      onDragOver={e => e.preventDefault()}
+      onDrop={onDrop}
+    >
+      {/* Attachment previews */}
+      {attachments.length > 0 && (
+        <div className="input-att-preview">
+          {attachments.map(a => (
+            <div key={a.localId} className="input-att-chip">
+              {isImage(a.type) && a.previewUrl
+                ? <img src={a.previewUrl} alt={a.name} className="input-att-thumb" />
+                : <span className="input-att-fileicon">{fileIcon(a.name)}</span>
+              }
+              <span className="input-att-filename">{a.name}</span>
+              <button
+                className="input-att-remove"
+                onClick={() => removeAtt(a.localId)}
+                title="Remove"
+              >×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Input row */}
+      <div className={`input-row ${disabled ? 'input-row-disabled' : ''}`}>
+        {/* Attachment button */}
+        <button
+          className="input-attach-btn"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled}
+          title="Attach files"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+          </svg>
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          style={{ display: 'none' }}
+          onChange={onFileChange}
+        />
+
+        {/* Textarea */}
         <textarea
           ref={textareaRef}
           value={value}
           onChange={onChange}
           onKeyDown={onKey}
           disabled={disabled}
-          placeholder={disabled ? 'DeeperSeek is working…' : 'Message DeeperSeek…'}
+          placeholder={disabled ? 'DeeperSeek is working…' : 'Message DeeperSeek… (or drop files here)'}
           rows={1}
-          style={{
-            flex: 1,
-            background: 'none',
-            border: 'none',
-            outline: 'none',
-            color: 'var(--text)',
-            fontSize: 15,
-            lineHeight: 1.5,
-            resize: 'none',
-            maxHeight: 180,
-            padding: '4px 0',
-            cursor: disabled ? 'not-allowed' : 'text',
-          }}
+          className="input-textarea"
         />
+
+        {/* Send button */}
         <button
           onClick={submit}
-          disabled={disabled || !value.trim()}
-          style={{
-            width: 36, height: 36,
-            borderRadius: 10,
-            background: disabled || !value.trim() ? 'var(--bg4)' : 'var(--accent2)',
-            border: 'none',
-            color: disabled || !value.trim() ? 'var(--text3)' : '#fff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 16,
-            cursor: disabled || !value.trim() ? 'not-allowed' : 'pointer',
-            transition: 'all 0.15s',
-            flexShrink: 0,
-          }}
+          disabled={!canSend}
+          className={`input-send-btn ${canSend ? 'input-send-active' : ''}`}
+          title="Send (Enter)"
         >
-          {disabled ? <Spinner size={14} color="var(--text3)" /> : '↑'}
+          {disabled
+            ? <Spinner size={16} color="var(--text3)" />
+            : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405z"/>
+              </svg>
+            )
+          }
         </button>
       </div>
-      <div style={{ textAlign: 'center', marginTop: 6, fontSize: 11, color: 'var(--text3)' }}>
-        Enter to send · Shift+Enter for new line
+
+      <div className="input-hint">
+        Enter to send · Shift+Enter for new line · Paste or drop files to attach
       </div>
     </div>
   );

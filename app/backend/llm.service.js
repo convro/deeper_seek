@@ -13,6 +13,12 @@ const { executeTool, buildToolDefinitions } = require('./orchestrator.service');
 
 const BASE_URL = 'https://api.deepseek.com';
 
+// Timeout budgets
+const LOOP_TIMEOUT_MS    = 8 * 60 * 1000;  // 8 min overall budget per loop
+const API_CALL_TIMEOUT_MS = 3 * 60 * 1000; // 3 min per single API call
+const LOOP_DETECTION_WINDOW = 8;            // check last N tool calls for repeats
+const LOOP_DETECTION_MAX    = 3;            // abort if same signature seen ≥ this many times
+
 function createClient() {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error('DEEPSEEK_API_KEY not set in environment');
@@ -42,6 +48,7 @@ function loadSystemPrompt(agentType = null) {
 
 /**
  * Main agentic loop: send messages to DeepSeek, handle tool calls, stream events.
+ * Includes per-call timeout, overall loop timeout, and loop detection.
  *
  * @param {Object} params
  * @param {Array}  params.messages      - Conversation history [{role, content}]
@@ -89,13 +96,50 @@ async function runAgentLoop({
   let rounds = 0;
   let finalContent = '';
 
+  // Overall loop deadline
+  const loopDeadline = Date.now() + LOOP_TIMEOUT_MS;
+
+  // Loop-detection: track recent tool call signatures
+  const recentToolSignatures = [];
+
   emit(onEvent, { type: 'llm_start', model: selectedModel, agent: agentType });
 
   while (rounds < maxRounds) {
+
+    // ── Overall timeout guard ───────────────────────────────────────────
+    if (Date.now() > loopDeadline) {
+      logger.warn(`Agent loop overall timeout after ${rounds} rounds`);
+      emit(onEvent, {
+        type: 'error',
+        error: 'Agent timeout: exceeded 8-minute time budget. Task may need to be broken into smaller steps.',
+      });
+      if (!finalContent) {
+        finalContent = 'The task timed out. Please try breaking it into smaller, more focused steps.';
+      }
+      emit(onEvent, { type: 'done', content: finalContent, rounds, usage: totalUsage });
+      break;
+    }
+
+    // ── Check external abort signal ─────────────────────────────────────
+    if (signal?.aborted) {
+      emit(onEvent, { type: 'error', error: 'Aborted by caller' });
+      break;
+    }
+
     rounds++;
     logger.debug(`Agent loop round ${rounds}/${maxRounds} — model: ${selectedModel}`);
 
-    // Call DeepSeek API
+    // ── API call with per-call timeout ──────────────────────────────────
+    const callController = new AbortController();
+    const callTimer = setTimeout(() => {
+      callController.abort();
+    }, API_CALL_TIMEOUT_MS);
+
+    // Also respect the parent abort signal
+    if (signal) {
+      signal.addEventListener('abort', () => callController.abort(), { once: true });
+    }
+
     let response;
     try {
       response = await client.chat.completions.create({
@@ -106,11 +150,22 @@ async function runAgentLoop({
         temperature,
         max_tokens: maxTokens,
         stream: false,
-      });
+      }, { signal: callController.signal });
     } catch (err) {
+      clearTimeout(callTimer);
+      if (err.name === 'AbortError' || err.code === 'ERR_CANCELED' || callController.signal.aborted) {
+        const timeoutMsg = 'DeepSeek API call timed out after 3 minutes';
+        logger.error(timeoutMsg);
+        emit(onEvent, { type: 'error', error: timeoutMsg });
+        finalContent = finalContent || 'The request timed out while waiting for the AI. Please try again.';
+        emit(onEvent, { type: 'done', content: finalContent, rounds, usage: totalUsage });
+        break;
+      }
       logger.error('DeepSeek API error', err);
       emit(onEvent, { type: 'error', error: err.message });
       throw err;
+    } finally {
+      clearTimeout(callTimer);
     }
 
     const choice = response.choices[0];
@@ -143,6 +198,8 @@ async function runAgentLoop({
 
     // Process each tool call
     const toolResults = [];
+    let loopDetected = false;
+
     for (const toolCall of message.tool_calls) {
       const toolName = toolCall.function.name;
       let toolArgs = {};
@@ -151,6 +208,28 @@ async function runAgentLoop({
       } catch {
         toolArgs = {};
       }
+
+      // ── Loop detection ────────────────────────────────────────────────
+      const sig = `${toolName}:${JSON.stringify(toolArgs)}`;
+      recentToolSignatures.push(sig);
+      if (recentToolSignatures.length > LOOP_DETECTION_WINDOW * 2) {
+        recentToolSignatures.splice(0, recentToolSignatures.length - LOOP_DETECTION_WINDOW * 2);
+      }
+      const window = recentToolSignatures.slice(-LOOP_DETECTION_WINDOW);
+      const repeatCount = window.filter(s => s === sig).length;
+      if (repeatCount >= LOOP_DETECTION_MAX) {
+        logger.warn(`Loop detected: ${toolName} called ${repeatCount}x with identical args`);
+        emit(onEvent, {
+          type: 'error',
+          error: `Execution loop detected: ${toolName} has been called ${repeatCount} times with the same arguments. Stopping to prevent runaway execution.`,
+        });
+        // Inject a stop message
+        if (!finalContent) finalContent = 'A loop was detected in the execution. The task has been stopped.';
+        emit(onEvent, { type: 'done', content: finalContent, rounds, usage: totalUsage });
+        loopDetected = true;
+        break;
+      }
+      // ──────────────────────────────────────────────────────────────────
 
       emit(onEvent, {
         type: 'tool_call',
@@ -180,6 +259,8 @@ async function runAgentLoop({
       });
     }
 
+    if (loopDetected) break;
+
     // Add all tool results to message history
     fullMessages.push(...toolResults);
 
@@ -192,14 +273,15 @@ async function runAgentLoop({
   if (rounds >= maxRounds) {
     emit(onEvent, { type: 'max_rounds_reached', rounds });
     logger.warn(`Max rounds reached: ${maxRounds}`);
+    if (!finalContent) finalContent = `Reached maximum tool call rounds (${maxRounds}). Please try a more focused task.`;
+    emit(onEvent, { type: 'done', content: finalContent, rounds, usage: totalUsage });
   }
 
   return { content: finalContent, usage: totalUsage, rounds };
 }
 
 /**
- * Stream version — sends token-by-token via SSE-style callbacks.
- * Uses streaming API but still handles tool calls.
+ * Stream version — delegates to runAgentLoop (events emitted in real time via onEvent).
  */
 async function runAgentLoopStreaming({
   messages,
@@ -209,8 +291,6 @@ async function runAgentLoopStreaming({
   signal = null,
   maxRounds = 50,
 }) {
-  // For simplicity, use non-streaming internally but emit events as chunks arrive
-  // Full streaming with tool calls is complex — this gives real-time events via onEvent
   return runAgentLoop({ messages, agentType, model, onEvent, signal, maxRounds });
 }
 

@@ -1,105 +1,278 @@
 'use strict';
 
 const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
 const { runAgentLoop } = require('./llm.service');
 const { getWsForSession } = require('./websocket');
 const logger = require('./logger');
 
-// In-memory session store
+// ── Persistence ────────────────────────────────────────────────────────────
+const SESSIONS_DIR = path.join(__dirname, '../../runtime/sessions');
+fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+
+// In-memory cache for fast access
 const sessions = new Map();
 
-async function sendMessage(req, res) {
-  const { message, session_id, model } = req.body;
+function sessionPath(id) {
+  return path.join(SESSIONS_DIR, `${id}.json`);
+}
 
-  if (!message) {
+function saveSession(session) {
+  try {
+    fs.writeFileSync(sessionPath(session.id), JSON.stringify(session), 'utf-8');
+  } catch (err) {
+    logger.error('Failed to save session', err);
+  }
+}
+
+function loadAllSessions() {
+  try {
+    const files = fs.readdirSync(SESSIONS_DIR).filter(f => f.endsWith('.json'));
+    for (const file of files) {
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, file), 'utf-8'));
+        if (data && data.id) sessions.set(data.id, data);
+      } catch {}
+    }
+    logger.info(`Loaded ${sessions.size} persisted sessions`);
+  } catch {}
+}
+
+// Load on startup
+loadAllSessions();
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function generateTitle(message) {
+  const text = (message || '').trim().replace(/\s+/g, ' ');
+  if (!text) return 'New conversation';
+  return text.length <= 60 ? text : text.slice(0, 57) + '…';
+}
+
+/**
+ * Smart context window management.
+ * For long conversations, injects a compact summary of older turns so we
+ * don't waste tokens while preserving recent context fully.
+ *
+ * Strategy:
+ *   - ≤ 24 messages   → pass all
+ *   - 25–40 messages  → keep last 16 + summary of the rest
+ *   - > 40 messages   → keep last 12 + condensed summary
+ */
+function buildContextMessages(messages) {
+  const total = messages.length;
+
+  if (total <= 24) return messages;
+
+  let keepCount = total <= 40 ? 16 : 12;
+  const recent = messages.slice(-keepCount);
+  const older  = messages.slice(0, -keepCount);
+
+  // Build a lightweight summary from the older user turns
+  const userTurns = older
+    .filter(m => m.role === 'user')
+    .slice(-5)
+    .map(m => '• ' + m.content.slice(0, 120).replace(/\n/g, ' '))
+    .join('\n');
+
+  const summaryText =
+    `[Earlier conversation summary — ${older.length} messages, ${
+      Math.round(older.reduce((acc, m) => acc + (m.content || '').length, 0) / 1000)
+    }k chars]\n` +
+    `Recent user requests:\n${userTurns}\n` +
+    `[End of summary — full recent context follows]`;
+
+  return [
+    { role: 'user',      content: summaryText },
+    { role: 'assistant', content: 'Understood. I have the context from our earlier conversation.' },
+    ...recent,
+  ];
+}
+
+// ── Handlers ───────────────────────────────────────────────────────────────
+
+async function sendMessage(req, res) {
+  const { message, session_id, model, attachments } = req.body;
+
+  if (!message && !(attachments && attachments.length)) {
     return res.status(400).json({ error: 'Missing message' });
   }
 
   const sessionId = session_id || uuidv4();
 
   if (!sessions.has(sessionId)) {
-    sessions.set(sessionId, { id: sessionId, messages: [], created_at: new Date().toISOString() });
+    sessions.set(sessionId, {
+      id: sessionId,
+      title: generateTitle(message),
+      messages: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
   }
 
   const session = sessions.get(sessionId);
-  session.messages.push({ role: 'user', content: message });
 
-  // Get WebSocket for this session (for streaming events)
+  // Auto-title from first user message
+  if (session.messages.filter(m => m.role === 'user').length === 0 && message) {
+    session.title = generateTitle(message);
+  }
+
+  // Build user message content — support vision (image attachments)
+  let userContent;
+  if (attachments && attachments.length > 0) {
+    userContent = [];
+    if (message) userContent.push({ type: 'text', text: message });
+
+    for (const att of attachments) {
+      if (att.type && att.type.startsWith('image/') && att.data) {
+        // Vision: base64 image
+        userContent.push({
+          type: 'image_url',
+          image_url: { url: `data:${att.type};base64,${att.data}` },
+        });
+      } else if (att.text) {
+        // Text file content included inline
+        userContent.push({
+          type: 'text',
+          text: `\n[Attached file: ${att.name}]\n${att.text}`,
+        });
+      } else if (att.path) {
+        // Reference by server-side path
+        userContent.push({
+          type: 'text',
+          text: `\n[Attached file available at: ${att.path}]`,
+        });
+      }
+    }
+
+    // Flatten to string if only text elements (some models don't support array content)
+    if (userContent.every(c => c.type === 'text')) {
+      userContent = userContent.map(c => c.text).join('\n');
+    }
+  } else {
+    userContent = message;
+  }
+
+  session.messages.push({ role: 'user', content: userContent });
+  session.updated_at = new Date().toISOString();
+  saveSession(session);
+
   const ws = getWsForSession(sessionId);
+  res.json({ session_id: sessionId, status: 'processing', title: session.title });
 
-  // Send immediate ack
-  res.json({ session_id: sessionId, status: 'processing' });
-
-  // Run agent loop asynchronously (events stream via WebSocket)
+  // Run agent loop async — events stream via WebSocket
   setImmediate(async () => {
     try {
       const onEvent = (event) => {
         if (ws && ws.readyState === 1) {
-          ws.send(JSON.stringify({ session_id: sessionId, ...event }));
+          try { ws.send(JSON.stringify({ session_id: sessionId, ...event })); } catch {}
         }
-        // Log to system
         if (event.type === 'tool_call') {
           logger.tool(`[${sessionId}] Tool: ${event.tool}(${JSON.stringify(event.args).slice(0, 100)})`);
         }
       };
 
+      const contextMessages = buildContextMessages(session.messages);
+
       const result = await runAgentLoop({
-        messages: session.messages,
-        agentType: null, // orchestrator
+        messages: contextMessages,
+        agentType: null,
         model: model || null,
         onEvent,
         maxRounds: 50,
       });
 
-      // Save assistant response to session
-      session.messages.push({ role: 'assistant', content: result.content });
+      // Only persist if we got actual content
+      if (result.content) {
+        session.messages.push({ role: 'assistant', content: result.content });
+        session.updated_at = new Date().toISOString();
+        saveSession(session);
+      }
 
-      // Send final message via WebSocket
       if (ws && ws.readyState === 1) {
-        ws.send(JSON.stringify({
-          session_id: sessionId,
-          type: 'final',
-          content: result.content,
-          rounds: result.rounds,
-          usage: result.usage,
-        }));
+        try {
+          ws.send(JSON.stringify({
+            session_id: sessionId,
+            type: 'final',
+            content: result.content,
+            rounds: result.rounds,
+            usage: result.usage,
+          }));
+        } catch {}
       }
 
       logger.info(`[${sessionId}] Completed in ${result.rounds} rounds`);
-
     } catch (err) {
       logger.error(`[${sessionId}] Agent loop failed`, err);
       if (ws && ws.readyState === 1) {
-        ws.send(JSON.stringify({
-          session_id: sessionId,
-          type: 'error',
-          error: err.message,
-        }));
+        try {
+          ws.send(JSON.stringify({
+            session_id: sessionId,
+            type: 'error',
+            error: err.message,
+          }));
+        } catch {}
       }
     }
   });
 }
 
 function listSessions(req, res) {
-  const list = Array.from(sessions.values()).map(s => ({
-    id: s.id,
-    created_at: s.created_at,
-    message_count: s.messages.length,
-    last_message: s.messages.length > 0
-      ? s.messages[s.messages.length - 1].content.slice(0, 100)
-      : null,
-  }));
+  const list = Array.from(sessions.values())
+    .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
+    .map(s => ({
+      id: s.id,
+      title: s.title || 'New conversation',
+      created_at: s.created_at,
+      updated_at: s.updated_at || s.created_at,
+      message_count: s.messages.length,
+      last_message: s.messages.length > 0
+        ? (typeof s.messages[s.messages.length - 1].content === 'string'
+            ? s.messages[s.messages.length - 1].content.slice(0, 100)
+            : '[attachment]')
+        : null,
+    }));
   res.json({ sessions: list });
+}
+
+function getSession(req, res) {
+  const { sessionId } = req.params;
+  const session = sessions.get(sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  // Return session but strip large base64 attachments from messages
+  const sanitized = {
+    ...session,
+    messages: session.messages.map(m => ({
+      role: m.role,
+      content: typeof m.content === 'string'
+        ? m.content
+        : '[multipart content]',
+    })),
+  };
+  res.json(sanitized);
+}
+
+function renameSession(req, res) {
+  const { sessionId } = req.params;
+  const { title } = req.body;
+  if (!title) return res.status(400).json({ error: 'Missing title' });
+  const session = sessions.get(sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  session.title = String(title).slice(0, 100);
+  saveSession(session);
+  res.json({ id: sessionId, title: session.title });
 }
 
 function deleteSession(req, res) {
   const { sessionId } = req.params;
   if (sessions.has(sessionId)) {
     sessions.delete(sessionId);
+    try { fs.unlinkSync(sessionPath(sessionId)); } catch {}
     res.json({ deleted: true });
   } else {
     res.status(404).json({ error: 'Session not found' });
   }
 }
 
-module.exports = { sendMessage, listSessions, deleteSession };
+module.exports = { sendMessage, listSessions, getSession, renameSession, deleteSession };

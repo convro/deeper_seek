@@ -31,6 +31,12 @@ router.post('/chat', chatController.sendMessage);
 // GET /api/chat/sessions
 router.get('/chat/sessions', chatController.listSessions);
 
+// GET /api/chat/sessions/:sessionId
+router.get('/chat/sessions/:sessionId', chatController.getSession);
+
+// PATCH /api/chat/sessions/:sessionId  — rename
+router.patch('/chat/sessions/:sessionId', chatController.renameSession);
+
 // DELETE /api/chat/sessions/:sessionId
 router.delete('/chat/sessions/:sessionId', chatController.deleteSession);
 
