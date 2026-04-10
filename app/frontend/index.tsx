@@ -1,106 +1,189 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import './styles.css';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Chat, EventsPanel } from './chat';
+
+import { DeeperSeekWS } from './websocket';
+import { sendMessage } from './api';
+import { MessagesList, InputArea } from './chat';
+import { EventsDrawer, StatusDot } from './components';
 import { Workspace } from './workspace';
 import { Agents } from './agents';
 import { Uploads } from './uploads';
-import { StatusDot } from './components';
-import { DeeperSeekWS } from './websocket';
-import { sendMessage } from './api';
-import type { ChatMessage, AgentEvent, AppState } from './state';
+import type { ChatMessage, AgentEvent, ToolCallRecord } from './state';
 import { generateSessionId, generateId } from './state';
 
-// ── Global styles ─────────────────────────────────────────────────────────────
-const globalStyle = document.createElement('style');
-globalStyle.textContent = `
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body, #root { height: 100%; background: #0d1117; color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-  button { font-family: inherit; }
-  textarea { font-family: inherit; }
-`;
-document.head.appendChild(globalStyle);
+type Tab = 'chat' | 'workspace' | 'agents' | 'uploads';
 
-// ── App ───────────────────────────────────────────────────────────────────────
+// ── App ───────────────────────────────────────────────────────────────────
+
 function App() {
-  const sessionId = useRef(generateSessionId()).current;
-  const ws = useRef<DeeperSeekWS | null>(null);
+  const sessionId  = useRef(generateSessionId()).current;
+  const wsRef      = useRef<DeeperSeekWS | null>(null);
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [events, setEvents] = useState<AgentEvent[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
+  // ── KEY FIX: store pending assistant message ID in a ref ─────────────
+  // This avoids closure/timing bugs — no "search for streaming message" needed
+  const pendingMsgId = useRef<string | null>(null);
+  const pendingToolCallIds = useRef<Map<string, string>>(new Map()); // call_id → msg_id
+
+  const [messages,    setMessages]    = useState<ChatMessage[]>([]);
+  const [events,      setEvents]      = useState<AgentEvent[]>([]);
+  const [processing,  setProcessing]  = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
-  const [activeTab, setActiveTab] = useState<'chat' | 'workspace' | 'agents' | 'uploads'>('chat');
-  const [showEvents, setShowEvents] = useState(true);
+  const [activeTab,   setActiveTab]   = useState<Tab>('chat');
+  const [eventsOpen,  setEventsOpen]  = useState(false);
+  const [mobileMenu,  setMobileMenu]  = useState(false);
 
-  // Initialize WebSocket
+  // ── Update a message by its ID ────────────────────────────────────────
+  const updateMsg = useCallback((id: string, patch: Partial<ChatMessage>) => {
+    setMessages(prev => prev.map(m => m.id === id ? { ...m, ...patch } : m));
+  }, []);
+
+  // ── Append a tool call record to a message ────────────────────────────
+  const addToolCall = useCallback((msgId: string, tc: ToolCallRecord) => {
+    setMessages(prev => prev.map(m =>
+      m.id === msgId
+        ? { ...m, toolCalls: [...(m.toolCalls || []), tc] }
+        : m
+    ));
+  }, []);
+
+  const updateToolCall = useCallback((msgId: string, callId: string, patch: Partial<ToolCallRecord>) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id !== msgId) return m;
+      return {
+        ...m,
+        toolCalls: (m.toolCalls || []).map(tc =>
+          tc.id === callId ? { ...tc, ...patch } : tc
+        ),
+      };
+    }));
+  }, []);
+
+  // ── WebSocket setup ───────────────────────────────────────────────────
   useEffect(() => {
-    const client = new DeeperSeekWS(sessionId);
-    ws.current = client;
+    const ws = new DeeperSeekWS(sessionId);
+    wsRef.current = ws;
 
-    client.on('connected', () => setWsConnected(true));
-    client.on('disconnected', () => setWsConnected(false));
+    ws.on('connected',    () => setWsConnected(true));
+    ws.on('disconnected', () => setWsConnected(false));
 
-    client.on('*', (event) => {
-      // Add timestamped event to log
-      setEvents(prev => [...prev.slice(-500), { ...event, timestamp: new Date().toISOString() }]);
+    // All events → activity log
+    ws.on('*', (event) => {
+      const ev = { ...event, timestamp: new Date().toISOString() };
+      setEvents(prev => [...prev.slice(-1000), ev]);
 
-      switch (event.type) {
-        case 'content':
-        case 'final':
-          if (event.content) {
-            setMessages(prev => {
-              const lastAssistant = [...prev].reverse().find(m => m.role === 'assistant' && m.status === 'streaming');
-              if (lastAssistant && event.type === 'content') {
-                return prev.map(m => m.id === lastAssistant.id
-                  ? { ...m, content: event.content!, status: 'streaming' }
-                  : m
-                );
-              }
-              if (event.type === 'final') {
-                const existing = [...prev].reverse().find(m => m.role === 'assistant' && m.status === 'streaming');
-                if (existing) {
-                  return prev.map(m => m.id === existing.id
-                    ? { ...m, content: event.content!, status: 'done' }
-                    : m
-                  );
-                }
-                return [...prev, {
-                  id: generateId(),
-                  role: 'assistant',
-                  content: event.content!,
-                  timestamp: new Date().toISOString(),
-                  status: 'done',
-                }];
-              }
-              return prev;
-            });
-            if (event.type === 'final') setIsProcessing(false);
-          }
-          break;
-
-        case 'error':
-          setMessages(prev => {
-            const streaming = [...prev].reverse().find(m => m.status === 'streaming');
-            if (streaming) {
-              return prev.map(m => m.id === streaming.id
-                ? { ...m, content: `Error: ${event.error}`, status: 'error' }
-                : m
-              );
-            }
-            return prev;
-          });
-          setIsProcessing(false);
-          break;
+      // Auto-open events drawer when tool calls start
+      if (event.type === 'tool_call') {
+        setEventsOpen(true);
       }
     });
 
-    client.connect().catch(() => {});
+    // LLM started
+    ws.on('llm_start', () => {
+      if (pendingMsgId.current) {
+        updateMsg(pendingMsgId.current, { status: 'thinking' });
+      }
+    });
 
-    return () => client.disconnect();
-  }, []);
+    // Partial content (full text for now, since we don't stream token-by-token)
+    ws.on('content', (event) => {
+      if (pendingMsgId.current && event.content) {
+        updateMsg(pendingMsgId.current, {
+          content: event.content,
+          status: 'streaming',
+        });
+      }
+    });
 
+    // Reasoning chain (DeepSeek R1)
+    ws.on('reasoning', (event) => {
+      if (pendingMsgId.current && event.content) {
+        updateMsg(pendingMsgId.current, { reasoning: event.content });
+      }
+    });
+
+    // Tool call started
+    ws.on('tool_call', (event) => {
+      const msgId = pendingMsgId.current;
+      if (!msgId || !event.tool || !event.call_id) return;
+
+      const tc: ToolCallRecord = {
+        id: event.call_id,
+        tool: event.tool,
+        args: event.args || {},
+        status: 'pending',
+      };
+      pendingToolCallIds.current.set(event.call_id, msgId);
+      addToolCall(msgId, tc);
+    });
+
+    // Tool result
+    ws.on('tool_result', (event) => {
+      if (!event.call_id) return;
+      const msgId = pendingToolCallIds.current.get(event.call_id);
+      if (!msgId) return;
+
+      updateToolCall(msgId, event.call_id, {
+        result: event.result,
+        error: event.error,
+        status: event.status === 'error' ? 'error' : 'done',
+        duration_ms: event.duration_ms,
+      });
+    });
+
+    // Done — primary completion signal from llm.service.js
+    ws.on('done', (event) => {
+      const id = pendingMsgId.current;
+      if (!id) return;
+      if (event.content) {
+        updateMsg(id, {
+          content: event.content,
+          status: 'done',
+          rounds: event.rounds,
+          usage: event.usage,
+        });
+        pendingMsgId.current = null;
+        setProcessing(false);
+      }
+    });
+
+    // Final — secondary completion from chat.controller.js
+    ws.on('final', (event) => {
+      const id = pendingMsgId.current;
+      // Only handle if 'done' didn't already clear it
+      if (!id) return;
+      if (event.content) {
+        updateMsg(id, {
+          content: event.content,
+          status: 'done',
+          rounds: event.rounds,
+          usage: event.usage,
+        });
+        pendingMsgId.current = null;
+        setProcessing(false);
+      }
+    });
+
+    // Error
+    ws.on('error', (event) => {
+      const id = pendingMsgId.current;
+      if (id) {
+        updateMsg(id, {
+          content: `Error: ${event.error || 'Unknown error'}`,
+          status: 'error',
+        });
+        pendingMsgId.current = null;
+      }
+      setProcessing(false);
+    });
+
+    ws.connect().catch(() => {});
+    return () => ws.disconnect();
+  }, [sessionId, updateMsg, addToolCall, updateToolCall]);
+
+  // ── Send message ──────────────────────────────────────────────────────
   const handleSend = useCallback(async (text: string) => {
-    if (isProcessing) return;
+    if (processing) return;
 
     const userMsg: ChatMessage = {
       id: generateId(),
@@ -110,111 +193,168 @@ function App() {
       status: 'done',
     };
 
+    const assistantId = generateId();
     const assistantMsg: ChatMessage = {
-      id: generateId(),
+      id: assistantId,
       role: 'assistant',
       content: '',
       timestamp: new Date().toISOString(),
-      status: 'streaming',
+      status: 'thinking',
     };
 
+    // Set pending ID BEFORE the state update so WS events don't miss it
+    pendingMsgId.current = assistantId;
+    pendingToolCallIds.current.clear();
     setMessages(prev => [...prev, userMsg, assistantMsg]);
-    setIsProcessing(true);
     setEvents([]);
+    setProcessing(true);
 
     try {
-      // Send via HTTP (response comes via WebSocket)
       await sendMessage(text, sessionId);
     } catch (err: any) {
-      setMessages(prev => prev.map(m =>
-        m.id === assistantMsg.id
-          ? { ...m, content: `Error: ${err.message}`, status: 'error' }
-          : m
-      ));
-      setIsProcessing(false);
+      updateMsg(assistantId, { content: `Error: ${err.message}`, status: 'error' });
+      pendingMsgId.current = null;
+      setProcessing(false);
     }
-  }, [isProcessing, sessionId]);
+  }, [processing, sessionId, updateMsg]);
 
-  const tabs = [
-    { id: 'chat', label: '💬 Chat' },
-    { id: 'workspace', label: '📁 Workspace' },
-    { id: 'agents', label: '🤖 Agents' },
-    { id: 'uploads', label: '📎 Uploads' },
-  ] as const;
+  // ── Tabs ──────────────────────────────────────────────────────────────
+  const tabs: { id: Tab; label: string; icon: string }[] = [
+    { id: 'chat',      label: 'Chat',      icon: '💬' },
+    { id: 'workspace', label: 'Workspace', icon: '📁' },
+    { id: 'agents',    label: 'Agents',    icon: '🤖' },
+    { id: 'uploads',   label: 'Uploads',   icon: '📎' },
+  ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-      {/* Header */}
-      <div style={{
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
+
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <header style={{
         display: 'flex',
         alignItems: 'center',
+        height: 50,
         padding: '0 16px',
-        height: '48px',
-        backgroundColor: '#111827',
-        borderBottom: '1px solid #1f2937',
+        background: 'var(--bg2)',
+        borderBottom: '1px solid var(--border)',
         flexShrink: 0,
-        gap: '16px',
+        gap: 12,
+        zIndex: 10,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '18px' }}>🧠</span>
-          <span style={{ fontWeight: 700, fontSize: '16px', color: '#60a5fa' }}>DeeperSeek</span>
-          <span style={{ color: '#374151', fontSize: '11px' }}>autonomous AI</span>
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
+          <span style={{ fontSize: 20 }}>🧠</span>
+          <span style={{ fontWeight: 800, fontSize: 16, color: 'var(--accent)', letterSpacing: '-0.3px' }}>
+            DeeperSeek
+          </span>
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: '4px', flex: 1 }}>
-          {tabs.map(tab => (
+        {/* Tabs — desktop */}
+        <nav className="hide-mobile" style={{ display: 'flex', gap: 2, flex: 1 }}>
+          {tabs.map(t => (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
               style={{
-                background: activeTab === tab.id ? '#1e3a5f' : 'none',
-                border: 'none',
-                borderRadius: '6px',
-                color: activeTab === tab.id ? '#60a5fa' : '#6b7280',
-                padding: '5px 12px',
-                cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: activeTab === tab.id ? 600 : 400,
-                transition: 'all 0.1s',
+                display: 'flex', alignItems: 'center', gap: 5,
+                background: activeTab === t.id ? 'var(--bg4)' : 'none',
+                border: activeTab === t.id ? '1px solid var(--border)' : '1px solid transparent',
+                borderRadius: 7,
+                color: activeTab === t.id ? 'var(--text)' : 'var(--text2)',
+                padding: '4px 12px',
+                fontSize: 13,
+                fontWeight: activeTab === t.id ? 600 : 400,
+                transition: 'all 0.12s',
               }}
             >
-              {tab.label}
+              <span>{t.icon}</span>
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {/* Mobile: hamburger */}
+        <button
+          className="show-mobile"
+          onClick={() => setMobileMenu(m => !m)}
+          style={{
+            display: 'none',
+            background: 'none', border: 'none',
+            color: 'var(--text2)', fontSize: 18, padding: '4px 8px',
+          }}
+        >
+          ☰
+        </button>
+
+        {/* Status */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexShrink: 0 }}>
+          <StatusDot connected={wsConnected} />
+          <span className="hide-mobile" style={{ fontSize: 12, color: 'var(--text3)' }}>
+            {wsConnected ? 'Live' : 'Connecting'}
+          </span>
+        </div>
+      </header>
+
+      {/* ── Mobile nav dropdown ─────────────────────────────────────────── */}
+      {mobileMenu && (
+        <div style={{
+          background: 'var(--bg2)',
+          borderBottom: '1px solid var(--border)',
+          padding: '8px 16px',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 6,
+          zIndex: 10,
+        }}>
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              onClick={() => { setActiveTab(t.id); setMobileMenu(false); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                background: activeTab === t.id ? 'var(--bg4)' : 'none',
+                border: '1px solid var(--border)',
+                borderRadius: 7,
+                color: activeTab === t.id ? 'var(--text)' : 'var(--text2)',
+                padding: '6px 14px',
+                fontSize: 14,
+              }}
+            >
+              {t.icon} {t.label}
             </button>
           ))}
         </div>
+      )}
 
-        {/* Status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#4b5563' }}>
-          <StatusDot connected={wsConnected} />
-          <span>{wsConnected ? 'Connected' : 'Connecting...'}</span>
-        </div>
-      </div>
-
-      {/* Main content */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      {/* ── Main content ────────────────────────────────────────────────── */}
+      <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {activeTab === 'chat' && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              <Chat
-                messages={messages}
-                events={events}
-                isProcessing={isProcessing}
-                onSend={handleSend}
-                showEvents={showEvents}
-                onToggleEvents={() => setShowEvents(e => !e)}
-              />
+          <>
+            {/* Messages — scrollable */}
+            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              <MessagesList messages={messages} />
             </div>
-            {showEvents && <EventsPanel events={events} />}
-          </div>
+
+            {/* Tool activity drawer */}
+            <EventsDrawer
+              events={events}
+              open={eventsOpen}
+              onToggle={() => setEventsOpen(o => !o)}
+              processing={processing}
+            />
+
+            {/* Input */}
+            <InputArea onSend={handleSend} disabled={processing} />
+          </>
         )}
+
         {activeTab === 'workspace' && <Workspace />}
-        {activeTab === 'agents' && <Agents />}
-        {activeTab === 'uploads' && <Uploads />}
-      </div>
+        {activeTab === 'agents'    && <Agents />}
+        {activeTab === 'uploads'   && <Uploads />}
+      </main>
     </div>
   );
 }
 
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
+// ── Mount ─────────────────────────────────────────────────────────────────
+createRoot(document.getElementById('root')!).render(<App />);

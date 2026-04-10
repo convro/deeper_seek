@@ -1,201 +1,249 @@
-import React from 'react';
-import type { AgentEvent } from './state';
+import React, { useState } from 'react';
+import type { AgentEvent, ToolCallRecord } from './state';
 
-// ── Event Badge ──────────────────────────────────────────────────────────────
+// ── Spinner ───────────────────────────────────────────────────────────────
 
-const EVENT_COLORS: Record<string, string> = {
-  tool_call: '#3b82f6',
-  tool_result: '#10b981',
-  agent: '#8b5cf6',
-  reasoning: '#f59e0b',
-  error: '#ef4444',
-  content: '#6b7280',
-  done: '#10b981',
-  llm_start: '#6366f1',
-};
-
-interface EventBadgeProps {
-  type: string;
-}
-export function EventBadge({ type }: EventBadgeProps) {
-  const color = EVENT_COLORS[type] || '#6b7280';
-  return (
-    <span style={{
-      backgroundColor: color,
-      color: '#fff',
-      fontSize: '10px',
-      fontWeight: 700,
-      padding: '2px 6px',
-      borderRadius: '4px',
-      textTransform: 'uppercase',
-      letterSpacing: '0.5px',
-    }}>
-      {type}
-    </span>
-  );
-}
-
-// ── Event Item ───────────────────────────────────────────────────────────────
-
-interface EventItemProps {
-  event: AgentEvent;
-}
-export function EventItem({ event }: EventItemProps) {
-  const [expanded, setExpanded] = React.useState(false);
-
-  const hasDetail = event.args || event.result || event.error || event.reasoning;
-
-  return (
-    <div
-      style={{
-        padding: '6px 10px',
-        borderBottom: '1px solid #1f2937',
-        cursor: hasDetail ? 'pointer' : 'default',
-        fontSize: '12px',
-        fontFamily: 'monospace',
-      }}
-      onClick={() => hasDetail && setExpanded(e => !e)}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <EventBadge type={event.type} />
-        {event.tool && <span style={{ color: '#60a5fa' }}>{event.tool}</span>}
-        {event.agent_type && <span style={{ color: '#a78bfa' }}>{event.agent_type}</span>}
-        {event.duration_ms && (
-          <span style={{ color: '#6b7280', marginLeft: 'auto' }}>{event.duration_ms}ms</span>
-        )}
-        {event.timestamp && (
-          <span style={{ color: '#374151' }}>{new Date(event.timestamp).toLocaleTimeString()}</span>
-        )}
-      </div>
-
-      {event.type === 'content' && event.content && (
-        <div style={{ color: '#9ca3af', marginTop: '4px', maxHeight: '60px', overflow: 'hidden' }}>
-          {event.content.slice(0, 200)}
-        </div>
-      )}
-
-      {event.error && (
-        <div style={{ color: '#ef4444', marginTop: '4px' }}>
-          {event.error.slice(0, 200)}
-        </div>
-      )}
-
-      {expanded && hasDetail && (
-        <pre style={{
-          marginTop: '8px',
-          padding: '8px',
-          backgroundColor: '#111827',
-          borderRadius: '4px',
-          color: '#d1d5db',
-          fontSize: '11px',
-          overflowX: 'auto',
-          maxHeight: '200px',
-        }}>
-          {JSON.stringify({ args: event.args, result: event.result, reasoning: event.reasoning }, null, 2)}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-// ── Spinner ──────────────────────────────────────────────────────────────────
-
-export function Spinner() {
+export function Spinner({ size = 14, color = 'var(--accent)' }: { size?: number; color?: string }) {
   return (
     <span style={{
       display: 'inline-block',
-      width: '14px',
-      height: '14px',
-      border: '2px solid #374151',
-      borderTopColor: '#3b82f6',
+      width: size, height: size,
+      border: `2px solid var(--bg4)`,
+      borderTopColor: color,
       borderRadius: '50%',
-      animation: 'spin 0.8s linear infinite',
+      animation: 'spin 0.7s linear infinite',
+      flexShrink: 0,
     }} />
   );
 }
 
-// ── Status Dot ───────────────────────────────────────────────────────────────
+// ── Status dot ────────────────────────────────────────────────────────────
 
 export function StatusDot({ connected }: { connected: boolean }) {
   return (
     <span style={{
       display: 'inline-block',
-      width: '8px',
-      height: '8px',
+      width: 7, height: 7,
       borderRadius: '50%',
-      backgroundColor: connected ? '#10b981' : '#ef4444',
+      backgroundColor: connected ? 'var(--green)' : 'var(--red)',
+      boxShadow: connected ? '0 0 6px var(--green)' : 'none',
+      animation: connected ? 'pulse 2s ease infinite' : 'none',
     }} />
   );
 }
 
-// ── File Tree Item ────────────────────────────────────────────────────────────
+// ── Typing indicator (three dots) ─────────────────────────────────────────
 
-interface FileItem {
-  path: string;
-  name: string;
-  type: 'file' | 'dir';
-  size?: number | null;
+export function TypingDots() {
+  return (
+    <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', padding: '2px 0' }}>
+      {[0, 1, 2].map(i => (
+        <span key={i} style={{
+          width: 6, height: 6,
+          borderRadius: '50%',
+          backgroundColor: 'var(--text3)',
+          animation: `pulse 1.2s ease ${i * 0.2}s infinite`,
+          display: 'inline-block',
+        }} />
+      ))}
+    </span>
+  );
 }
 
-interface FileTreeItemProps {
-  file: FileItem;
-  onSelect: (file: FileItem) => void;
-  selected: boolean;
+// ── Thinking block (reasoning chain) ─────────────────────────────────────
+
+export function ThinkingBlock({ content }: { content: string }) {
+  const [open, setOpen] = useState(false);
+  const wordCount = content.split(/\s+/).length;
+
+  return (
+    <div className="thinking-block">
+      <div
+        className={`thinking-block__header ${open ? 'open' : ''}`}
+        onClick={() => setOpen(o => !o)}
+      >
+        <span style={{ color: 'var(--purple)', fontSize: 13 }}>🧠</span>
+        <span style={{ color: 'var(--purple)', fontWeight: 600 }}>Reasoning chain</span>
+        <span style={{ color: 'var(--text3)', fontSize: 11 }}>~{wordCount} words</span>
+        <span className="chevron" style={{ marginLeft: 'auto' }}>▶</span>
+      </div>
+      {open && (
+        <div className="thinking-block__content anim-slide-down">
+          {content}
+        </div>
+      )}
+    </div>
+  );
 }
 
-export function FileTreeItem({ file, onSelect, selected }: FileTreeItemProps) {
-  const indent = (file.path.split('/').length - 1) * 12;
+// ── Tool call inline badge (inside message) ───────────────────────────────
+
+export function ToolCallBadge({ tc }: { tc: ToolCallRecord }) {
+  const [open, setOpen] = useState(false);
+
+  const statusColor = tc.status === 'done' ? 'var(--green)' : tc.status === 'error' ? 'var(--red)' : 'var(--orange)';
+  const statusIcon  = tc.status === 'done' ? '✓' : tc.status === 'error' ? '✗' : '⟳';
 
   return (
     <div
-      onClick={() => file.type === 'file' && onSelect(file)}
+      onClick={() => setOpen(o => !o)}
       style={{
-        paddingLeft: `${indent + 8}px`,
-        paddingTop: '3px',
-        paddingBottom: '3px',
-        paddingRight: '8px',
-        cursor: file.type === 'file' ? 'pointer' : 'default',
-        backgroundColor: selected ? '#1e3a5f' : 'transparent',
-        color: file.type === 'dir' ? '#94a3b8' : '#e2e8f0',
-        fontSize: '12px',
-        fontFamily: 'monospace',
-        display: 'flex',
+        display: 'inline-flex',
         alignItems: 'center',
-        gap: '4px',
+        gap: 5,
+        background: 'var(--bg3)',
+        border: `1px solid var(--border)`,
+        borderRadius: 5,
+        padding: '2px 8px',
+        fontSize: 11,
+        fontFamily: 'var(--mono)',
+        cursor: 'pointer',
+        marginRight: 4,
+        marginBottom: 4,
+        transition: 'background 0.1s',
       }}
     >
-      <span>{file.type === 'dir' ? '📁' : '📄'}</span>
-      <span>{file.name}</span>
-      {file.size != null && (
-        <span style={{ color: '#4b5563', marginLeft: 'auto', fontSize: '10px' }}>
-          {formatSize(file.size)}
+      <span style={{ color: statusColor, fontWeight: 700 }}>{statusIcon}</span>
+      <span style={{ color: 'var(--accent)' }}>{tc.tool}</span>
+      {tc.duration_ms && <span style={{ color: 'var(--text3)' }}>{tc.duration_ms}ms</span>}
+      {open && (
+        <span style={{ color: 'var(--text2)', marginLeft: 4, fontSize: 10 }}>
+          {JSON.stringify(tc.args).slice(0, 80)}
         </span>
       )}
     </div>
   );
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
-  return `${Math.round(bytes / (1024 * 1024))}MB`;
+// ── Event item (activity log) ─────────────────────────────────────────────
+
+const BADGE_STYLES: Record<string, { bg: string; color: string }> = {
+  tool_call:   { bg: '#1d3557', color: '#58a6ff' },
+  tool_result: { bg: '#1a3a2a', color: '#3fb950' },
+  llm_start:   { bg: '#2d1f5e', color: '#bc8cff' },
+  reasoning:   { bg: '#3b2a0e', color: '#e3b341' },
+  content:     { bg: '#1c2128', color: '#8b949e' },
+  done:        { bg: '#1a3a2a', color: '#3fb950' },
+  final:       { bg: '#1a3a2a', color: '#3fb950' },
+  agent:       { bg: '#2d1f5e', color: '#bc8cff' },
+  error:       { bg: '#3a1a1a', color: '#f85149' },
+};
+
+export function EventItem({ event, idx }: { event: AgentEvent; idx: number }) {
+  const [open, setOpen] = useState(false);
+  const style = BADGE_STYLES[event.type] || { bg: 'var(--bg4)', color: 'var(--text2)' };
+  const hasDetail = event.args || event.result || event.error;
+
+  return (
+    <div>
+      <div
+        className="event-item"
+        onClick={() => hasDetail && setOpen(o => !o)}
+        style={{ cursor: hasDetail ? 'pointer' : 'default' }}
+      >
+        <span className="event-item__badge" style={{ background: style.bg, color: style.color }}>
+          {event.type}
+        </span>
+        <span className="event-item__tool">
+          {event.tool && <span style={{ color: 'var(--accent)' }}>{event.tool}</span>}
+          {event.agent_type && <span style={{ color: 'var(--purple)' }}> [{event.agent_type}]</span>}
+          {event.error && <span style={{ color: 'var(--red)' }}> {event.error.slice(0, 60)}</span>}
+          {event.type === 'content' && event.content && (
+            <span style={{ color: 'var(--text3)' }}> {event.content.slice(0, 50)}…</span>
+          )}
+          {event.type === 'done' && event.usage && (
+            <span style={{ color: 'var(--text3)' }}>
+              {' '}↑{event.usage.prompt_tokens} ↓{event.usage.completion_tokens} tokens
+            </span>
+          )}
+        </span>
+        {event.duration_ms && <span className="event-item__ms">{event.duration_ms}ms</span>}
+      </div>
+      {open && hasDetail && (
+        <div className="event-item__detail anim-slide-down">
+          {JSON.stringify({ args: event.args, result: event.result }, null, 2)}
+        </div>
+      )}
+    </div>
+  );
 }
 
-// ── Inject global CSS ─────────────────────────────────────────────────────────
+// ── Events drawer ─────────────────────────────────────────────────────────
 
-const style = document.createElement('style');
-style.textContent = `
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .msg-appear { animation: fadeIn 0.15s ease; }
-  * { box-sizing: border-box; }
-  ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-track { background: #111; }
-  ::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
-`;
-document.head.appendChild(style);
+interface EventsDrawerProps {
+  events: AgentEvent[];
+  open: boolean;
+  onToggle: () => void;
+  processing: boolean;
+}
+
+export function EventsDrawer({ events, open, onToggle, processing }: EventsDrawerProps) {
+  const toolCalls = events.filter(e => e.type === 'tool_call').length;
+  const bottomRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [events, open]);
+
+  return (
+    <div style={{
+      borderTop: '1px solid var(--border)',
+      backgroundColor: 'var(--bg2)',
+      flexShrink: 0,
+    }}>
+      {/* Toggle bar */}
+      <button
+        onClick={onToggle}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 14px',
+          background: 'none',
+          border: 'none',
+          color: 'var(--text2)',
+          fontSize: 12,
+          fontFamily: 'var(--mono)',
+          cursor: 'pointer',
+          textAlign: 'left',
+          transition: 'background 0.1s',
+        }}
+      >
+        <span style={{ color: 'var(--text3)', fontSize: 9 }}>{open ? '▼' : '▶'}</span>
+        <span>TOOL ACTIVITY</span>
+        {toolCalls > 0 && (
+          <span style={{
+            background: 'var(--bg4)',
+            color: 'var(--accent)',
+            fontSize: 10,
+            padding: '0 6px',
+            borderRadius: 10,
+            fontWeight: 700,
+          }}>
+            {toolCalls}
+          </span>
+        )}
+        {processing && <Spinner size={10} />}
+        {!processing && events.length > 0 && (
+          <span style={{ color: 'var(--text3)', marginLeft: 'auto', fontSize: 11 }}>
+            {events.length} events
+          </span>
+        )}
+      </button>
+
+      {/* Events list */}
+      {open && (
+        <div style={{ maxHeight: 220, overflowY: 'auto', borderTop: '1px solid var(--border)' }}>
+          {events.length === 0 && (
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text3)', fontSize: 12 }}>
+              Tool activity will appear here in real-time
+            </div>
+          )}
+          {events.map((ev, i) => <EventItem key={i} event={ev} idx={i} />)}
+          <div ref={bottomRef} />
+        </div>
+      )}
+    </div>
+  );
+}
