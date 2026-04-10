@@ -1,169 +1,202 @@
 import React, { useState, useEffect } from 'react';
-import type { WorkspaceJob } from './state';
-import { FileTreeItem } from './components';
 import { listJobs, listJobFiles, readJobFile } from './api';
+import type { WorkspaceJob } from './state';
+
+interface FileItem { path: string; name: string; type: 'file' | 'dir'; size?: number | null; }
+
+function fmtSize(b: number) {
+  if (b < 1024) return `${b}B`;
+  if (b < 1048576) return `${Math.round(b / 1024)}KB`;
+  return `${Math.round(b / 1048576)}MB`;
+}
+
+function fileIcon(name: string) {
+  const ext = name.split('.').pop()?.toLowerCase();
+  if (!ext) return '📄';
+  if (['py'].includes(ext))         return '🐍';
+  if (['js','ts','tsx','jsx'].includes(ext)) return '📜';
+  if (['json'].includes(ext))       return '{}';
+  if (['md','txt'].includes(ext))   return '📝';
+  if (['sh','bash'].includes(ext))  return '⚙';
+  if (['html','css'].includes(ext)) return '🌐';
+  if (['png','jpg','gif','svg'].includes(ext)) return '🖼';
+  if (['zip','tar','gz'].includes(ext)) return '📦';
+  if (['csv','tsv'].includes(ext))  return '📊';
+  return '📄';
+}
 
 export function Workspace() {
-  const [jobs, setJobs] = useState<WorkspaceJob[]>([]);
-  const [selectedJob, setSelectedJob] = useState<WorkspaceJob | null>(null);
-  const [files, setFiles] = useState<any[]>([]);
-  const [selectedFile, setSelectedFile] = useState<any | null>(null);
-  const [fileContent, setFileContent] = useState<string>('');
-  const [loading, setLoading] = useState(false);
+  const [jobs,         setJobs]         = useState<WorkspaceJob[]>([]);
+  const [selectedJob,  setSelectedJob]  = useState<WorkspaceJob | null>(null);
+  const [files,        setFiles]        = useState<FileItem[]>([]);
+  const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
+  const [content,      setContent]      = useState('');
+  const [loading,      setLoading]      = useState(false);
 
-  useEffect(() => {
-    refresh();
-    const interval = setInterval(refresh, 10000);
-    return () => clearInterval(interval);
-  }, []);
+  useEffect(() => { refresh(); const t = setInterval(refresh, 8000); return () => clearInterval(t); }, []);
 
   const refresh = async () => {
-    try {
-      const data = await listJobs();
-      setJobs(data.jobs || []);
-    } catch {}
+    try { const d = await listJobs(); setJobs(d.jobs || []); } catch {}
   };
 
   const selectJob = async (job: WorkspaceJob) => {
-    setSelectedJob(job);
-    setSelectedFile(null);
-    setFileContent('');
-    try {
-      const data = await listJobFiles(job.job_id);
-      setFiles(data.files || []);
-    } catch {}
+    setSelectedJob(job); setSelectedFile(null); setContent('');
+    try { const d = await listJobFiles(job.job_id); setFiles(d.files || []); } catch {}
   };
 
-  const selectFile = async (file: any) => {
-    setSelectedFile(file);
-    setLoading(true);
-    try {
-      const data = await readJobFile(selectedJob!.job_id, file.path);
-      setFileContent(data.content || '');
-    } catch {
-      setFileContent('Error loading file content');
-    } finally {
-      setLoading(false);
-    }
+  const selectFile = async (f: FileItem) => {
+    if (f.type === 'dir') return;
+    setSelectedFile(f); setLoading(true);
+    try { const d = await readJobFile(selectedJob!.job_id, f.path); setContent(d.content || ''); }
+    catch { setContent('Could not load file.'); }
+    finally { setLoading(false); }
   };
 
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-      {/* Job list */}
+
+      {/* Jobs sidebar */}
       <div style={{
-        width: '200px',
-        borderRight: '1px solid #1f2937',
-        overflowY: 'auto',
-        backgroundColor: '#0a0f1a',
-        flexShrink: 0,
+        width: 200, flexShrink: 0,
+        background: 'var(--bg2)',
+        borderRight: '1px solid var(--border)',
+        display: 'flex', flexDirection: 'column',
+        overflow: 'hidden',
       }}>
-        <div style={{ padding: '10px', borderBottom: '1px solid #1f2937', color: '#4b5563', fontSize: '11px', fontFamily: 'monospace' }}>
+        <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', letterSpacing: 1 }}>
           WORKSPACES ({jobs.length})
         </div>
-        {jobs.length === 0 && (
-          <div style={{ padding: '16px', color: '#374151', fontSize: '12px', textAlign: 'center' }}>
-            No workspaces yet. They're created automatically when the AI starts a project.
-          </div>
-        )}
-        {jobs.map(job => (
-          <div
-            key={job.job_id}
-            onClick={() => selectJob(job)}
-            style={{
-              padding: '8px 12px',
-              cursor: 'pointer',
-              backgroundColor: selectedJob?.job_id === job.job_id ? '#1e3a5f' : 'transparent',
-              borderBottom: '1px solid #111827',
-            }}
-          >
-            <div style={{ color: '#60a5fa', fontSize: '11px', fontFamily: 'monospace' }}>
-              {job.job_id}
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {jobs.length === 0 && (
+            <div style={{ padding: 16, fontSize: 12, color: 'var(--text3)', textAlign: 'center' }}>
+              Workspaces appear here when the AI creates them for projects
             </div>
-            {job.description && (
-              <div style={{ color: '#6b7280', fontSize: '11px', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {job.description}
-              </div>
-            )}
-            {job.created_at && (
-              <div style={{ color: '#374151', fontSize: '10px', marginTop: '2px' }}>
-                {new Date(job.created_at).toLocaleDateString()}
-              </div>
-            )}
-          </div>
-        ))}
+          )}
+          {jobs.map(j => (
+            <div
+              key={j.job_id}
+              onClick={() => selectJob(j)}
+              style={{
+                padding: '9px 12px',
+                cursor: 'pointer',
+                background: selectedJob?.job_id === j.job_id ? 'var(--bg4)' : 'transparent',
+                borderBottom: '1px solid var(--border2)',
+                transition: 'background 0.1s',
+              }}
+            >
+              <div style={{ fontSize: 11, color: 'var(--accent)', fontFamily: 'var(--mono)' }}>{j.job_id}</div>
+              {j.description && (
+                <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {j.description}
+                </div>
+              )}
+              {j.created_at && (
+                <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>
+                  {new Date(j.created_at).toLocaleDateString()}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* File tree */}
       {selectedJob && (
         <div style={{
-          width: '220px',
-          borderRight: '1px solid #1f2937',
-          overflowY: 'auto',
-          backgroundColor: '#0d1117',
-          flexShrink: 0,
+          width: 210, flexShrink: 0,
+          background: 'var(--bg2)',
+          borderRight: '1px solid var(--border)',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
         }}>
-          <div style={{ padding: '10px', borderBottom: '1px solid #1f2937', color: '#4b5563', fontSize: '11px', fontFamily: 'monospace' }}>
-            FILES — {selectedJob.job_id}
+          <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', letterSpacing: 1 }}>
+            FILES
           </div>
-          {files.map(file => (
-            <FileTreeItem
-              key={file.path}
-              file={file}
-              onSelect={selectFile}
-              selected={selectedFile?.path === file.path}
-            />
-          ))}
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {files.map(f => {
+              const depth = f.path.split('/').length - 1;
+              return (
+                <div
+                  key={f.path}
+                  onClick={() => selectFile(f)}
+                  style={{
+                    paddingLeft: depth * 12 + 10,
+                    paddingRight: 10,
+                    paddingTop: 4, paddingBottom: 4,
+                    cursor: f.type === 'file' ? 'pointer' : 'default',
+                    background: selectedFile?.path === f.path ? 'var(--bg4)' : 'transparent',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    fontSize: 12,
+                    fontFamily: 'var(--mono)',
+                    color: f.type === 'dir' ? 'var(--text2)' : 'var(--text)',
+                    transition: 'background 0.1s',
+                    borderBottom: '1px solid var(--border2)',
+                  }}
+                >
+                  <span>{f.type === 'dir' ? '📂' : fileIcon(f.name)}</span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                  {f.size != null && <span style={{ color: 'var(--text3)', fontSize: 10, flexShrink: 0 }}>{fmtSize(f.size)}</span>}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
       {/* File content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px', backgroundColor: '#0d1117' }}>
+      <div style={{ flex: 1, background: 'var(--bg)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {!selectedJob && (
-          <div style={{ color: '#374151', textAlign: 'center', marginTop: '60px', fontSize: '14px' }}>
+          <div style={{ margin: 'auto', color: 'var(--text3)', fontSize: 14, textAlign: 'center', padding: 40 }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📁</div>
             Select a workspace to explore files
           </div>
         )}
         {selectedJob && !selectedFile && (
-          <div style={{ color: '#374151', textAlign: 'center', marginTop: '60px', fontSize: '14px' }}>
+          <div style={{ margin: 'auto', color: 'var(--text3)', fontSize: 14, textAlign: 'center', padding: 40 }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📄</div>
             Select a file to view its contents
           </div>
         )}
         {selectedFile && (
           <>
             <div style={{
-              marginBottom: '10px',
-              padding: '6px 10px',
-              backgroundColor: '#111827',
-              borderRadius: '4px',
-              color: '#94a3b8',
-              fontSize: '11px',
-              fontFamily: 'monospace',
+              padding: '8px 14px',
+              borderBottom: '1px solid var(--border)',
+              background: 'var(--bg2)',
               display: 'flex',
-              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 12,
+              fontFamily: 'var(--mono)',
+              color: 'var(--text2)',
             }}>
-              <span>📄 {selectedFile.path}</span>
+              <span>{fileIcon(selectedFile.name)}</span>
+              <span>{selectedFile.path}</span>
               {selectedFile.size != null && (
-                <span style={{ color: '#4b5563' }}>{Math.round(selectedFile.size / 1024)}KB</span>
+                <span style={{ marginLeft: 'auto', color: 'var(--text3)' }}>{fmtSize(selectedFile.size)}</span>
               )}
             </div>
-            {loading ? (
-              <div style={{ color: '#4b5563', fontSize: '13px' }}>Loading...</div>
-            ) : (
-              <pre style={{
-                backgroundColor: '#0a0f1a',
-                padding: '12px',
-                borderRadius: '6px',
-                color: '#d1d5db',
-                fontSize: '12px',
-                fontFamily: 'monospace',
-                lineHeight: '1.6',
-                overflowX: 'auto',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}>
-                {fileContent}
-              </pre>
-            )}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+              {loading ? (
+                <div style={{ color: 'var(--text3)' }}>Loading…</div>
+              ) : (
+                <pre style={{
+                  background: 'var(--bg2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  padding: '12px 14px',
+                  fontSize: 13,
+                  fontFamily: 'var(--mono)',
+                  color: 'var(--text)',
+                  lineHeight: 1.6,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  margin: 0,
+                }}>
+                  {content}
+                </pre>
+              )}
+            </div>
           </>
         )}
       </div>

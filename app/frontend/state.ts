@@ -1,13 +1,26 @@
-// Global application state types and stores
+export type MessageRole = 'user' | 'assistant';
+export type MessageStatus = 'thinking' | 'streaming' | 'done' | 'error';
 
-export type MessageRole = 'user' | 'assistant' | 'system';
+export interface ToolCallRecord {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  result?: unknown;
+  error?: string;
+  status: 'pending' | 'done' | 'error';
+  duration_ms?: number;
+}
 
 export interface ChatMessage {
   id: string;
   role: MessageRole;
   content: string;
   timestamp: string;
-  status?: 'pending' | 'streaming' | 'done' | 'error';
+  status: MessageStatus;
+  reasoning?: string;
+  toolCalls?: ToolCallRecord[];
+  rounds?: number;
+  usage?: { prompt_tokens: number; completion_tokens: number };
 }
 
 export interface AgentEvent {
@@ -15,6 +28,7 @@ export interface AgentEvent {
   agent_id?: string;
   agent_type?: string;
   tool?: string;
+  call_id?: string;
   args?: Record<string, unknown>;
   result?: unknown;
   error?: string;
@@ -26,16 +40,6 @@ export interface AgentEvent {
   timestamp?: string;
 }
 
-export interface Agent {
-  id: string;
-  type: string;
-  status: 'running' | 'completed' | 'failed' | 'killed';
-  task_preview: string;
-  started_at: string;
-  completed_at?: string;
-  tool_calls?: number;
-}
-
 export interface WorkspaceJob {
   job_id: string;
   description?: string;
@@ -43,21 +47,8 @@ export interface WorkspaceJob {
   status?: string;
 }
 
-export interface AppState {
-  sessionId: string;
-  messages: ChatMessage[];
-  events: AgentEvent[];
-  agents: Agent[];
-  jobs: WorkspaceJob[];
-  activeJobId: string | null;
-  isProcessing: boolean;
-  wsConnected: boolean;
-  activeTab: 'chat' | 'workspace' | 'agents';
-}
-
-// Generate a session ID
 export function generateSessionId(): string {
-  return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 export function generateId(): string {

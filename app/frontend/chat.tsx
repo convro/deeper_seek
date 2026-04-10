@@ -1,236 +1,276 @@
-import React, { useState, useRef, useEffect } from 'react';
-import type { ChatMessage, AgentEvent } from './state';
-import { Spinner, EventItem } from './components';
+import React, { useRef, useEffect, useState } from 'react';
+import type { ChatMessage, ToolCallRecord } from './state';
+import { Spinner, TypingDots, ThinkingBlock, ToolCallBadge } from './components';
+import { Markdown } from './markdown';
 
-interface ChatProps {
-  messages: ChatMessage[];
-  events: AgentEvent[];
-  isProcessing: boolean;
-  onSend: (message: string) => void;
-  showEvents: boolean;
-  onToggleEvents: () => void;
+// ── Message bubble ────────────────────────────────────────────────────────
+
+interface MsgProps { message: ChatMessage }
+
+function UserMessage({ message }: MsgProps) {
+  return (
+    <div className="anim-fade-up" style={{
+      display: 'flex',
+      justifyContent: 'flex-end',
+      padding: '4px 0',
+    }}>
+      <div style={{
+        maxWidth: 'min(75%, 620px)',
+        background: 'var(--accent2)',
+        color: '#fff',
+        padding: '10px 15px',
+        borderRadius: '18px 18px 4px 18px',
+        fontSize: 15,
+        lineHeight: 1.6,
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+      }}>
+        {message.content}
+      </div>
+    </div>
+  );
 }
 
-export function Chat({ messages, events, isProcessing, onSend, showEvents, onToggleEvents }: ChatProps) {
-  const [input, setInput] = useState('');
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+function AssistantMessage({ message }: MsgProps) {
+  const isThinking = message.status === 'thinking';
+  const isError    = message.status === 'error';
+
+  return (
+    <div className="anim-fade-up" style={{
+      display: 'flex',
+      gap: 10,
+      padding: '4px 0',
+      maxWidth: '100%',
+    }}>
+      {/* Avatar */}
+      <div style={{
+        width: 28, height: 28,
+        borderRadius: '50%',
+        background: 'linear-gradient(135deg, var(--accent2), var(--purple))',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 13,
+        flexShrink: 0,
+        marginTop: 2,
+      }}>
+        🧠
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Thinking indicator */}
+        {isThinking && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text2)', fontSize: 13 }}>
+            <TypingDots />
+            <span>Thinking…</span>
+          </div>
+        )}
+
+        {/* Reasoning chain */}
+        {message.reasoning && !isThinking && (
+          <ThinkingBlock content={message.reasoning} />
+        )}
+
+        {/* Tool calls */}
+        {message.toolCalls && message.toolCalls.length > 0 && (
+          <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap' }}>
+            {message.toolCalls.map(tc => <ToolCallBadge key={tc.id} tc={tc} />)}
+          </div>
+        )}
+
+        {/* Content */}
+        {!isThinking && message.content && (
+          <div style={{
+            color: isError ? 'var(--red)' : 'var(--text)',
+            lineHeight: 1.7,
+          }}>
+            <Markdown content={message.content} />
+          </div>
+        )}
+
+        {/* Cursor blink while streaming */}
+        {message.status === 'streaming' && (
+          <span style={{
+            display: 'inline-block',
+            width: 2, height: '1em',
+            background: 'var(--text2)',
+            verticalAlign: 'text-bottom',
+            marginLeft: 2,
+            animation: 'blink 1s step-end infinite',
+          }} />
+        )}
+
+        {/* Meta (usage, rounds) */}
+        {message.status === 'done' && message.usage && (
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)', display: 'flex', gap: 10 }}>
+            {message.rounds && <span>{message.rounds} round{message.rounds > 1 ? 's' : ''}</span>}
+            <span>↑{message.usage.prompt_tokens} ↓{message.usage.completion_tokens} tokens</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Message list ──────────────────────────────────────────────────────────
+
+interface MessagesListProps { messages: ChatMessage[] }
+
+export function MessagesList({ messages }: MessagesListProps) {
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSubmit = () => {
-    const trimmed = input.trim();
-    if (!trimmed || isProcessing) return;
-    onSend(trimmed);
-    setInput('');
+  if (messages.length === 0) {
+    return (
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        color: 'var(--text3)',
+        padding: '40px 20px',
+        textAlign: 'center',
+      }}>
+        <div style={{ fontSize: 52 }}>🧠</div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text2)' }}>DeeperSeek</div>
+        <div style={{ fontSize: 14, color: 'var(--text3)', maxWidth: 380 }}>
+          Autonomous AI agent with tools, memory, and multi-agent orchestration.
+          Ask anything — it plans, executes, and delivers real results.
+        </div>
+        <div style={{
+          display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 8,
+        }}>
+          {[
+            'Write a Python scraper for this website',
+            'Analyze this codebase and find bugs',
+            'Research the latest AI papers',
+            'Build a REST API with tests',
+          ].map(ex => (
+            <div key={ex} style={{
+              background: 'var(--bg3)',
+              border: '1px solid var(--border)',
+              borderRadius: 20,
+              padding: '6px 14px',
+              fontSize: 12,
+              color: 'var(--text2)',
+              cursor: 'default',
+            }}>
+              {ex}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {messages.map(msg => (
+        msg.role === 'user'
+          ? <UserMessage key={msg.id} message={msg} />
+          : <AssistantMessage key={msg.id} message={msg} />
+      ))}
+      <div ref={bottomRef} />
+    </div>
+  );
+}
+
+// ── Input area ────────────────────────────────────────────────────────────
+
+interface InputAreaProps {
+  onSend: (text: string) => void;
+  disabled: boolean;
+}
+
+export function InputArea({ onSend, disabled }: InputAreaProps) {
+  const [value, setValue] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const submit = () => {
+    const t = value.trim();
+    if (!t || disabled) return;
+    onSend(t);
+    setValue('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
+  const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
   };
 
-  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
+  const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setValue(e.target.value);
     e.target.style.height = 'auto';
-    e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+    e.target.style.height = Math.min(e.target.scrollHeight, 180) + 'px';
   };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {messages.length === 0 && (
-          <div style={{ textAlign: 'center', color: '#4b5563', marginTop: '80px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🧠</div>
-            <div style={{ fontSize: '20px', color: '#9ca3af', fontWeight: 600 }}>DeeperSeek</div>
-            <div style={{ fontSize: '14px', color: '#4b5563', marginTop: '8px' }}>
-              Autonomous AI agent with tools, memory, and multi-agent coordination
-            </div>
-          </div>
-        )}
-
-        {messages.map(msg => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
-
-        {isProcessing && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6b7280', fontSize: '13px' }}>
-            <Spinner />
-            <span>DeeperSeek is working...</span>
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Events panel toggle */}
-      <div style={{
-        borderTop: '1px solid #1f2937',
-        padding: '6px 12px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        backgroundColor: '#0f172a',
-      }}>
-        <button
-          onClick={onToggleEvents}
-          style={{
-            background: 'none',
-            border: '1px solid #374151',
-            color: '#6b7280',
-            borderRadius: '4px',
-            padding: '3px 10px',
-            cursor: 'pointer',
-            fontSize: '11px',
-          }}
-        >
-          {showEvents ? '▼ Hide' : '▶ Show'} tool activity ({events.length})
-        </button>
-        {isProcessing && events.length > 0 && (
-          <span style={{ fontSize: '11px', color: '#3b82f6' }}>
-            {events.filter(e => e.type === 'tool_call').length} tool calls
-          </span>
-        )}
-      </div>
-
-      {/* Input area */}
-      <div style={{
-        padding: '12px',
-        borderTop: '1px solid #1f2937',
-        backgroundColor: '#111827',
-        display: 'flex',
-        gap: '8px',
-        alignItems: 'flex-end',
-      }}>
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={handleTextareaChange}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask anything — DeeperSeek will plan, use tools, and deliver results..."
-          disabled={isProcessing}
-          rows={1}
-          style={{
-            flex: 1,
-            background: '#1f2937',
-            border: '1px solid #374151',
-            borderRadius: '8px',
-            color: '#f3f4f6',
-            padding: '10px 14px',
-            fontSize: '14px',
-            resize: 'none',
-            outline: 'none',
-            fontFamily: 'inherit',
-            lineHeight: '1.5',
-            minHeight: '44px',
-            maxHeight: '200px',
-          }}
-        />
-        <button
-          onClick={handleSubmit}
-          disabled={isProcessing || !input.trim()}
-          style={{
-            background: isProcessing || !input.trim() ? '#1f2937' : '#3b82f6',
-            border: 'none',
-            borderRadius: '8px',
-            color: isProcessing || !input.trim() ? '#4b5563' : '#fff',
-            padding: '10px 18px',
-            cursor: isProcessing || !input.trim() ? 'not-allowed' : 'pointer',
-            fontSize: '14px',
-            fontWeight: 600,
-            height: '44px',
-            transition: 'background 0.15s',
-          }}
-        >
-          {isProcessing ? '...' : '↑ Send'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Message Bubble ─────────────────────────────────────────────────────────
-
-interface MessageBubbleProps {
-  message: ChatMessage;
-}
-
-function MessageBubble({ message }: MessageBubbleProps) {
-  const isUser = message.role === 'user';
-
-  return (
-    <div
-      className="msg-appear"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: isUser ? 'flex-end' : 'flex-start',
-        gap: '4px',
-      }}
-    >
-      <div style={{ fontSize: '11px', color: '#4b5563', paddingLeft: isUser ? 0 : '4px', paddingRight: isUser ? '4px' : 0 }}>
-        {isUser ? 'You' : 'DeeperSeek'} · {new Date(message.timestamp).toLocaleTimeString()}
-      </div>
-      <div
-        style={{
-          maxWidth: '80%',
-          backgroundColor: isUser ? '#1e40af' : '#1f2937',
-          color: '#f3f4f6',
-          padding: '10px 14px',
-          borderRadius: isUser ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
-          fontSize: '14px',
-          lineHeight: '1.6',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-        }}
-      >
-        {message.content}
-        {message.status === 'streaming' && <Spinner />}
-      </div>
-    </div>
-  );
-}
-
-// ── Events Panel ──────────────────────────────────────────────────────────
-
-interface EventsPanelProps {
-  events: AgentEvent[];
-}
-
-export function EventsPanel({ events }: EventsPanelProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [events]);
 
   return (
     <div style={{
-      height: '220px',
-      overflowY: 'auto',
-      borderTop: '1px solid #1f2937',
-      backgroundColor: '#0a0f1a',
+      padding: '10px 16px 14px',
+      background: 'var(--bg)',
+      borderTop: '1px solid var(--border)',
     }}>
-      <div style={{ padding: '6px 10px', borderBottom: '1px solid #1f2937', color: '#4b5563', fontSize: '11px', fontFamily: 'monospace' }}>
-        TOOL ACTIVITY LOG — {events.length} events
+      <div style={{
+        display: 'flex',
+        gap: 8,
+        alignItems: 'flex-end',
+        background: 'var(--bg3)',
+        border: `1px solid ${disabled ? 'var(--border)' : 'var(--border)'}`,
+        borderRadius: 14,
+        padding: '6px 6px 6px 14px',
+        transition: 'border-color 0.15s',
+      }}
+        onFocus={() => {}}
+      >
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={onChange}
+          onKeyDown={onKey}
+          disabled={disabled}
+          placeholder={disabled ? 'DeeperSeek is working…' : 'Message DeeperSeek…'}
+          rows={1}
+          style={{
+            flex: 1,
+            background: 'none',
+            border: 'none',
+            outline: 'none',
+            color: 'var(--text)',
+            fontSize: 15,
+            lineHeight: 1.5,
+            resize: 'none',
+            maxHeight: 180,
+            padding: '4px 0',
+            cursor: disabled ? 'not-allowed' : 'text',
+          }}
+        />
+        <button
+          onClick={submit}
+          disabled={disabled || !value.trim()}
+          style={{
+            width: 36, height: 36,
+            borderRadius: 10,
+            background: disabled || !value.trim() ? 'var(--bg4)' : 'var(--accent2)',
+            border: 'none',
+            color: disabled || !value.trim() ? 'var(--text3)' : '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 16,
+            cursor: disabled || !value.trim() ? 'not-allowed' : 'pointer',
+            transition: 'all 0.15s',
+            flexShrink: 0,
+          }}
+        >
+          {disabled ? <Spinner size={14} color="var(--text3)" /> : '↑'}
+        </button>
       </div>
-      {events.length === 0 && (
-        <div style={{ color: '#374151', fontSize: '12px', padding: '16px', textAlign: 'center' }}>
-          No events yet. Start a conversation to see tool calls appear here in real-time.
-        </div>
-      )}
-      {events.map((event, i) => (
-        <EventItem key={i} event={event} />
-      ))}
-      <div ref={bottomRef} />
+      <div style={{ textAlign: 'center', marginTop: 6, fontSize: 11, color: 'var(--text3)' }}>
+        Enter to send · Shift+Enter for new line
+      </div>
     </div>
   );
 }
