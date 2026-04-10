@@ -1,21 +1,76 @@
 // API client for DeeperSeek backend
 
+import type { Attachment } from './state';
+
 const BASE = '/api';
 
-export async function sendMessage(message: string, sessionId: string, model?: string) {
+export async function sendMessage(
+  message: string,
+  sessionId: string,
+  model?: string,
+  attachments?: Attachment[],
+) {
+  // Build attachment payload — strip blob URLs (not serializable)
+  const attPayload = attachments && attachments.length > 0
+    ? attachments.map(a => ({
+        name: a.name,
+        type: a.type,
+        data: a.data,
+        text: a.text,
+        path: a.path,
+      }))
+    : undefined;
+
   const res = await fetch(`${BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, session_id: sessionId, model }),
+    body: JSON.stringify({
+      message,
+      session_id: sessionId,
+      model,
+      attachments: attPayload,
+    }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
-export async function listSessions() {
+// ── Conversations ──────────────────────────────────────────────────────────
+
+export async function listConversations() {
   const res = await fetch(`${BASE}/chat/sessions`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json() as Promise<{ sessions: import('./state').Conversation[] }>;
+}
+
+export async function getConversation(sessionId: string) {
+  const res = await fetch(`${BASE}/chat/sessions/${encodeURIComponent(sessionId)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+export async function renameConversation(sessionId: string, title: string) {
+  const res = await fetch(`${BASE}/chat/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function deleteConversation(sessionId: string) {
+  const res = await fetch(`${BASE}/chat/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Legacy alias (used by older code) ────────────────────────────────────
+export const listSessions = listConversations;
+
+// ── Workspace ──────────────────────────────────────────────────────────────
 
 export async function listJobs() {
   const res = await fetch(`${BASE}/workspace/jobs`);
@@ -37,6 +92,8 @@ export async function readJobFile(jobId: string, filePath: string) {
   return res.json();
 }
 
+// ── Agents ──────────────────────────────────────────────────────────────────
+
 export async function listAgents() {
   const res = await fetch(`${BASE}/agents`);
   return res.json();
@@ -46,6 +103,8 @@ export async function killAgent(agentId: string) {
   const res = await fetch(`${BASE}/agents/${agentId}`, { method: 'DELETE' });
   return res.json();
 }
+
+// ── Uploads ──────────────────────────────────────────────────────────────────
 
 export async function uploadFile(file: File) {
   const form = new FormData();
