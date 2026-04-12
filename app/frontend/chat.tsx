@@ -484,6 +484,7 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
           value={value}
           onChange={onChange}
           onKeyDown={onKey}
+          onFocus={() => { setTimeout(() => window.scrollTo(0, 0), 100); }}
           disabled={disabled}
           placeholder={disabled ? 'DeeperSeek is working…' : 'Message DeeperSeek… (or drop files here)'}
           rows={1}

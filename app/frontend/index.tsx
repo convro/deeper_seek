@@ -427,22 +427,43 @@ function App() {
     setConvsLoading(false);
   }, []);
 
-  // ── Sync html height to visual viewport (iOS keyboard fix) ───────────
-  // We avoid position:fixed on .app-root because iOS pans the visual
-  // viewport when an input is focused, making fixed elements scroll off.
-  // Instead: html height = vv.height so the 100% chain shrinks naturally.
+  // ── Pin .app-root to the visual viewport (iOS keyboard fix) ─────────
+  // On iOS Safari, opening the keyboard shrinks the visual viewport and
+  // pans (scrolls) it so the focused input stays visible.  Fixed-position
+  // elements are anchored to the *layout* viewport (unchanged), so they
+  // appear to slide off-screen.  We compensate by tracking both the
+  // visual-viewport height *and* its scroll offset, then applying them
+  // directly to .app-root (which is position:fixed).
   useEffect(() => {
     const vv = window.visualViewport;
+    const root = document.querySelector('.app-root') as HTMLElement | null;
+    if (!root) return;
+
     const update = () => {
-      document.documentElement.style.height =
-        (vv ? vv.height : window.innerHeight) + 'px';
+      const h   = vv ? vv.height   : window.innerHeight;
+      const top = vv ? vv.offsetTop : 0;
+      root.style.height = h + 'px';
+      root.style.top    = top + 'px';
+      // Kill any residual document-level scroll iOS may have introduced
+      window.scrollTo(0, 0);
     };
+
     update();
-    if (vv) vv.addEventListener('resize', update, { passive: true });
-    else    window.addEventListener('resize', update, { passive: true });
+
+    if (vv) {
+      vv.addEventListener('resize', update, { passive: true });
+      vv.addEventListener('scroll', update, { passive: true });
+    } else {
+      window.addEventListener('resize', update, { passive: true });
+    }
+
     return () => {
-      if (vv) vv.removeEventListener('resize', update);
-      else    window.removeEventListener('resize', update);
+      if (vv) {
+        vv.removeEventListener('resize', update);
+        vv.removeEventListener('scroll', update);
+      } else {
+        window.removeEventListener('resize', update);
+      }
     };
   }, []);
 

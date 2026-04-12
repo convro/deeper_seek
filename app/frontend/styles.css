@@ -121,9 +121,13 @@ img { max-width: 100%; }
 ══════════════════════════════════════════════════════════════════════════ */
 
 .app-root {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;          /* JS overrides via visualViewport on iOS */
   display: flex;
   overflow: hidden;
-  height: 100%;
 }
 
 /* ── Sidebar backdrop (mobile) ───────────────────────────────────────────── */
