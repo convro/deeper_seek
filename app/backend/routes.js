@@ -88,21 +88,25 @@ router.post('/tools/execute', async (req, res) => {
 });
 
 // ── Preview — serve workspace HTML/CSS/JS files in iframe ───────────────────
-// GET /api/preview/workspace/{jobId}/output/index.html
-// Security: path is restricted to the workspace/ directory only.
+// URL pattern: GET /api/preview/workspace/{jobId}/output/index.html
+// The path after /api/preview/ is resolved relative to PROJECT_ROOT,
+// then restricted to PROJECT_ROOT/workspace/ for security.
 router.get('/preview/*', (req, res) => {
   const rawSeg = req.params[0] || '';
 
-  // Strip any path traversal attempts
+  // Strip any path-traversal segments
   const safeSeg = rawSeg
     .split('/')
     .filter(p => p !== '..' && p !== '.')
     .join('/');
 
-  const fullPath = path.join(WORKSPACE_ROOT, safeSeg);
+  // Resolve relative to PROJECT_ROOT (not WORKSPACE_ROOT — the URL already
+  // contains "workspace/" prefix so we must NOT double it)
+  const fullPath = path.join(PROJECT_ROOT, safeSeg);
 
-  // Double-check the resolved path is still inside workspace/
-  if (!fullPath.startsWith(WORKSPACE_ROOT + path.sep) && fullPath !== WORKSPACE_ROOT) {
+  // Security: only files inside workspace/ are allowed
+  const allowedRoot = path.join(PROJECT_ROOT, 'workspace') + path.sep;
+  if (!fullPath.startsWith(allowedRoot)) {
     return res.status(403).send('Forbidden');
   }
 
