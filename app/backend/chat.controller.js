@@ -7,6 +7,10 @@ const { runAgentLoop } = require('./llm.service');
 const { getWsForSession } = require('./websocket');
 const logger = require('./logger');
 
+const PROJECT_ROOT = path.join(__dirname, '../..');
+const UPLOADS_IMAGES_DIR = path.join(PROJECT_ROOT, 'uploads/images');
+fs.mkdirSync(UPLOADS_IMAGES_DIR, { recursive: true });
+
 // ── Persistence ────────────────────────────────────────────────────────────
 const SESSIONS_DIR = path.join(__dirname, '../../runtime/sessions');
 fs.mkdirSync(SESSIONS_DIR, { recursive: true });
@@ -118,40 +122,44 @@ async function sendMessage(req, res) {
     session.title = generateTitle(message);
   }
 
-  // Build user message content — support vision (image attachments)
-  let userContent;
-  if (attachments && attachments.length > 0) {
-    userContent = [];
-    if (message) userContent.push({ type: 'text', text: message });
+  // Build user message — attachments are saved to disk and referenced by path
+  // (DeepSeek models do not support image_url content type; vision is handled
+  //  via the image_analyze Python tool which calls Anthropic/OpenAI APIs)
+  let userContent = message || '';
+  const attachmentNotes = [];
 
+  if (attachments && attachments.length > 0) {
     for (const att of attachments) {
       if (att.type && att.type.startsWith('image/') && att.data) {
-        // Vision: base64 image
-        userContent.push({
-          type: 'image_url',
-          image_url: { url: `data:${att.type};base64,${att.data}` },
-        });
+        // Save base64 image to uploads/images/
+        try {
+          const ext = att.name.split('.').pop() || 'jpg';
+          const filename = `${Date.now()}-${uuidv4().slice(0, 8)}.${ext}`;
+          const imgPath = path.join(UPLOADS_IMAGES_DIR, filename);
+          fs.writeFileSync(imgPath, Buffer.from(att.data, 'base64'));
+          attachmentNotes.push(
+            `[Image attached: "${att.name}" → saved at ${imgPath}]\n` +
+            `Use the image_analyze tool with path="${imgPath}" to see and describe this image.`
+          );
+          logger.info(`Saved image attachment: ${imgPath}`);
+        } catch (saveErr) {
+          logger.error('Failed to save image attachment', saveErr);
+          attachmentNotes.push(`[Image "${att.name}" could not be saved: ${saveErr.message}]`);
+        }
       } else if (att.text) {
-        // Text file content included inline
-        userContent.push({
-          type: 'text',
-          text: `\n[Attached file: ${att.name}]\n${att.text}`,
-        });
+        // Text file — inline content (truncated to keep tokens reasonable)
+        const snippet = att.text.length > 40_000
+          ? att.text.slice(0, 40_000) + '\n… [truncated]'
+          : att.text;
+        attachmentNotes.push(`[Attached file: ${att.name}]\n\`\`\`\n${snippet}\n\`\`\``);
       } else if (att.path) {
-        // Reference by server-side path
-        userContent.push({
-          type: 'text',
-          text: `\n[Attached file available at: ${att.path}]`,
-        });
+        attachmentNotes.push(`[File available at: ${att.path}]`);
       }
     }
+  }
 
-    // Flatten to string if only text elements (some models don't support array content)
-    if (userContent.every(c => c.type === 'text')) {
-      userContent = userContent.map(c => c.text).join('\n');
-    }
-  } else {
-    userContent = message;
+  if (attachmentNotes.length > 0) {
+    userContent = (userContent ? userContent + '\n\n' : '') + attachmentNotes.join('\n\n');
   }
 
   session.messages.push({ role: 'user', content: userContent });

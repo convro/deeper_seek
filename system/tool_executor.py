@@ -48,8 +48,12 @@ TOOL_MAP = {
     "agent_status":       "tools/agents/agent_status.py",
     # Analysis
     "code_analyzer":      "tools/analysis/code_analyzer.py",
+    "repo_scanner":       "tools/analysis/repo_scanner.py",
+    "task_split":         "tools/orchestration/task_split.py",
     # Logs
     "log_reader":         "tools/logs/log_reader.py",
+    # Vision
+    "image_analyze":      "tools/vision/image_analyze.py",
 }
 
 
@@ -87,13 +91,32 @@ def execute_tool(tool_name: str, args: dict) -> dict:
     try:
         module = load_module(module_path)
         result = module.execute(**args)
+        # Inject duration_ms if metadata is present but missing it
+        if isinstance(result, dict) and 'metadata' in result:
+            if 'duration_ms' not in (result['metadata'] or {}):
+                result.setdefault('metadata', {})['duration_ms'] = int((time.time() - start) * 1000)
+        elif isinstance(result, dict):
+            result['metadata'] = {
+                'tool': tool_name,
+                'duration_ms': int((time.time() - start) * 1000),
+            }
         return result
+    except TypeError as e:
+        # Wrong arguments — helpful message
+        import inspect
+        sig = str(inspect.signature(module.execute)) if 'module' in dir() else '(unknown)'
+        return {
+            "status": "error",
+            "result": None,
+            "error": f"Bad arguments for {tool_name}{sig}: {e}",
+            "metadata": {"tool": tool_name, "duration_ms": int((time.time() - start) * 1000)},
+        }
     except Exception as e:
         tb = traceback.format_exc()
         return {
             "status": "error",
             "result": None,
-            "error": f"Tool execution exception: {str(e)}\n{tb}",
+            "error": f"Tool execution error ({tool_name}): {str(e)}\n{tb[-1000:]}",
             "metadata": {"tool": tool_name, "duration_ms": int((time.time() - start) * 1000)},
         }
 

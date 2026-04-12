@@ -244,6 +244,16 @@
       },
       "required": ["log_file"],
       "timeout_ms": 5000
+    },
+    "image_analyze": {
+      "module": "tools/vision/image_analyze.py",
+      "description": "Analyze an image file using AI vision (Claude or GPT-4o-mini) and return a detailed description. Always use this tool when the user attaches an image or asks about image content. Provides metadata + semantic description.",
+      "parameters": {
+        "path": {"type": "string", "description": "Absolute path to the image file (from uploads/images/ directory)"},
+        "question": {"type": "string", "description": "Specific question or instruction for the analysis", "default": "Describe this image in detail. Include what you see, any text, colors, objects, people, context, and any notable features."}
+      },
+      "required": ["path"],
+      "timeout_ms": 45000
     }
   }
 }

@@ -74,18 +74,46 @@ async function executeTool(toolName, args = {}, onEvent = null) {
         logger.debug(`Tool stderr (${toolName}): ${stderr.slice(0, 500)}`);
       }
 
+      let parsed;
       try {
-        const parsed = JSON.parse(stdout.trim());
-        resolve(parsed);
+        parsed = JSON.parse(stdout.trim());
       } catch (e) {
-        logger.error(`Tool ${toolName} returned invalid JSON: ${stdout.slice(0, 200)}`);
-        resolve({
-          status: 'error',
-          result: null,
-          error: `Tool returned invalid JSON: ${stdout.slice(0, 200)} | stderr: ${stderr.slice(0, 200)}`,
-          metadata: { tool: toolName },
-        });
+        // If JSON parse fails but we have output, wrap it as a text result
+        const rawOut = stdout.trim();
+        if (rawOut) {
+          logger.warn(`Tool ${toolName} returned non-JSON output, wrapping as text`);
+          parsed = {
+            status: 'ok',
+            result: rawOut.slice(0, 8000),
+            error: null,
+            metadata: { tool: toolName, raw: true },
+          };
+        } else {
+          logger.error(`Tool ${toolName} returned no output. stderr: ${stderr.slice(0, 300)}`);
+          parsed = {
+            status: 'error',
+            result: null,
+            error: stderr
+              ? `Tool produced no output. stderr: ${stderr.slice(0, 400)}`
+              : 'Tool produced no output and no error details.',
+            metadata: { tool: toolName },
+          };
+        }
       }
+
+      // Truncate oversized results to prevent token exhaustion
+      const MAX_RESULT_CHARS = 60_000;
+      const resultStr = JSON.stringify(parsed.result);
+      if (resultStr.length > MAX_RESULT_CHARS) {
+        logger.warn(`Tool ${toolName} result truncated from ${resultStr.length} to ${MAX_RESULT_CHARS} chars`);
+        parsed = {
+          ...parsed,
+          result: resultStr.slice(0, MAX_RESULT_CHARS) + '\n… [output truncated to 60k chars]',
+          metadata: { ...parsed.metadata, truncated: true, original_length: resultStr.length },
+        };
+      }
+
+      resolve(parsed);
     });
 
     proc.on('error', (err) => {
