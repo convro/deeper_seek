@@ -427,6 +427,16 @@ function App() {
     setConvsLoading(false);
   }, []);
 
+  // ── Viewport height CSS var (fixes iOS keyboard gap) ─────────────────
+  useEffect(() => {
+    const setH = () => {
+      document.documentElement.style.setProperty('--app-h', window.innerHeight + 'px');
+    };
+    setH();
+    window.addEventListener('resize', setH, { passive: true });
+    return () => window.removeEventListener('resize', setH);
+  }, []);
+
   // ── Init ──────────────────────────────────────────────────────────────
   useEffect(() => {
     loadConversations();
