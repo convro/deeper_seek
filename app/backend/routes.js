@@ -3,7 +3,11 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const router = express.Router();
+
+const PROJECT_ROOT = path.join(__dirname, '../..');
+const WORKSPACE_ROOT = path.join(PROJECT_ROOT, 'workspace');
 
 const chatController = require('./chat.controller');
 const agentController = require('./agent.controller');
@@ -81,6 +85,32 @@ router.post('/tools/execute', async (req, res) => {
   const { executeTool } = require('./orchestrator.service');
   const result = await executeTool(tool, args || {});
   res.json(result);
+});
+
+// ── Preview — serve workspace HTML/CSS/JS files in iframe ───────────────────
+// GET /api/preview/workspace/{jobId}/output/index.html
+// Security: path is restricted to the workspace/ directory only.
+router.get('/preview/*', (req, res) => {
+  const rawSeg = req.params[0] || '';
+
+  // Strip any path traversal attempts
+  const safeSeg = rawSeg
+    .split('/')
+    .filter(p => p !== '..' && p !== '.')
+    .join('/');
+
+  const fullPath = path.join(WORKSPACE_ROOT, safeSeg);
+
+  // Double-check the resolved path is still inside workspace/
+  if (!fullPath.startsWith(WORKSPACE_ROOT + path.sep) && fullPath !== WORKSPACE_ROOT) {
+    return res.status(403).send('Forbidden');
+  }
+
+  if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
+    return res.status(404).send('File not found');
+  }
+
+  res.sendFile(fullPath);
 });
 
 // ── Health ───────────────────────────────────────

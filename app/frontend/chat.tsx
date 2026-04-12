@@ -2,7 +2,19 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { ChatMessage, ToolCallRecord, Attachment } from './state';
 import { generateLocalId } from './state';
 import { Spinner, TypingDots, ThinkingBlock, ToolCallBadge } from './components';
-import { Markdown } from './markdown';
+import { Markdown, PreviewModal } from './markdown';
+
+/** Extract workspace HTML file paths from AI response text. */
+function extractHtmlPaths(content: string): string[] {
+  const found = new Set<string>();
+  // Match patterns like: workspace/job123/output/index.html or workspace/abc/output/site/index.html
+  const re = /workspace\/[a-zA-Z0-9_-]+\/[^\s"')\]`]+\.html/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    found.add(m[0]);
+  }
+  return Array.from(found);
+}
 
 const MAX_INLINE_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
 
@@ -98,8 +110,15 @@ function UserMessage({ message }: { message: ChatMessage }) {
 function AssistantMessage({ message }: { message: ChatMessage }) {
   const isThinking = message.status === 'thinking';
   const isError    = message.status === 'error';
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+
+  // Detect workspace HTML file references in the response (for "Preview Site" buttons)
+  const htmlPaths = message.status === 'done' && message.content
+    ? extractHtmlPaths(message.content)
+    : [];
 
   return (
+    <>
     <div className="msg-row msg-row-ai anim-fade-up">
       {/* Avatar */}
       <div className="msg-ai-avatar">
@@ -147,6 +166,24 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
           <span className="msg-cursor" />
         )}
 
+        {/* Preview site buttons — shown when AI created HTML files */}
+        {htmlPaths.length > 0 && (
+          <div className="msg-preview-row">
+            {htmlPaths.map(p => (
+              <button
+                key={p}
+                className="msg-preview-btn"
+                onClick={() => setPreviewSrc(`/api/preview/${p}`)}
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h11A1.5 1.5 0 0 1 15 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9Zm1.5 0v9h11v-9h-11Z"/>
+                </svg>
+                Preview&nbsp;<span className="msg-preview-path">{p.split('/').pop()}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Meta */}
         {message.status === 'done' && message.usage && (
           <div className="msg-meta">
@@ -158,6 +195,16 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
         )}
       </div>
     </div>
+
+    {/* Preview modal */}
+    {previewSrc && (
+      <PreviewModal
+        src={previewSrc}
+        title={previewSrc.split('/').pop()}
+        onClose={() => setPreviewSrc(null)}
+      />
+    )}
+    </>
   );
 }
 

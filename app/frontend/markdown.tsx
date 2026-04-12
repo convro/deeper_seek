@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 type Block =
   | { kind: 'code';  lang: string; text: string }
@@ -137,10 +137,81 @@ function renderInline(text: string, key?: string | number): React.ReactNode {
   return parts.length === 1 ? parts[0] : <React.Fragment key={key}>{parts}</React.Fragment>;
 }
 
-// ── Code block with copy button ───────────────────────────────────────────
+// ── Preview modal ─────────────────────────────────────────────────────────
+
+interface PreviewModalProps {
+  /** URL served from backend (workspace files, relative assets work) */
+  src?: string;
+  /** Inline HTML string (for code-block preview) */
+  html?: string;
+  title?: string;
+  onClose: () => void;
+}
+
+export function PreviewModal({ src, html, title, onClose }: PreviewModalProps) {
+  // Close on Escape key
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div className="preview-backdrop" onClick={onClose}>
+      <div className="preview-modal" onClick={e => e.stopPropagation()}>
+        <div className="preview-modal-header">
+          <span className="preview-modal-title">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style={{ marginRight: 6, opacity: 0.7 }}>
+              <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h11A1.5 1.5 0 0 1 15 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9Zm1.5 0v9h11v-9h-11Z"/>
+              <path d="M3 5.25a.75.75 0 0 1 .75-.75h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 3 5.25Zm2.5 0a.75.75 0 0 1 .75-.75h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 5.5 5.25Z"/>
+            </svg>
+            {title || 'Preview'}
+          </span>
+          <div className="preview-modal-actions">
+            {src && (
+              <a
+                href={src}
+                target="_blank"
+                rel="noreferrer"
+                className="preview-newtab-btn"
+                title="Open in new tab"
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z"/>
+                </svg>
+                New tab
+              </a>
+            )}
+            <button className="preview-close-btn" onClick={onClose} title="Close (Esc)">✕</button>
+          </div>
+        </div>
+        <div className="preview-modal-body">
+          {src
+            ? <iframe
+                src={src}
+                className="preview-iframe"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                title={title}
+              />
+            : <iframe
+                srcDoc={html}
+                className="preview-iframe"
+                sandbox="allow-scripts allow-popups allow-forms"
+                title={title}
+              />
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Code block with copy + optional HTML preview ──────────────────────────
 
 function CodeBlock({ lang, text }: { lang: string; text: string }) {
   const [copied, setCopied] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const isHtml = /^html$/i.test(lang);
 
   const copy = () => {
     navigator.clipboard?.writeText(text).then(() => {
@@ -150,13 +221,33 @@ function CodeBlock({ lang, text }: { lang: string; text: string }) {
   };
 
   return (
-    <pre>
-      {lang && <span className="code-lang">{lang}</span>}
-      <button className="copy-btn" onClick={copy}>
-        {copied ? '✓ Copied' : 'Copy'}
-      </button>
-      <code>{text}</code>
-    </pre>
+    <>
+      <pre>
+        {lang && <span className="code-lang">{lang}</span>}
+        <div className="code-btn-row">
+          {isHtml && (
+            <button className="code-preview-btn" onClick={() => setShowPreview(true)} title="Preview HTML">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 2a6 6 0 1 1 0 12A6 6 0 0 1 8 2ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/>
+                <path d="M8 4.5a.5.5 0 0 1 .5.5v2.5H11a.5.5 0 0 1 0 1H8a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5Z"/>
+              </svg>
+              Preview
+            </button>
+          )}
+          <button className="copy-btn" onClick={copy}>
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
+        </div>
+        <code>{text}</code>
+      </pre>
+      {showPreview && (
+        <PreviewModal
+          html={text}
+          title="HTML Preview"
+          onClose={() => setShowPreview(false)}
+        />
+      )}
+    </>
   );
 }
 
