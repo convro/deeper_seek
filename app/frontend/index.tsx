@@ -439,14 +439,24 @@ function App() {
     const root = document.querySelector('.app-root') as HTMLElement | null;
     if (!root) return;
 
+    // Capture the full-screen height *before* any keyboard opens.
+    // We track the maximum height seen so orientation changes are covered.
+    let fullHeight = vv ? vv.height : window.innerHeight;
+
     const update = () => {
       const h   = vv ? vv.height   : window.innerHeight;
       const top = vv ? vv.offsetTop : 0;
+
+      // Update baseline whenever viewport grows (keyboard closed / rotated)
+      if (h > fullHeight) fullHeight = h;
+
       root.style.height = h + 'px';
       root.style.top    = top + 'px';
 
-      // Detect virtual keyboard: visual viewport much shorter than layout
-      const kbOpen = vv ? vv.height < window.innerHeight * 0.85 : false;
+      // Detect virtual keyboard — compare against the stored full height
+      // (window.innerHeight can shrink on some iOS versions, making the
+      //  old comparison useless)
+      const kbOpen = h < fullHeight * 0.85;
       document.body.classList.toggle('keyboard-open', kbOpen);
 
       // Keep messages pinned to bottom when keyboard opens
