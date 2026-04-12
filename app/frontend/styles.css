@@ -107,6 +107,13 @@ img { max-width: 100%; }
   from { opacity: 0; max-height: 0; }
   to   { opacity: 1; max-height: 600px; }
 }
+@keyframes letterColorCycle {
+  0%   { color: #a78bfa; }  /* purple */
+  25%  { color: #4d9ef5; }  /* blue */
+  50%  { color: #ef4444; }  /* red */
+  75%  { color: #f59e0b; }  /* gold */
+  100% { color: #a78bfa; }  /* purple */
+}
 @keyframes sidebarSlide {
   from { transform: translateX(-100%); }
   to   { transform: translateX(0); }
@@ -413,7 +420,18 @@ img { max-width: 100%; }
   margin-left: 4px;
 }
 .header-logo-img  { width: 52px; height: 52px; border-radius: 12px; object-fit: contain; }
-.header-logo-text { font-size: 15px; font-weight: 700; color: var(--text); }
+.header-logo-text {
+  font-size: 15px;
+  font-weight: 800;
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: 0.5px;
+  display: flex;
+  gap: 0;
+}
+.header-logo-letter {
+  animation: letterColorCycle 4s ease-in-out infinite;
+  display: inline-block;
+}
 
 /* Current conversation name shown in header (tabs moved to sidebar) */
 .header-conv-name {
@@ -483,9 +501,9 @@ img { max-width: 100%; }
   overflow-y: auto;
 }
 .empty-logo {
-  width: 180px;
-  height: 180px;
-  border-radius: 32px;
+  width: 260px;
+  height: 260px;
+  border-radius: 40px;
   object-fit: contain;
   opacity: 0.9;
 }
@@ -1519,16 +1537,11 @@ body.keyboard-open .messages-wrapper::after { display: none; }
     width: 52px;
     height: 52px;
     border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(77,158,245,0.25);
   }
   .header-logo-text {
     font-size: 18px;
     font-weight: 800;
-    letter-spacing: -0.4px;
-    background: linear-gradient(135deg, var(--accent), var(--purple));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    letter-spacing: 0.5px;
   }
 
   /* ── Messages ── */
@@ -1551,7 +1564,7 @@ body.keyboard-open .messages-wrapper::after { display: none; }
 
   /* ── Empty state ── */
   .empty-state { padding: 30px 18px; gap: 12px; }
-  .empty-logo  { width: 160px; height: 160px; border-radius: 28px; }
+  .empty-logo  { width: 230px; height: 230px; border-radius: 36px; }
   .empty-title { font-size: 22px; }
   .empty-subtitle { font-size: 14px; }
   .empty-suggestions { gap: 6px; }
@@ -1626,7 +1639,7 @@ body.keyboard-open .messages-wrapper::after { display: none; }
 @media (max-width: 400px) {
   .header-logo-text { font-size: 16px; }
   .header-logo-img  { width: 44px; height: 44px; }
-  .empty-logo       { width: 130px; height: 130px; }
+  .empty-logo       { width: 180px; height: 180px; }
   .empty-title      { font-size: 19px; }
   .empty-subtitle   { font-size: 13px; }
   .empty-suggestions { display: none; }

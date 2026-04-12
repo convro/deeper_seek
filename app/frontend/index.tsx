@@ -780,7 +780,11 @@ function App() {
             {/* Logo (visible on mobile when sidebar is closed) */}
             <div className="header-logo-mobile">
               <img src={LOGO_URL} alt="DeeperSeek" className="header-logo-img" />
-              <span className="header-logo-text">DeeperSeek</span>
+              <span className="header-logo-text">
+                {'DeeperSeek'.split('').map((ch, i) => (
+                  <span key={i} className="header-logo-letter" style={{ animationDelay: `${i * 0.35}s` }}>{ch}</span>
+                ))}
+              </span>
             </div>
           </div>
 
