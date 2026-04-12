@@ -273,6 +273,28 @@ function App() {
       if (pendingMsgId.current) updateMsg(pendingMsgId.current, { status: 'thinking' });
     });
 
+    // ── Streaming deltas (word-by-word) ───────────────────────────────
+    ws.on('content_delta', (event) => {
+      const id = pendingMsgId.current;
+      if (!id || !event.delta) return;
+      setMessages(prev => prev.map(m =>
+        m.id === id
+          ? { ...m, content: (m.content || '') + event.delta, status: 'streaming' as MessageStatus }
+          : m
+      ));
+    });
+
+    ws.on('reasoning_delta', (event) => {
+      const id = pendingMsgId.current;
+      if (!id || !event.delta) return;
+      setMessages(prev => prev.map(m =>
+        m.id === id
+          ? { ...m, reasoning: (m.reasoning || '') + event.delta }
+          : m
+      ));
+    });
+
+    // ── Full snapshots (backward compat / sub-agents) ─────────────────
     ws.on('content', (event) => {
       if (pendingMsgId.current && event.content) {
         updateMsg(pendingMsgId.current, { content: event.content, status: 'streaming' });
@@ -310,17 +332,21 @@ function App() {
       const id = pendingMsgId.current;
       if (!id) return;
       if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
-      if (event.content) {
-        updateMsg(id, {
-          content: event.content, status: 'done',
-          rounds: event.rounds, usage: event.usage,
-        });
-      } else {
-        updateMsg(id, { status: 'done' });
-      }
+      // With streaming, content was already delivered via content_delta events.
+      // Use event.content only if present (non-streaming agents), otherwise
+      // just flip status to 'done' preserving whatever was already streamed.
+      setMessages(prev => prev.map(m => {
+        if (m.id !== id) return m;
+        return {
+          ...m,
+          ...(event.content ? { content: event.content } : {}),
+          status: 'done' as MessageStatus,
+          rounds: event.rounds ?? m.rounds,
+          usage:  event.usage  ?? m.usage,
+        };
+      }));
       pendingMsgId.current = null;
       setProcessing(false);
-      // Refresh conversation list to update title/timestamp
       loadConversations();
     };
 
