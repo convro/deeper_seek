@@ -488,6 +488,76 @@ function App() {
     };
   }, []);
 
+  // ── Swipe gesture to open/close mobile sidebar ─────────────────────
+  useEffect(() => {
+    const isMobile = () => window.innerWidth <= 768;
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+    let direction: 'open' | 'close' | null = null;
+
+    const EDGE_ZONE = 30;        // px from left edge to start "open" swipe
+    const MIN_DISTANCE = 50;     // px swipe to trigger open/close
+    const MAX_Y_DRIFT = 80;      // ignore mostly-vertical swipes
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (!isMobile()) return;
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+
+      const sidebarEl = document.querySelector('.sidebar-wrapper.sidebar-mobile');
+      const sidebarOpen = sidebarEl?.classList.contains('sidebar-mobile-open');
+
+      if (!sidebarOpen && startX < EDGE_ZONE) {
+        // Start tracking "open" swipe from left edge
+        tracking = true;
+        direction = 'open';
+      } else if (sidebarOpen) {
+        // Start tracking "close" swipe anywhere
+        tracking = true;
+        direction = 'close';
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!tracking) return;
+      const dx = e.touches[0].clientX - startX;
+      const dy = Math.abs(e.touches[0].clientY - startY);
+      // Cancel if mostly vertical
+      if (dy > MAX_Y_DRIFT) { tracking = false; return; }
+      // Prevent page scroll while swiping sidebar
+      if (Math.abs(dx) > 10) e.preventDefault();
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!tracking) return;
+      tracking = false;
+      const endX = e.changedTouches[0].clientX;
+      const dx = endX - startX;
+      const dy = Math.abs(e.changedTouches[0].clientY - startY);
+
+      if (dy > MAX_Y_DRIFT) return;
+
+      if (direction === 'open' && dx > MIN_DISTANCE) {
+        setMobileSidebar(true);
+      } else if (direction === 'close' && dx < -MIN_DISTANCE) {
+        setMobileSidebar(false);
+      }
+      direction = null;
+    };
+
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd, { passive: true });
+
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+    };
+  }, []);
+
   // ── Init ──────────────────────────────────────────────────────────────
   useEffect(() => {
     loadConversations();

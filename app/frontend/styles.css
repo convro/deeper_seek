@@ -412,7 +412,7 @@ img { max-width: 100%; }
   gap: 7px;
   margin-left: 4px;
 }
-.header-logo-img  { width: 24px; height: 24px; border-radius: 5px; object-fit: contain; }
+.header-logo-img  { width: 52px; height: 52px; border-radius: 12px; object-fit: contain; }
 .header-logo-text { font-size: 15px; font-weight: 700; color: var(--text); }
 
 /* Current conversation name shown in header (tabs moved to sidebar) */
@@ -483,9 +483,9 @@ img { max-width: 100%; }
   overflow-y: auto;
 }
 .empty-logo {
-  width: 72px;
-  height: 72px;
-  border-radius: 16px;
+  width: 180px;
+  height: 180px;
+  border-radius: 32px;
   object-fit: contain;
   opacity: 0.9;
 }
@@ -1516,9 +1516,9 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   /* ── Mobile logo — 2× bigger, prominent ── */
   .header-logo-mobile { gap: 10px; }
   .header-logo-img {
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
+    width: 52px;
+    height: 52px;
+    border-radius: 12px;
     box-shadow: 0 2px 8px rgba(77,158,245,0.25);
   }
   .header-logo-text {
@@ -1551,7 +1551,7 @@ body.keyboard-open .messages-wrapper::after { display: none; }
 
   /* ── Empty state ── */
   .empty-state { padding: 30px 18px; gap: 12px; }
-  .empty-logo  { width: 68px; height: 68px; border-radius: 14px; }
+  .empty-logo  { width: 160px; height: 160px; border-radius: 28px; }
   .empty-title { font-size: 22px; }
   .empty-subtitle { font-size: 14px; }
   .empty-suggestions { gap: 6px; }
@@ -1625,8 +1625,8 @@ body.keyboard-open .messages-wrapper::after { display: none; }
 /* Very small phones */
 @media (max-width: 400px) {
   .header-logo-text { font-size: 16px; }
-  .header-logo-img  { width: 34px; height: 34px; }
-  .empty-logo       { width: 56px; height: 56px; }
+  .header-logo-img  { width: 44px; height: 44px; }
+  .empty-logo       { width: 130px; height: 130px; }
   .empty-title      { font-size: 19px; }
   .empty-subtitle   { font-size: 13px; }
   .empty-suggestions { display: none; }
