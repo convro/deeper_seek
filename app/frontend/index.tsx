@@ -32,15 +32,44 @@ function relTime(iso: string): string {
 interface SidebarProps {
   conversations: Conversation[];
   activeId: string;
+  activeTab: Tab;
   onSelect: (c: Conversation) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
+  onTabChange: (tab: Tab) => void;
   loading: boolean;
 }
 
+const TAB_DEFS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  {
+    id: 'chat', label: 'Chat',
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.457 1.457 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'workspace', label: 'Workspace',
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'agents', label: 'Agents',
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM4.5 7.5a.5.5 0 0 0 0 1h5.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3a.5.5 0 0 0 0-.708l-3-3a.5.5 0 1 0-.708.708L10.293 7.5H4.5Z"/>
+      </svg>
+    ),
+  },
+];
+
 function Sidebar({
-  conversations, activeId, onSelect, onNew, onDelete, onRename, loading,
+  conversations, activeId, activeTab, onSelect, onNew, onDelete, onRename, onTabChange, loading,
 }: SidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle,  setEditTitle]  = useState('');
@@ -127,6 +156,20 @@ function Sidebar({
         <Group label="Today"       items={grouped.today} />
         <Group label="This week"   items={grouped.week}  />
         <Group label="Older"       items={grouped.older} />
+      </div>
+
+      {/* Tab navigation — Chat / Workspace / Agents */}
+      <div className="sidebar-tabs">
+        {TAB_DEFS.map(t => (
+          <button
+            key={t.id}
+            className={`sidebar-tab-btn ${activeTab === t.id ? 'sidebar-tab-active' : ''}`}
+            onClick={() => onTabChange(t.id)}
+          >
+            {t.icon}
+            <span>{t.label}</span>
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -265,9 +308,10 @@ function App() {
     ws.on('disconnected', () => setWsConnected(false));
 
     ws.on('*', (event) => {
-      // Don't pollute Tool Activity with heartbeat / connection noise
+      // Don't pollute Tool Activity with heartbeat / streaming deltas /
+      // reasoning snapshots (reasoning is already shown in the chain-of-thought)
       const SKIP = new Set(['pong', 'ping', 'connected', 'disconnected', 'llm_start',
-                            'content_delta', 'reasoning_delta']);
+                            'content_delta', 'reasoning_delta', 'reasoning', 'content']);
       if (!SKIP.has(event.type)) {
         setEvents(prev => [...prev.slice(-500), { ...event, timestamp: new Date().toISOString() }]);
       }
@@ -522,12 +566,17 @@ function App() {
     }
   }, [processing, activeConvId, updateMsg]);
 
-  // ── Tabs ──────────────────────────────────────────────────────────────
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'chat',      label: 'Chat'      },
-    { id: 'workspace', label: 'Workspace' },
-    { id: 'agents',    label: 'Agents'    },
-  ];
+  // ── Current conversation title (for header display) ──────────────────
+  const activeConvTitle = useMemo(
+    () => conversations.find(c => c.id === activeConvId)?.title ?? '',
+    [conversations, activeConvId],
+  );
+
+  // ── Tab change (also closes mobile sidebar) ───────────────────────────
+  const handleTabChange = useCallback((tab: Tab) => {
+    setActiveTab(tab);
+    setMobileSidebar(false);
+  }, []);
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
@@ -546,10 +595,12 @@ function App() {
         <Sidebar
           conversations={conversations}
           activeId={activeConvId}
+          activeTab={activeTab}
           onSelect={switchConversation}
           onNew={newConversation}
           onDelete={handleDelete}
           onRename={handleRename}
+          onTabChange={handleTabChange}
           loading={convsLoading}
         />
       </div>
@@ -559,10 +610,12 @@ function App() {
         <Sidebar
           conversations={conversations}
           activeId={activeConvId}
+          activeTab={activeTab}
           onSelect={switchConversation}
           onNew={newConversation}
           onDelete={handleDelete}
           onRename={handleRename}
+          onTabChange={handleTabChange}
           loading={convsLoading}
         />
       </div>
@@ -600,18 +653,10 @@ function App() {
             </div>
           </div>
 
-          {/* Center: tabs */}
-          <nav className="header-tabs">
-            {tabs.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setActiveTab(t.id)}
-                className={`tab-btn ${activeTab === t.id ? 'tab-active' : ''}`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </nav>
+          {/* Center: current conversation name */}
+          <div className="header-conv-name">
+            {activeConvTitle && activeConvTitle !== 'New conversation' ? activeConvTitle : ''}
+          </div>
 
           {/* Right: status */}
           <div className="header-right">

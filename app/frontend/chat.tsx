@@ -42,6 +42,47 @@ async function readFileAsText(file: File): Promise<string> {
   });
 }
 
+// ── Context menu (long-press / right-click on user messages) ─────────────
+
+interface CtxPos { x: number; y: number }
+
+function MsgContextMenu({ pos, text, onClose }: { pos: CtxPos; text: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const close = () => onClose();
+    // Close on any tap/click outside (one tick later so the opening tap doesn't immediately close it)
+    const t = setTimeout(() => document.addEventListener('click', close, { once: true }), 0);
+    return () => { clearTimeout(t); document.removeEventListener('click', close); };
+  }, [onClose]);
+
+  const copy = () => {
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setCopied(true);
+    setTimeout(onClose, 900);
+  };
+
+  // Clamp to viewport
+  const x = Math.min(pos.x, (typeof window !== 'undefined' ? window.innerWidth : 400) - 160);
+  const y = Math.max(8, Math.min(pos.y - 8, (typeof window !== 'undefined' ? window.innerHeight : 800) - 96));
+
+  return (
+    <div
+      className="msg-ctx-menu"
+      style={{ left: x, top: y }}
+      onClick={e => e.stopPropagation()}
+    >
+      <button className="msg-ctx-item" onClick={copy}>
+        {copied
+          ? <svg width="14" height="14" viewBox="0 0 16 16" fill="var(--green)"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+          : <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>
+        }
+        <span>{copied ? 'Copied!' : 'Copy'}</span>
+      </button>
+    </div>
+  );
+}
+
 // ── User message ──────────────────────────────────────────────────────────
 
 function AttachmentChip({ att }: { att: Attachment }) {
@@ -85,10 +126,37 @@ function fileIcon(name: string): string {
 
 function UserMessage({ message }: { message: ChatMessage }) {
   const hasAtts = message.attachments && message.attachments.length > 0;
+  const [ctxPos, setCtxPos] = useState<CtxPos | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openCtx = (x: number, y: number) => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
+    setCtxPos({ x, y });
+  };
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    longPressTimer.current = setTimeout(() => openCtx(t.clientX, t.clientY), 480);
+  };
+  const cancelLongPress = () => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  };
+
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    openCtx(e.clientX, e.clientY);
+  };
 
   return (
+    <>
     <div className="msg-row msg-row-user anim-fade-up">
-      <div className="msg-user-bubble">
+      <div
+        className="msg-user-bubble"
+        onTouchStart={onTouchStart}
+        onTouchEnd={cancelLongPress}
+        onTouchMove={cancelLongPress}
+        onContextMenu={onContextMenu}
+      >
         {/* Attachments above text */}
         {hasAtts && (
           <div className="msg-attachments">
@@ -102,6 +170,14 @@ function UserMessage({ message }: { message: ChatMessage }) {
         )}
       </div>
     </div>
+    {ctxPos && (
+      <MsgContextMenu
+        pos={ctxPos}
+        text={message.content || ''}
+        onClose={() => setCtxPos(null)}
+      />
+    )}
+    </>
   );
 }
 

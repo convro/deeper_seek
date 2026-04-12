@@ -101,24 +101,31 @@ export function ToolCallBadge({ tc }: { tc: ToolCallRecord }) {
   );
 }
 
-// ── Event item ────────────────────────────────────────────────────────────
+// ── Event item — terminal-log style ──────────────────────────────────────
 
-const BADGE_STYLES: Record<string, { bg: string; color: string }> = {
-  tool_call:   { bg: '#1d3557',       color: '#4d9ef5' },
-  tool_result: { bg: '#1a3a2a',       color: '#2ea043' },
-  llm_start:   { bg: '#2a1f52',       color: '#a371f7' },
-  reasoning:   { bg: '#3b2a0e',       color: '#d29922' },
-  content:     { bg: 'var(--bg4)',    color: 'var(--text3)' },
-  done:        { bg: '#1a3a2a',       color: '#2ea043' },
-  final:       { bg: '#1a3a2a',       color: '#2ea043' },
-  agent:       { bg: '#2a1f52',       color: '#a371f7' },
-  error:       { bg: '#3a1a1a',       color: '#f85149' },
+const EVENT_DOT_COLOR: Record<string, string> = {
+  tool_call:   'var(--accent)',
+  tool_result: 'var(--green)',
+  done:        'var(--green)',
+  final:       'var(--green)',
+  error:       'var(--red)',
+  agent:       'var(--purple)',
+};
+
+const EVENT_TYPE_LABEL: Record<string, string> = {
+  tool_call:   'CALL',
+  tool_result: 'DONE',
+  done:        'END',
+  final:       'END',
+  error:       'ERR',
+  agent:       'AGNT',
 };
 
 export function EventItem({ event }: { event: AgentEvent }) {
   const [open, setOpen] = useState(false);
-  const style = BADGE_STYLES[event.type] || { bg: 'var(--bg4)', color: 'var(--text2)' };
-  const hasDetail = event.args || event.result || event.error;
+  const dotColor = EVENT_DOT_COLOR[event.type] || 'var(--text4)';
+  const typeLabel = EVENT_TYPE_LABEL[event.type] || event.type.slice(0, 4).toUpperCase();
+  const hasDetail = !!(event.args || event.result || event.error);
 
   return (
     <div>
@@ -127,19 +134,15 @@ export function EventItem({ event }: { event: AgentEvent }) {
         onClick={() => hasDetail && setOpen(o => !o)}
         style={{ cursor: hasDetail ? 'pointer' : 'default' }}
       >
-        <span className="event-item__badge" style={{ background: style.bg, color: style.color }}>
-          {event.type}
-        </span>
+        <span className="event-item__dot" style={{ background: dotColor }} />
+        <span className="event-item__type" style={{ color: dotColor }}>{typeLabel}</span>
         <span className="event-item__tool">
-          {event.tool && <span style={{ color: 'var(--accent)' }}>{event.tool}</span>}
+          {event.tool && <span style={{ color: 'var(--text)' }}>{event.tool}</span>}
           {event.agent_type && <span style={{ color: 'var(--purple)' }}> [{event.agent_type}]</span>}
-          {event.error && <span style={{ color: 'var(--red)' }}> {event.error.slice(0, 60)}</span>}
-          {event.type === 'content' && event.content && (
-            <span style={{ color: 'var(--text3)' }}> {event.content.slice(0, 50)}…</span>
-          )}
+          {event.error && <span style={{ color: 'var(--red)' }}> {event.error.slice(0, 80)}</span>}
           {event.type === 'done' && event.usage && (
             <span style={{ color: 'var(--text3)' }}>
-              {' '}↑{event.usage.prompt_tokens} ↓{event.usage.completion_tokens}
+              {' '}· ↑{event.usage.prompt_tokens} ↓{event.usage.completion_tokens} tok
             </span>
           )}
         </span>
@@ -149,7 +152,7 @@ export function EventItem({ event }: { event: AgentEvent }) {
       </div>
       {open && hasDetail && (
         <div className="event-item__detail anim-slide-down">
-          {JSON.stringify({ args: event.args, result: event.result }, null, 2)}
+          {JSON.stringify({ args: event.args, result: event.result, error: event.error }, null, 2)}
         </div>
       )}
     </div>
