@@ -247,13 +247,13 @@
     },
     "image_analyze": {
       "module": "tools/vision/image_analyze.py",
-      "description": "Analyze an image file using AI vision (Claude or GPT-4o-mini) and return a detailed description. Always use this tool when the user attaches an image or asks about image content. Provides metadata + semantic description.",
+      "description": "Advanced local image analysis tool. ALWAYS call this when the user sends an image or asks about image content. Uses PIL, numpy, OpenCV, and OCR to extract: dominant color palette with names and percentages, brightness/contrast/saturation metrics, full OCR text extraction (pytesseract + easyocr), edge density and sharpness, circle/shape/face detection, per-region 4x4 color and activity map, quadrant analysis, channel histograms, EXIF metadata, and image type classification. Returns a rich structured report that enables the AI to describe and reason about the image.",
       "parameters": {
-        "path": {"type": "string", "description": "Absolute path to the image file (from uploads/images/ directory)"},
-        "question": {"type": "string", "description": "Specific question or instruction for the analysis", "default": "Describe this image in detail. Include what you see, any text, colors, objects, people, context, and any notable features."}
+        "path": {"type": "string", "description": "Absolute path to the saved image file"},
+        "question": {"type": "string", "description": "What to focus on or specific question about the image", "default": "Describe this image in full detail — content, style, colors, text, composition."}
       },
       "required": ["path"],
-      "timeout_ms": 45000
+      "timeout_ms": 60000
     }
   }
 }
