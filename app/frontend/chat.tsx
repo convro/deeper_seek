@@ -233,8 +233,6 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
     setValue('');
     setAttachments([]);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    // Revoke object URLs
-    attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl); });
   }, [value, attachments, disabled, onSend]);
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -262,10 +260,14 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
       };
 
       if (isImage(file.type)) {
-        att.previewUrl = URL.createObjectURL(file);
         if (file.size <= MAX_INLINE_IMAGE_BYTES) {
-          try { att.data = await readFileAsBase64(file); } catch {}
+          try {
+            att.data = await readFileAsBase64(file);
+            // Use data URL — never expires, no blob lifecycle issues
+            att.previewUrl = `data:${file.type};base64,${att.data}`;
+          } catch {}
         }
+        // For oversized images (>5MB): no inline preview, base64 skipped
       } else if (
         file.type.startsWith('text/') ||
         ['application/json', 'application/xml'].includes(file.type) ||
@@ -285,11 +287,7 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
   }, []);
 
   const removeAtt = (localId: string) => {
-    setAttachments(prev => {
-      const att = prev.find(a => a.localId === localId);
-      if (att?.previewUrl) URL.revokeObjectURL(att.previewUrl);
-      return prev.filter(a => a.localId !== localId);
-    });
+    setAttachments(prev => prev.filter(a => a.localId !== localId));
   };
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

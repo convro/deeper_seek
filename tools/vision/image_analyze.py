@@ -24,6 +24,54 @@ from collections import Counter
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
+# ── Auto-install missing packages ─────────────────────────────────────────────
+
+def _ensure_packages():
+    """
+    Install required vision packages on first run if they are missing.
+    Runs silently; individual import errors are handled gracefully later.
+    """
+    import subprocess
+
+    # module_name → pip package name
+    REQUIRED = [
+        ("numpy",        "numpy"),
+        ("PIL",          "Pillow"),
+        ("cv2",          "opencv-python-headless"),
+        ("pytesseract",  "pytesseract"),
+    ]
+
+    missing = []
+    for mod, pkg in REQUIRED:
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(pkg)
+
+    if missing:
+        try:
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade"] + missing,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass  # Tool functions handle ImportError gracefully
+
+    # easyocr is large — install separately, don't fail hard
+    try:
+        __import__("easyocr")
+    except ImportError:
+        try:
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "--quiet", "easyocr"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
+
 # ── Color utilities ───────────────────────────────────────────────────────────
 
 def _name_color(r, g, b):
@@ -384,6 +432,9 @@ def execute(
     question: str = "Describe this image in full detail — content, style, colors, text, composition.",
 ):
     t0 = time.time()
+
+    # Ensure required packages are installed (installs on first run if missing)
+    _ensure_packages()
 
     if not os.path.exists(path):
         return {
