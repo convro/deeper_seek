@@ -265,7 +265,12 @@ function App() {
     ws.on('disconnected', () => setWsConnected(false));
 
     ws.on('*', (event) => {
-      setEvents(prev => [...prev.slice(-500), { ...event, timestamp: new Date().toISOString() }]);
+      // Don't pollute Tool Activity with heartbeat / connection noise
+      const SKIP = new Set(['pong', 'ping', 'connected', 'disconnected', 'llm_start',
+                            'content_delta', 'reasoning_delta']);
+      if (!SKIP.has(event.type)) {
+        setEvents(prev => [...prev.slice(-500), { ...event, timestamp: new Date().toISOString() }]);
+      }
       if (event.type === 'tool_call') setEventsOpen(true);
     });
 

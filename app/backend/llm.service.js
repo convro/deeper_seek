@@ -114,89 +114,118 @@ async function runAgentLoop({
     rounds++;
     logger.debug(`Agent loop round ${rounds}/${maxRounds} — model: ${selectedModel}`);
 
-    // ── Per-call abort controller ───────────────────────────────────────
-    const callController = new AbortController();
-    const callTimer = setTimeout(() => callController.abort(), API_CALL_TIMEOUT_MS);
-    if (signal) {
-      signal.addEventListener('abort', () => callController.abort(), { once: true });
-    }
-
     // ── Streaming accumulators ──────────────────────────────────────────
     let msgContent      = '';
     let msgReasoning    = '';
     const tcAccum       = {};   // index → { id, name, arguments }
     let finishReason    = null;
 
-    try {
-      const stream = await client.chat.completions.create({
-        model:        selectedModel,
-        messages:     fullMessages,
-        tools:        toolDefs.length > 0 ? toolDefs : undefined,
-        tool_choice:  toolDefs.length > 0 ? 'auto'  : undefined,
-        temperature,
-        max_tokens:   maxTokens,
-        stream:       true,
-        stream_options: { include_usage: true },
-      }, { signal: callController.signal });
+    // ── API call with retry on transient network errors ─────────────────
+    const RETRYABLE = new Set(['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']);
+    const MAX_RETRIES = 3;
+    let attempt = 0;
 
-      for await (const chunk of stream) {
-        // Abort mid-stream if requested
-        if (callController.signal.aborted || signal?.aborted) break;
+    while (attempt < MAX_RETRIES) {
+      attempt++;
 
-        // Usage arrives in the final sentinel chunk (no choices)
-        if (chunk.usage) {
-          totalUsage.prompt_tokens      += chunk.usage.prompt_tokens      || 0;
-          totalUsage.completion_tokens  += chunk.usage.completion_tokens  || 0;
-        }
+      // Fresh accumulators on each retry
+      msgContent   = '';
+      msgReasoning = '';
+      Object.keys(tcAccum).forEach(k => delete tcAccum[k]);
+      finishReason = null;
 
-        const choice = chunk.choices?.[0];
-        if (!choice) continue;
+      const callController = new AbortController();
+      const callTimer = setTimeout(() => callController.abort(), API_CALL_TIMEOUT_MS);
+      if (signal) signal.addEventListener('abort', () => callController.abort(), { once: true });
 
-        finishReason = choice.finish_reason || finishReason;
-        const delta = choice.delta || {};
+      let retryThis = false;
 
-        // ── Stream text content ─────────────────────────────────────
-        if (delta.content) {
-          msgContent += delta.content;
-          finalContent = msgContent;
-          emit(onEvent, { type: 'content_delta', delta: delta.content });
-        }
+      try {
+        const stream = await client.chat.completions.create({
+          model:          selectedModel,
+          messages:       fullMessages,
+          tools:          toolDefs.length > 0 ? toolDefs : undefined,
+          tool_choice:    toolDefs.length > 0 ? 'auto'  : undefined,
+          temperature,
+          max_tokens:     maxTokens,
+          stream:         true,
+          stream_options: { include_usage: true },
+        }, { signal: callController.signal });
 
-        // ── Stream reasoning chain (DeepSeek-R1) ────────────────────
-        if (delta.reasoning_content) {
-          msgReasoning += delta.reasoning_content;
-          emit(onEvent, { type: 'reasoning_delta', delta: delta.reasoning_content });
-        }
+        for await (const chunk of stream) {
+          if (callController.signal.aborted || signal?.aborted) break;
 
-        // ── Accumulate tool call chunks ─────────────────────────────
-        if (delta.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            const idx = tc.index ?? 0;
-            if (!tcAccum[idx]) tcAccum[idx] = { id: '', name: '', arguments: '' };
-            if (tc.id)                    tcAccum[idx].id        = tc.id;
-            if (tc.function?.name)        tcAccum[idx].name     += tc.function.name;
-            if (tc.function?.arguments)   tcAccum[idx].arguments += tc.function.arguments;
+          if (chunk.usage) {
+            totalUsage.prompt_tokens     += chunk.usage.prompt_tokens     || 0;
+            totalUsage.completion_tokens += chunk.usage.completion_tokens || 0;
+          }
+
+          const choice = chunk.choices?.[0];
+          if (!choice) continue;
+
+          finishReason = choice.finish_reason || finishReason;
+          const delta = choice.delta || {};
+
+          if (delta.content) {
+            msgContent  += delta.content;
+            finalContent = msgContent;
+            emit(onEvent, { type: 'content_delta', delta: delta.content });
+          }
+
+          if (delta.reasoning_content) {
+            msgReasoning += delta.reasoning_content;
+            emit(onEvent, { type: 'reasoning_delta', delta: delta.reasoning_content });
+          }
+
+          if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0;
+              if (!tcAccum[idx]) tcAccum[idx] = { id: '', name: '', arguments: '' };
+              if (tc.id)                   tcAccum[idx].id        = tc.id;
+              if (tc.function?.name)       tcAccum[idx].name     += tc.function.name;
+              if (tc.function?.arguments)  tcAccum[idx].arguments += tc.function.arguments;
+            }
           }
         }
+
+      } catch (err) {
+        clearTimeout(callTimer);
+
+        // Abort / timeout
+        if (err.name === 'AbortError' || err.code === 'ERR_CANCELED' || callController.signal.aborted) {
+          const msg = `DeepSeek API call timed out after ${API_CALL_TIMEOUT_MS / 60000} minutes`;
+          logger.error(msg);
+          emit(onEvent, { type: 'error', error: msg });
+          finalContent = finalContent || 'Request timed out. Please try again or break the task into smaller steps.';
+          emit(onEvent, { type: 'done', content: finalContent, rounds, usage: totalUsage });
+          return { content: finalContent, usage: totalUsage, rounds }; // exit loop entirely
+        }
+
+        // Transient network error — retry with backoff
+        if (RETRYABLE.has(err.code) && attempt < MAX_RETRIES) {
+          const delay = attempt * 1000;
+          logger.warn(`Network error (${err.code}), retry ${attempt}/${MAX_RETRIES - 1} in ${delay}ms`);
+          emit(onEvent, { type: 'content_delta', delta: attempt === 1
+            ? `\n\n_(Connection interrupted, retrying…)_\n\n`
+            : '' });
+          await new Promise(r => setTimeout(r, delay));
+          retryThis = true;
+        } else {
+          // Non-retryable or exhausted retries
+          logger.error('DeepSeek API error', err);
+          const friendlyMsg = RETRYABLE.has(err.code)
+            ? `Connection to DeepSeek was reset (${err.code}). Please try again.`
+            : err.message;
+          emit(onEvent, { type: 'error', error: friendlyMsg });
+          finalContent = finalContent || '';
+          emit(onEvent, { type: 'done', content: finalContent, rounds, usage: totalUsage });
+          return { content: finalContent, usage: totalUsage, rounds }; // exit loop entirely
+        }
+      } finally {
+        clearTimeout(callTimer);
       }
 
-    } catch (err) {
-      clearTimeout(callTimer);
-
-      if (err.name === 'AbortError' || err.code === 'ERR_CANCELED' || callController.signal.aborted) {
-        const msg = `DeepSeek API call timed out after ${API_CALL_TIMEOUT_MS / 60000} minutes`;
-        logger.error(msg);
-        emit(onEvent, { type: 'error', error: msg });
-        finalContent = finalContent || 'Request timed out. Please try again or break the task into smaller steps.';
-        emit(onEvent, { type: 'done', content: finalContent, rounds, usage: totalUsage });
-        break;
-      }
-
-      logger.error('DeepSeek API error', err);
-      emit(onEvent, { type: 'error', error: err.message });
-      throw err;
-    } finally {
-      clearTimeout(callTimer);
+      if (!retryThis) break; // success — exit retry loop
     }
 
     // ── Build tool_calls array from accumulated deltas ──────────────────
