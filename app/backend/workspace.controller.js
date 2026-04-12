@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const WORKSPACE_ROOT = path.join(__dirname, '../../workspace/jobs');
+const WORKSPACE_ROOT = path.join(__dirname, '../../workspace');
 
 function listJobs(req, res) {
   try {
@@ -11,7 +11,12 @@ function listJobs(req, res) {
       return res.json({ jobs: [] });
     }
     const jobs = fs.readdirSync(WORKSPACE_ROOT)
-      .filter(d => fs.statSync(path.join(WORKSPACE_ROOT, d)).isDirectory())
+      .filter(d => {
+        if (!fs.statSync(path.join(WORKSPACE_ROOT, d)).isDirectory()) return false;
+        // Skip legacy 'jobs/' subdirectory and any dir without a meta.json
+        const metaPath = path.join(WORKSPACE_ROOT, d, 'context', 'meta.json');
+        return fs.existsSync(metaPath);
+      })
       .map(jobId => {
         const metaPath = path.join(WORKSPACE_ROOT, jobId, 'context', 'meta.json');
         let meta = { job_id: jobId };

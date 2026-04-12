@@ -100,21 +100,41 @@ router.get('/preview/*', (req, res) => {
     .filter(p => p !== '..' && p !== '.')
     .join('/');
 
-  // Resolve relative to PROJECT_ROOT (not WORKSPACE_ROOT — the URL already
-  // contains "workspace/" prefix so we must NOT double it)
-  const fullPath = path.join(PROJECT_ROOT, safeSeg);
-
-  // Security: only files inside workspace/ are allowed
   const allowedRoot = path.join(PROJECT_ROOT, 'workspace') + path.sep;
-  if (!fullPath.startsWith(allowedRoot)) {
+
+  // Primary path: PROJECT_ROOT/{safeSeg} (e.g. workspace/{jobId}/output/...)
+  const primaryPath = path.join(PROJECT_ROOT, safeSeg);
+
+  // Fallback path: workspace/jobs/{jobId}/... for legacy workspaces.
+  // URL segment "workspace/{jobId}/..." → legacy "workspace/jobs/{jobId}/..."
+  let legacyPath = null;
+  const workspacePrefix = 'workspace/';
+  if (safeSeg.startsWith(workspacePrefix)) {
+    legacyPath = path.join(PROJECT_ROOT, 'workspace', 'jobs', safeSeg.slice(workspacePrefix.length));
+  }
+
+  // Security: candidate must be inside workspace/
+  function isSafe(p) {
+    return p && p.startsWith(allowedRoot);
+  }
+
+  function isFile(p) {
+    try { return p && fs.existsSync(p) && fs.statSync(p).isFile(); } catch { return false; }
+  }
+
+  if (!isSafe(primaryPath) && !isSafe(legacyPath)) {
     return res.status(403).send('Forbidden');
   }
 
-  if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
+  const resolvedPath = isFile(primaryPath) ? primaryPath
+    : isFile(legacyPath)                   ? legacyPath
+    : null;
+
+  if (!resolvedPath) {
     return res.status(404).send('File not found');
   }
 
-  res.sendFile(fullPath);
+  res.sendFile(resolvedPath);
 });
 
 // ── Health ───────────────────────────────────────

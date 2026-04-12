@@ -6,7 +6,7 @@ from datetime import datetime
 
 
 WORKSPACE_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "../../workspace/jobs")
+    os.path.join(os.path.dirname(__file__), "../../workspace")
 )
 
 
