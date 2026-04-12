@@ -429,12 +429,29 @@ function App() {
 
   // ── Viewport height CSS var (fixes iOS keyboard gap) ─────────────────
   useEffect(() => {
-    const setH = () => {
-      document.documentElement.style.setProperty('--app-h', window.innerHeight + 'px');
+    const vv = window.visualViewport;
+    const update = () => {
+      const h   = vv ? vv.height    : window.innerHeight;
+      const top = vv ? vv.offsetTop : 0;
+      const el  = document.documentElement;
+      el.style.setProperty('--app-h',   h   + 'px');
+      el.style.setProperty('--app-top', top + 'px');
     };
-    setH();
-    window.addEventListener('resize', setH, { passive: true });
-    return () => window.removeEventListener('resize', setH);
+    update();
+    if (vv) {
+      vv.addEventListener('resize', update, { passive: true });
+      vv.addEventListener('scroll', update, { passive: true });
+    } else {
+      window.addEventListener('resize', update, { passive: true });
+    }
+    return () => {
+      if (vv) {
+        vv.removeEventListener('resize', update);
+        vv.removeEventListener('scroll', update);
+      } else {
+        window.removeEventListener('resize', update);
+      }
+    };
   }, []);
 
   // ── Init ──────────────────────────────────────────────────────────────
