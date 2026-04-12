@@ -444,6 +444,17 @@ function App() {
       const top = vv ? vv.offsetTop : 0;
       root.style.height = h + 'px';
       root.style.top    = top + 'px';
+
+      // Detect virtual keyboard: visual viewport much shorter than layout
+      const kbOpen = vv ? vv.height < window.innerHeight * 0.85 : false;
+      document.body.classList.toggle('keyboard-open', kbOpen);
+
+      // Keep messages pinned to bottom when keyboard opens
+      if (kbOpen) {
+        const ml = document.querySelector('.messages-list');
+        if (ml) ml.scrollTop = ml.scrollHeight;
+      }
+
       // Kill any residual document-level scroll iOS may have introduced
       window.scrollTo(0, 0);
     };

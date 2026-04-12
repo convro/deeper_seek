@@ -465,6 +465,8 @@ img { max-width: 100%; }
   pointer-events: none;
   z-index: 1;
 }
+/* Hide the gradient when keyboard is up — save vertical space */
+body.keyboard-open .messages-wrapper::after { display: none; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    CHAT
@@ -727,6 +729,12 @@ img { max-width: 100%; }
   flex-shrink: 0;
   position: relative;
   z-index: 2;
+}
+
+/* When iOS keyboard is open the home-indicator safe area is behind the
+   keyboard → drop the extra bottom padding so the input sits flush. */
+body.keyboard-open .input-area {
+  padding-bottom: 4px;
 }
 
 .input-att-preview {
