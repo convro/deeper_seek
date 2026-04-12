@@ -23,15 +23,23 @@ from collections import Counter
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# Flag file: once packages are installed this file is created → skip install on next call
+_INSTALLED_FLAG = PROJECT_ROOT / "runtime" / ".vision_packages_ok"
+
 
 # ── Auto-install missing packages ─────────────────────────────────────────────
 
 def _ensure_packages():
     """
     Install required vision packages on first run if they are missing.
-    Runs silently; individual import errors are handled gracefully later.
+    After successful install, writes a flag file so subsequent calls skip
+    the installation check (fast path, no subprocess overhead).
     """
     import subprocess
+
+    # Fast path: already installed in a previous run
+    if _INSTALLED_FLAG.exists():
+        return
 
     # module_name → pip package name
     REQUIRED = [
@@ -58,7 +66,7 @@ def _ensure_packages():
         except Exception:
             pass  # Tool functions handle ImportError gracefully
 
-    # easyocr is large — install separately, don't fail hard
+    # easyocr is large — install separately, best-effort
     try:
         __import__("easyocr")
     except ImportError:
@@ -70,6 +78,14 @@ def _ensure_packages():
             )
         except Exception:
             pass
+
+    # Verify core packages are now importable, then write flag
+    try:
+        import numpy  # noqa
+        from PIL import Image  # noqa
+        _INSTALLED_FLAG.touch()
+    except ImportError:
+        pass  # Flag not written → will retry next call
 
 
 # ── Color utilities ───────────────────────────────────────────────────────────

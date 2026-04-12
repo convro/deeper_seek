@@ -10,9 +10,32 @@ const sessionSockets = new Map();
 const socketSessions = new Map();
 
 function initWebSocket(httpServer) {
-  wss.server = new WebSocket.Server({ server: httpServer, path: '/ws' });
+  wss.server = new WebSocket.Server({
+    server: httpServer,
+    path: '/ws',
+    // Disable built-in per-message compression to reduce overhead
+    perMessageDeflate: false,
+  });
+
+  // Server-side heartbeat: ping all clients every 30s.
+  // Terminate any client that hasn't responded to the previous ping.
+  const heartbeatInterval = setInterval(() => {
+    wss.server.clients.forEach((ws) => {
+      if (ws.isAlive === false) {
+        ws.terminate();
+        return;
+      }
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30_000);
+
+  wss.server.on('close', () => clearInterval(heartbeatInterval));
 
   wss.server.on('connection', (ws, req) => {
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+
     const url = new URL(req.url, `http://localhost`);
     const sessionId = url.searchParams.get('session_id') || `anon-${Date.now()}`;
 
@@ -28,6 +51,7 @@ function initWebSocket(httpServer) {
     }));
 
     ws.on('message', (raw) => {
+      ws.isAlive = true; // any message = connection alive
       try {
         const msg = JSON.parse(raw.toString());
         handleClientMessage(ws, sessionId, msg);

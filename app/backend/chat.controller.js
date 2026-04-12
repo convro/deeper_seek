@@ -18,6 +18,9 @@ fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 // In-memory cache for fast access
 const sessions = new Map();
 
+// Per-session abort controllers — cancel previous loop when a new message arrives
+const sessionAbortControllers = new Map();
+
 function sessionPath(id) {
   return path.join(SESSIONS_DIR, `${id}.json`);
 }
@@ -135,7 +138,10 @@ async function sendMessage(req, res) {
         try {
           const ext = att.name.split('.').pop() || 'jpg';
           const filename = `${Date.now()}-${uuidv4().slice(0, 8)}.${ext}`;
-          const imgPath = path.join(UPLOADS_IMAGES_DIR, filename);
+          // Store in session-specific subdirectory to prevent cross-session discovery
+          const sessionImagesDir = path.join(UPLOADS_IMAGES_DIR, sessionId.slice(0, 12));
+          fs.mkdirSync(sessionImagesDir, { recursive: true });
+          const imgPath = path.join(sessionImagesDir, filename);
           fs.writeFileSync(imgPath, Buffer.from(att.data, 'base64'));
           attachmentNotes.push(
             `[Image attached: "${att.name}" → saved at ${imgPath}]\n` +
@@ -166,6 +172,15 @@ async function sendMessage(req, res) {
   session.updated_at = new Date().toISOString();
   saveSession(session);
 
+  // Abort any previously running loop for this session (e.g. user sent new message)
+  const prevController = sessionAbortControllers.get(sessionId);
+  if (prevController) {
+    prevController.abort();
+    sessionAbortControllers.delete(sessionId);
+  }
+  const abortController = new AbortController();
+  sessionAbortControllers.set(sessionId, abortController);
+
   const ws = getWsForSession(sessionId);
   res.json({ session_id: sessionId, status: 'processing', title: session.title });
 
@@ -173,8 +188,10 @@ async function sendMessage(req, res) {
   setImmediate(async () => {
     try {
       const onEvent = (event) => {
-        if (ws && ws.readyState === 1) {
-          try { ws.send(JSON.stringify({ session_id: sessionId, ...event })); } catch {}
+        // Re-resolve WS each event in case it reconnected
+        const activeWs = getWsForSession(sessionId);
+        if (activeWs && activeWs.readyState === 1) {
+          try { activeWs.send(JSON.stringify({ session_id: sessionId, ...event })); } catch {}
         }
         if (event.type === 'tool_call') {
           logger.tool(`[${sessionId}] Tool: ${event.tool}(${JSON.stringify(event.args).slice(0, 100)})`);
@@ -188,6 +205,7 @@ async function sendMessage(req, res) {
         agentType: null,
         model: model || null,
         onEvent,
+        signal: abortController.signal,
         maxRounds: 50,
       });
 
@@ -213,14 +231,20 @@ async function sendMessage(req, res) {
       logger.info(`[${sessionId}] Completed in ${result.rounds} rounds`);
     } catch (err) {
       logger.error(`[${sessionId}] Agent loop failed`, err);
-      if (ws && ws.readyState === 1) {
+      const activeWs = getWsForSession(sessionId);
+      if (activeWs && activeWs.readyState === 1) {
         try {
-          ws.send(JSON.stringify({
+          activeWs.send(JSON.stringify({
             session_id: sessionId,
             type: 'error',
             error: err.message,
           }));
         } catch {}
+      }
+    } finally {
+      // Clean up abort controller if it's still ours
+      if (sessionAbortControllers.get(sessionId) === abortController) {
+        sessionAbortControllers.delete(sessionId);
       }
     }
   });

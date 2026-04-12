@@ -253,7 +253,7 @@
         "question": {"type": "string", "description": "What to focus on or specific question about the image", "default": "Describe this image in full detail — content, style, colors, text, composition."}
       },
       "required": ["path"],
-      "timeout_ms": 60000
+      "timeout_ms": 300000
     }
   }
 }

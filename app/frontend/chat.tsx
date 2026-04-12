@@ -236,7 +236,11 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
   }, [value, attachments, disabled, onSend]);
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+    // Ctrl+Enter or Cmd+Enter → send; plain Enter → newline (natural textarea behavior)
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      submit();
+    }
   };
 
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -382,7 +386,7 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
       </div>
 
       <div className="input-hint">
-        Enter to send · Shift+Enter for new line · Paste or drop files to attach
+        Ctrl+Enter to send · Enter for new line · Paste or drop files to attach
       </div>
     </div>
   );
