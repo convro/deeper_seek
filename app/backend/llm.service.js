@@ -201,13 +201,10 @@ async function runAgentLoop({
           return { content: finalContent, usage: totalUsage, rounds }; // exit loop entirely
         }
 
-        // Transient network error — retry with backoff
+        // Transient network error — retry silently with backoff
         if (RETRYABLE.has(err.code) && attempt < MAX_RETRIES) {
           const delay = attempt * 1000;
           logger.warn(`Network error (${err.code}), retry ${attempt}/${MAX_RETRIES - 1} in ${delay}ms`);
-          emit(onEvent, { type: 'content_delta', delta: attempt === 1
-            ? `\n\n_(Connection interrupted, retrying…)_\n\n`
-            : '' });
           await new Promise(r => setTimeout(r, delay));
           retryThis = true;
         } else {
