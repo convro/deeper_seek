@@ -488,11 +488,6 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
           placeholder={disabled ? 'DeeperSeek is working…' : 'Message DeeperSeek… (or drop files here)'}
           rows={1}
           className="input-textarea"
-          onFocus={() => {
-            // iOS Safari scrolls the layout viewport to reveal the focused input.
-            // Counter-scroll immediately so the header stays visible.
-            requestAnimationFrame(() => { window.scrollTo(0, 0); });
-          }}
         />
 
         {/* Send button */}

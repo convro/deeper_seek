@@ -123,9 +123,7 @@ img { max-width: 100%; }
 .app-root {
   display: flex;
   overflow: hidden;
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  height: var(--app-h, 100dvh);
+  height: 100%;
 }
 
 /* ── Sidebar backdrop (mobile) ───────────────────────────────────────────── */

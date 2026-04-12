@@ -427,22 +427,22 @@ function App() {
     setConvsLoading(false);
   }, []);
 
-  // ── Viewport height CSS var (fixes iOS keyboard gap) ─────────────────
+  // ── Sync html height to visual viewport (iOS keyboard fix) ───────────
+  // We avoid position:fixed on .app-root because iOS pans the visual
+  // viewport when an input is focused, making fixed elements scroll off.
+  // Instead: html height = vv.height so the 100% chain shrinks naturally.
   useEffect(() => {
     const vv = window.visualViewport;
     const update = () => {
-      const h = vv ? vv.height : window.innerHeight;
-      document.documentElement.style.setProperty('--app-h', h + 'px');
+      document.documentElement.style.height =
+        (vv ? vv.height : window.innerHeight) + 'px';
     };
     update();
-    if (vv) {
-      vv.addEventListener('resize', update, { passive: true });
-    } else {
-      window.addEventListener('resize', update, { passive: true });
-    }
+    if (vv) vv.addEventListener('resize', update, { passive: true });
+    else    window.addEventListener('resize', update, { passive: true });
     return () => {
       if (vv) vv.removeEventListener('resize', update);
-      else window.removeEventListener('resize', update);
+      else    window.removeEventListener('resize', update);
     };
   }, []);
 
