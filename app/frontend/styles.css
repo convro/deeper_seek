@@ -124,8 +124,7 @@ img { max-width: 100%; }
   display: flex;
   overflow: hidden;
   position: fixed;
-  top: var(--app-top, 0px);
-  left: 0; right: 0;
+  top: 0; left: 0; right: 0;
   height: var(--app-h, 100dvh);
 }
 

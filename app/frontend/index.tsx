@@ -431,26 +431,18 @@ function App() {
   useEffect(() => {
     const vv = window.visualViewport;
     const update = () => {
-      const h   = vv ? vv.height    : window.innerHeight;
-      const top = vv ? vv.offsetTop : 0;
-      const el  = document.documentElement;
-      el.style.setProperty('--app-h',   h   + 'px');
-      el.style.setProperty('--app-top', top + 'px');
+      const h = vv ? vv.height : window.innerHeight;
+      document.documentElement.style.setProperty('--app-h', h + 'px');
     };
     update();
     if (vv) {
       vv.addEventListener('resize', update, { passive: true });
-      vv.addEventListener('scroll', update, { passive: true });
     } else {
       window.addEventListener('resize', update, { passive: true });
     }
     return () => {
-      if (vv) {
-        vv.removeEventListener('resize', update);
-        vv.removeEventListener('scroll', update);
-      } else {
-        window.removeEventListener('resize', update);
-      }
+      if (vv) vv.removeEventListener('resize', update);
+      else window.removeEventListener('resize', update);
     };
   }, []);
 
