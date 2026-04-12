@@ -51,6 +51,12 @@
 
 /* ── Reset ──────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html {
+  height: 100%;
+  /* Prevent iOS from scrolling the root document at all */
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 html, body, #root { height: 100%; }
 body {
   background: var(--bg);
@@ -61,6 +67,10 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
+  overscroll-behavior: none;
+  /* iOS Safari: prevent body from scrolling when keyboard opens */
+  position: fixed;
+  width: 100%;
 }
 button { font-family: inherit; cursor: pointer; }
 textarea, input { font-family: inherit; }
@@ -118,11 +128,13 @@ img { max-width: 100%; }
 .app-root {
   display: flex;
   overflow: hidden;
-  /* position:fixed+inset:0 keeps the layout anchored to the visual
-     viewport on iOS — the keyboard opening no longer scrolls/pushes
-     the header and conversation off-screen. */
   position: fixed;
-  inset: 0;
+  top: 0; left: 0; right: 0;
+  /* --vvh is updated by JS via the Visual Viewport API so height
+     tracks the visible area precisely when the mobile keyboard opens.
+     Falls back to 100dvh (shrinks with keyboard on modern browsers)
+     and then 100vh as last resort. */
+  height: var(--vvh, 100dvh);
 }
 
 /* ── Sidebar backdrop (mobile) ───────────────────────────────────────────── */
@@ -527,6 +539,8 @@ img { max-width: 100%; }
   display: flex;
   flex-direction: column;
   gap: 4px;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ── Message rows ────────────────────────────────────────────────────────── */

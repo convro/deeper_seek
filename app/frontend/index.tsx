@@ -427,6 +427,25 @@ function App() {
     setConvsLoading(false);
   }, []);
 
+  // ── Visual Viewport API — keeps app-root height = visible area ───────
+  // This is the reliable iOS Safari keyboard fix. Without it, the browser
+  // scrolls the page when the keyboard opens, pushing the header off-screen.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      // Set CSS variable that .app-root uses for its height
+      document.documentElement.style.setProperty('--vvh', `${vv.height}px`);
+    };
+    vv.addEventListener('resize', update, { passive: true });
+    vv.addEventListener('scroll', update, { passive: true });
+    update(); // initial value
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+
   // ── Init ──────────────────────────────────────────────────────────────
   useEffect(() => {
     loadConversations();
