@@ -19,8 +19,11 @@ const BASE_URL = 'https://api.deepseek.com';
 // Timeout budgets
 const LOOP_TIMEOUT_MS     = 20 * 60 * 1000; // 20 min overall budget per loop
 const API_CALL_TIMEOUT_MS =  5 * 60 * 1000; // 5 min per single API call (streaming)
-const LOOP_DETECTION_WINDOW = 8;
-const LOOP_DETECTION_MAX    = 3;
+const LOOP_DETECTION_WINDOW = 12;
+const LOOP_DETECTION_MAX    = 6;
+// Polling tools (e.g. agent_status) are inherently repetitive — higher threshold
+const POLLING_TOOLS = new Set(['agent_status']);
+const POLLING_LOOP_MAX = 15;
 
 function createClient() {
   const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -266,9 +269,10 @@ async function runAgentLoop({
       if (recentToolSignatures.length > LOOP_DETECTION_WINDOW * 2) {
         recentToolSignatures.splice(0, recentToolSignatures.length - LOOP_DETECTION_WINDOW * 2);
       }
-      const window     = recentToolSignatures.slice(-LOOP_DETECTION_WINDOW);
-      const repeatCount = window.filter(s => s === sig).length;
-      if (repeatCount >= LOOP_DETECTION_MAX) {
+      const sigWindow   = recentToolSignatures.slice(-LOOP_DETECTION_WINDOW);
+      const repeatCount = sigWindow.filter(s => s === sig).length;
+      const maxAllowed  = POLLING_TOOLS.has(toolName) ? POLLING_LOOP_MAX : LOOP_DETECTION_MAX;
+      if (repeatCount >= maxAllowed) {
         logger.warn(`Loop detected: ${toolName} called ${repeatCount}× with identical args`);
         emit(onEvent, {
           type:  'error',

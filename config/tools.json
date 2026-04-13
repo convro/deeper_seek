@@ -196,12 +196,22 @@
     },
     "agent_status": {
       "module": "tools/agents/agent_status.py",
-      "description": "Check status of a running async agent",
+      "description": "Check status of a running async agent (instant, non-blocking)",
       "parameters": {
         "agent_id": {"type": "string", "description": "Agent ID to check"}
       },
       "required": ["agent_id"],
       "timeout_ms": 3000
+    },
+    "agent_wait": {
+      "module": "tools/agents/agent_wait.py",
+      "description": "Wait for an async agent to finish and return its result. Preferred over polling agent_status in a loop.",
+      "parameters": {
+        "agent_id": {"type": "string", "description": "Agent ID to wait for"},
+        "timeout": {"type": "integer", "description": "Max seconds to wait (default 300)", "default": 300}
+      },
+      "required": ["agent_id"],
+      "timeout_ms": 310000
     },
     "task_split": {
       "module": "tools/orchestration/task_split.py",

@@ -139,9 +139,10 @@ Need to run Python code?       → run_python
 Need to run a shell command?   → run_bash
 Need to run JavaScript?        → run_node
 Need to look something up?     → web_search, then web_fetch for details
-Need to do parallel research?  → agent_spawn(worker_research, async=true) × N
+Need to do parallel research?  → agent_spawn(worker_research, async=true) × N, then agent_wait each
 Need to write complex code?    → agent_spawn(worker_code, task)
 Need to validate your output?  → agent_spawn(socrates, task) or agent_spawn(critic, task)
+Need to wait for async agent?  → agent_wait(agent_id) — blocks until done, returns result
 Need to remember something?    → memory_store
 Need to recall something?      → memory_get or memory_search
 User sent an image?            → image_analyze(path=<saved path from message>)
@@ -180,8 +181,10 @@ You can spawn these agents:
 **Parallel spawning:**
 ```
 For independent tasks A, B, C → spawn all three with async_mode=true
-Collect agent_ids → poll with agent_status → wait for all → merge results
+Collect agent_ids → call agent_wait(agent_id) for each → merge results
 ```
+
+**IMPORTANT — do NOT poll agent_status in a loop.** Use `agent_wait` instead — it blocks until the agent finishes and returns the result in one call. Use `agent_status` only for quick non-blocking checks (e.g. showing progress to the user).
 
 ---
 
