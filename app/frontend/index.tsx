@@ -315,7 +315,6 @@ function App() {
       if (!SKIP.has(event.type)) {
         setEvents(prev => [...prev.slice(-500), { ...event, timestamp: new Date().toISOString() }]);
       }
-      if (event.type === 'tool_call') setEventsOpen(true);
     });
 
     ws.on('llm_start', () => {
