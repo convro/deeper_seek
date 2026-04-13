@@ -110,6 +110,19 @@
       "required": ["url"],
       "timeout_ms": 30000
     },
+    "image_search": {
+      "module": "tools/web/image_search.py",
+      "description": "Search and download high-quality HD images from Unsplash/Pexels/Pixabay. Use for any project needing real photos, backgrounds, illustrations. Downloads directly to a directory. No copyright restrictions.",
+      "parameters": {
+        "query": {"type": "string", "description": "Search keywords (e.g. 'african gold mine landscape', 'modern office interior')"},
+        "num_images": {"type": "integer", "default": 5, "description": "Number of images to download (1-15)"},
+        "save_dir": {"type": "string", "description": "Directory to save images (auto-created if empty)"},
+        "min_width": {"type": "integer", "default": 800, "description": "Minimum image width in pixels"},
+        "orientation": {"type": "string", "enum": ["any", "landscape", "portrait", "square"], "default": "any"}
+      },
+      "required": ["query"],
+      "timeout_ms": 120000
+    },
     "web_search": {
       "module": "tools/web/web_search.py",
       "description": "Search the web using DuckDuckGo and return results",

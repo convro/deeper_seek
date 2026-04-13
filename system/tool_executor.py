@@ -43,9 +43,12 @@ TOOL_MAP = {
     "memory_store":       "tools/memory/memory_store.py",
     "memory_get":         "tools/memory/memory_get.py",
     "memory_search":      "tools/memory/memory_vector_search.py",
+    # Web — images
+    "image_search":       "tools/web/image_search.py",
     # Agents
     "agent_spawn":        "tools/agents/agent_spawn.py",
     "agent_status":       "tools/agents/agent_status.py",
+    "agent_wait":         "tools/agents/agent_wait.py",
     # Analysis
     "code_analyzer":      "tools/analysis/code_analyzer.py",
     "repo_scanner":       "tools/analysis/repo_scanner.py",
@@ -55,6 +58,26 @@ TOOL_MAP = {
     # Vision
     "image_analyze":      "tools/vision/image_analyze.py",
 }
+
+
+# Common module→pip mappings for auto-install
+_PKG_MAP = {
+    "PIL": "Pillow", "cv2": "opencv-python-headless", "skimage": "scikit-image",
+    "sklearn": "scikit-learn", "yaml": "pyyaml", "bs4": "beautifulsoup4",
+    "pytesseract": "pytesseract", "easyocr": "easyocr", "numpy": "numpy",
+    "scipy": "scipy", "requests": "requests", "pandas": "pandas",
+    "matplotlib": "matplotlib", "lxml": "lxml", "chardet": "chardet",
+}
+
+
+def _guess_package(error_msg: str) -> str:
+    """Guess pip package name from ImportError message."""
+    import re
+    match = re.search(r"No module named ['\"]?([a-zA-Z0-9_]+)", error_msg)
+    if match:
+        mod = match.group(1)
+        return _PKG_MAP.get(mod, mod)
+    return None
 
 
 def load_module(module_path: str):
@@ -101,6 +124,31 @@ def execute_tool(tool_name: str, args: dict) -> dict:
                 'duration_ms': int((time.time() - start) * 1000),
             }
         return result
+    except ImportError as e:
+        # Auto-install missing package and retry once
+        pkg = _guess_package(str(e))
+        if pkg:
+            try:
+                import subprocess
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", "--quiet", pkg],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                # Retry after install
+                module = load_module(module_path)
+                result = module.execute(**args)
+                if isinstance(result, dict):
+                    result.setdefault('metadata', {})['auto_installed'] = pkg
+                    result['metadata']['duration_ms'] = int((time.time() - start) * 1000)
+                return result
+            except Exception:
+                pass
+        return {
+            "status": "error",
+            "result": None,
+            "error": f"Missing Python package for {tool_name}: {e}. Auto-install failed.",
+            "metadata": {"tool": tool_name, "duration_ms": int((time.time() - start) * 1000)},
+        }
     except TypeError as e:
         # Wrong arguments — helpful message
         import inspect

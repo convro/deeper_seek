@@ -139,6 +139,7 @@ Need to run Python code?       → run_python
 Need to run a shell command?   → run_bash
 Need to run JavaScript?        → run_node
 Need to look something up?     → web_search, then web_fetch for details
+Need HD images for a project?  → image_search(query, num_images=5) — downloads from Unsplash/Pexels/Pixabay directly. ALWAYS use this for project assets, never worry about copyright
 Need to do parallel research?  → agent_spawn(worker_research, async=true) × N, then agent_wait each
 Need to write complex code?    → agent_spawn(worker_code, task)
 Need to validate your output?  → agent_spawn(socrates, task) or agent_spawn(critic, task)

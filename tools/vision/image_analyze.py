@@ -409,6 +409,135 @@ def _cv_analysis(img_path):
         return {"error": str(e), "traceback": traceback.format_exc()[-400:]}
 
 
+# ── Scene & texture analysis ─────────────────────────────────────────────────
+
+def _scene_analysis(img_path):
+    """Analyze scene characteristics — indoor/outdoor, natural/artificial, etc."""
+    try:
+        import cv2
+        import numpy as np
+
+        img = cv2.imread(str(img_path))
+        if img is None:
+            return {}
+
+        H, W = img.shape[:2]
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        out = {}
+
+        # ── Color distribution in HSV ──
+        h_hist = cv2.calcHist([hsv], [0], None, [18], [0, 180]).flatten()
+        s_hist = cv2.calcHist([hsv], [1], None, [8], [0, 256]).flatten()
+        v_hist = cv2.calcHist([hsv], [2], None, [8], [0, 256]).flatten()
+        total = H * W
+        out["hsv_hue_distribution"] = {
+            f"{i*10}-{(i+1)*10}deg": round(float(h_hist[i]) / total * 100, 1)
+            for i in range(18) if h_hist[i] / total > 0.02
+        }
+
+        # ── Sky detection (top 20% of image, blue/white hues) ──
+        top_strip = hsv[:H // 5, :, :]
+        blue_mask = cv2.inRange(top_strip, (90, 30, 80), (130, 255, 255))
+        white_mask = cv2.inRange(top_strip, (0, 0, 200), (180, 30, 255))
+        sky_pct = float(np.sum(blue_mask > 0) + np.sum(white_mask > 0)) / (H // 5 * W) * 100
+        out["sky_detected"] = sky_pct > 30
+        out["sky_coverage_pct"] = round(sky_pct, 1)
+
+        # ── Green/vegetation detection ──
+        green_lower = np.array([30, 30, 30])
+        green_upper = np.array([85, 255, 255])
+        green_mask = cv2.inRange(hsv, green_lower, green_upper)
+        green_pct = float(np.sum(green_mask > 0)) / total * 100
+        out["vegetation_pct"] = round(green_pct, 1)
+        out["has_vegetation"] = green_pct > 10
+
+        # ── Skin tone detection ──
+        skin_lower = np.array([0, 20, 70])
+        skin_upper = np.array([20, 180, 255])
+        skin_mask = cv2.inRange(hsv, skin_lower, skin_upper)
+        skin_pct = float(np.sum(skin_mask > 0)) / total * 100
+        out["skin_tone_pct"] = round(skin_pct, 1)
+        out["likely_has_people"] = skin_pct > 8
+
+        # ── Indoor/outdoor heuristic ──
+        outdoor_score = 0
+        if sky_pct > 20: outdoor_score += 3
+        if green_pct > 15: outdoor_score += 2
+        if float(np.mean(gray)) > 130: outdoor_score += 1  # brighter = likely outdoor
+        out["scene_type"] = "likely outdoor" if outdoor_score >= 3 else "likely indoor" if outdoor_score <= 1 else "ambiguous"
+
+        # ── Texture analysis via LBP-like variance ──
+        # High local variance = complex textures, low = smooth surfaces
+        kernel = np.ones((5, 5), np.float32) / 25
+        local_mean = cv2.filter2D(gray.astype(np.float32), -1, kernel)
+        local_var = cv2.filter2D((gray.astype(np.float32) - local_mean) ** 2, -1, kernel)
+        avg_texture = float(np.mean(local_var))
+        out["texture_complexity"] = round(avg_texture, 1)
+        out["texture_label"] = (
+            "very smooth (flat colors, gradients)" if avg_texture < 100
+            else "smooth (illustrations, clean design)" if avg_texture < 400
+            else "moderate (mixed content)" if avg_texture < 1200
+            else "rough (natural textures, foliage)" if avg_texture < 3000
+            else "very complex (detailed photo, noise)"
+        )
+
+        # ── Line detection (straight lines = architecture/man-made) ──
+        edges = cv2.Canny(gray, 50, 150)
+        lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, minLineLength=50, maxLineGap=10)
+        n_lines = len(lines) if lines is not None else 0
+        out["straight_lines"] = n_lines
+        out["geometric_score"] = (
+            "high (architecture/man-made)" if n_lines > 40
+            else "moderate" if n_lines > 15
+            else "low (organic/natural)"
+        )
+
+        # ── Dominant object estimation via largest contours ──
+        cnts, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if cnts:
+            sorted_cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
+            objects = []
+            for c in sorted_cnts[:5]:
+                area = cv2.contourArea(c)
+                area_pct = area / total * 100
+                if area_pct < 0.5:
+                    break
+                x, y, w, h = cv2.boundingRect(c)
+                cx, cy = (x + w // 2) / W * 100, (y + h // 2) / H * 100
+                aspect = w / (h + 1)
+                objects.append({
+                    "area_pct": round(area_pct, 1),
+                    "center": f"{cx:.0f}%,{cy:.0f}%",
+                    "aspect": round(aspect, 2),
+                    "position": _position_label(cx, cy),
+                })
+            out["dominant_objects"] = objects
+
+        # ── Scene description (summary heuristic) ──
+        descriptors = []
+        if sky_pct > 40: descriptors.append("open sky visible")
+        if green_pct > 25: descriptors.append("lots of vegetation/greenery")
+        if skin_pct > 15: descriptors.append("prominent skin tones (person/people)")
+        if n_lines > 40: descriptors.append("strong geometric/architectural elements")
+        if avg_texture > 2000: descriptors.append("highly textured/detailed")
+        if avg_texture < 200: descriptors.append("smooth/minimal design")
+        out["scene_descriptors"] = descriptors if descriptors else ["no strong scene indicators"]
+
+        return out
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _position_label(cx_pct, cy_pct):
+    """Human-readable position from percentage coordinates."""
+    v = "top" if cy_pct < 33 else "middle" if cy_pct < 66 else "bottom"
+    h = "left" if cx_pct < 33 else "center" if cx_pct < 66 else "right"
+    return f"{v}-{h}"
+
+
 # ── Image type classifier ─────────────────────────────────────────────────────
 
 def _classify(colors, edge_label, has_text, faces, w, h, brightness):
@@ -595,7 +724,12 @@ def execute(
     edge_label  = cv.get("edge_label")  if cv and not cv.get("error") else None
     faces_count = cv.get("faces", {}).get("count", 0) if cv and not cv.get("error") else 0
 
-    # ── 4. Image type classification ─────────────────────────────────────
+    # ── 4. Scene & texture analysis ─────────────────────────────────────
+    scene = _scene_analysis(path)
+    if scene and not scene.get("error"):
+        report["scene"] = scene
+
+    # ── 5. Image type classification ─────────────────────────────────────
     dom_colors = report.get("color_analysis", {}).get("dominant_colors", [])
     report["image_type"] = _classify(
         dom_colors, edge_label,
@@ -689,6 +823,26 @@ def execute(
                     f"(bright={v['brightness']:.0f}, edges={v['edge_density']:.3f})"
                 )
             lines.append("  4×4 REGION MAP:\n  " + " | ".join(region_lines))
+
+    # Scene analysis
+    sc = report.get("scene", {})
+    if sc and not sc.get("error"):
+        scene_parts = [f"\nSCENE ANALYSIS:"]
+        scene_parts.append(f"  Scene type: {sc.get('scene_type', '?')}")
+        scene_parts.append(f"  Sky: {'yes' if sc.get('sky_detected') else 'no'} ({sc.get('sky_coverage_pct', 0):.0f}%)")
+        scene_parts.append(f"  Vegetation: {'yes' if sc.get('has_vegetation') else 'no'} ({sc.get('vegetation_pct', 0):.0f}%)")
+        scene_parts.append(f"  People/skin: {'likely' if sc.get('likely_has_people') else 'no'} ({sc.get('skin_tone_pct', 0):.0f}%)")
+        scene_parts.append(f"  Texture: {sc.get('texture_label', '?')}")
+        scene_parts.append(f"  Geometry: {sc.get('geometric_score', '?')} ({sc.get('straight_lines', 0)} straight lines)")
+        if sc.get("scene_descriptors"):
+            scene_parts.append(f"  Key features: {', '.join(sc['scene_descriptors'])}")
+        if sc.get("dominant_objects"):
+            obj_str = " | ".join(
+                f"obj@{o['position']} ({o['area_pct']}% of image, aspect={o['aspect']})"
+                for o in sc["dominant_objects"][:4]
+            )
+            scene_parts.append(f"  Dominant objects: {obj_str}")
+        lines.extend(scene_parts)
 
     # EXIF notable
     exif = report.get("exif", {})
