@@ -70,21 +70,28 @@ def execute(
     # Collect image URLs from multiple sources
     candidate_urls = []
 
-    # Source 1: Unsplash (high quality, easy to scrape)
+    # Source 1: Google Images (best quality, supports dorking)
+    try:
+        urls = _google_images_search(query, num_images * 3)
+        candidate_urls.extend(urls)
+    except Exception as e:
+        errors.append(f"Google Images: {e}")
+
+    # Source 2: Unsplash (high quality, curated)
     try:
         urls = _unsplash_search(query, num_images * 2, orientation)
         candidate_urls.extend(urls)
     except Exception as e:
         errors.append(f"Unsplash: {e}")
 
-    # Source 2: Pexels
+    # Source 3: Pexels
     try:
         urls = _pexels_search(query, num_images * 2)
         candidate_urls.extend(urls)
     except Exception as e:
         errors.append(f"Pexels: {e}")
 
-    # Source 3: Pixabay
+    # Source 4: Pixabay
     try:
         urls = _pixabay_search(query, num_images)
         candidate_urls.extend(urls)
@@ -125,6 +132,57 @@ def execute(
         "error": None if downloaded else f"No images found for '{query}'. Errors: {'; '.join(errors[:3])}",
         "metadata": {"tool": "image_search", "duration_ms": _ms(start)},
     }
+
+
+# ── Source: Google Images ────────────────────────────────────────────────────
+
+def _google_images_search(query: str, num: int) -> list:
+    """
+    Scrape Google Images for high-res image URLs.
+    Supports dorking operators in the query (site:, filetype:, etc.)
+    """
+    encoded = urllib.parse.quote_plus(query)
+    # tbs=isz:l = large images only, imgar:w = wide images
+    url = f"https://www.google.com/search?q={encoded}&tbm=isch&tbs=isz:l&hl=en"
+
+    html = _fetch(url)
+    urls = []
+
+    # Google Images embeds full-res URLs in various JSON-like structures
+    # Pattern 1: Direct image URLs from data attributes
+    full_res = re.findall(
+        r'\["(https?://[^"]+\.(?:jpg|jpeg|png|webp)(?:\?[^"]*)?)",[0-9]+,[0-9]+\]',
+        html, re.IGNORECASE
+    )
+    for u in full_res:
+        if _is_valid_image_url(u):
+            urls.append(u)
+        if len(urls) >= num:
+            break
+
+    # Pattern 2: og:image and other meta image URLs
+    if len(urls) < num:
+        meta_imgs = re.findall(
+            r'(https?://[^\s"\'<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"\'<>]*)?)',
+            html, re.IGNORECASE
+        )
+        for u in meta_imgs:
+            if _is_valid_image_url(u) and u not in urls:
+                urls.append(u)
+            if len(urls) >= num:
+                break
+
+    return urls[:num]
+
+
+def _is_valid_image_url(url: str) -> bool:
+    """Filter out Google's own thumbnails, tracking pixels, and tiny images."""
+    skip = [
+        "gstatic.com/images", "google.com/images", "googleapis.com",
+        "googleusercontent.com/favicon", "/s/", "=s", "icon", "logo",
+        "1x1", "pixel", "spacer", "blank", "transparent",
+    ]
+    return not any(s in url.lower() for s in skip) and len(url) < 2000
 
 
 # ── Source: Unsplash ─────────────────────────────────────────────────────────

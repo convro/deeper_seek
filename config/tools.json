@@ -125,10 +125,11 @@
     },
     "web_search": {
       "module": "tools/web/web_search.py",
-      "description": "Search the web using DuckDuckGo and return results",
+      "description": "Search the web with Google dorking support. Operators: site:domain, -site:domain, filetype:pdf, intitle:\"phrase\", inurl:keyword, intext:\"words\", \"exact match\", before:date, after:date, OR, *. Example: 'site:github.com inurl:api filetype:json'. Uses Google first, falls back to DuckDuckGo.",
       "parameters": {
-        "query": {"type": "string", "description": "Search query"},
-        "num_results": {"type": "integer", "default": 8, "description": "Number of results"}
+        "query": {"type": "string", "description": "Search query — supports Google dork operators (site:, filetype:, intitle:, inurl:, \"exact phrase\", etc.)"},
+        "num_results": {"type": "integer", "default": 8, "description": "Number of results (1-20)"},
+        "engine": {"type": "string", "enum": ["auto", "google", "ddg"], "default": "auto", "description": "Search engine: auto (Google→DDG), google, or ddg"}
       },
       "required": ["query"],
       "timeout_ms": 20000
