@@ -6,11 +6,19 @@ from datetime import datetime
 MEMORY_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../memory"))
 
 
+def _user_dir():
+    """Return per-user memory directory (legacy root when no user)."""
+    uid = os.environ.get("DEEPERSEEK_CURRENT_USER_ID")
+    if uid:
+        return os.path.join(MEMORY_ROOT, f"u_{uid}")
+    return MEMORY_ROOT
+
+
 def execute(key: str, value: str, tier: str = "short", tags: list = None, **kwargs) -> dict:
     start = time.time()
     try:
         tags = tags or []
-        file_path = os.path.join(MEMORY_ROOT, f"{tier}_term.json")
+        file_path = os.path.join(_user_dir(), f"{tier}_term.json")
 
         data = _load(file_path)
         data[key] = {

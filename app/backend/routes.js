@@ -16,10 +16,11 @@ const uploadController = require('./upload.controller');
 const authController = require('./auth.controller');
 const authMiddleware = require('./auth');
 
-// Multer setup for file uploads
+// Multer setup for file uploads — namespaced per user when auth is active
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../../uploads/raw');
+    const userSeg = req.user && req.user.id ? `u_${req.user.id}` : '';
+    const uploadDir = path.join(__dirname, '../../uploads/raw', userSeg);
     require('fs').mkdirSync(uploadDir, { recursive: true });
     cb(null, uploadDir);
   },

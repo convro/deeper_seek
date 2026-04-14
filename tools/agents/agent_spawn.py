@@ -23,10 +23,18 @@ def execute(agent_type: str, task: str, context: str = "",
             "job_id": job_id,
         }).encode("utf-8")
 
+        headers = {"Content-Type": "application/json"}
+        internal_token = os.environ.get("DEEPERSEEK_INTERNAL_TOKEN")
+        current_user   = os.environ.get("DEEPERSEEK_CURRENT_USER_ID")
+        if internal_token:
+            headers["X-Internal-Token"] = internal_token
+        if current_user:
+            headers["X-Internal-User-Id"] = current_user
+
         req = urllib.request.Request(
             f"{BACKEND_URL}/api/agents/spawn",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
 

@@ -190,6 +190,16 @@ function revokeAllTokensForUser(userId) {
   if (changed) persistTokens();
 }
 
+// ── Internal service token ───────────────────────────────────────────────
+// Generated once at module load; passed to Python subprocesses via env var
+// so they can make authenticated HTTP calls back to the backend (e.g.
+// agent_spawn.py → POST /api/agents/spawn). Never persisted to disk.
+const INTERNAL_TOKEN = crypto.randomBytes(32).toString('hex');
+
+function getInternalToken() {
+  return INTERNAL_TOKEN;
+}
+
 // ── Auth mode ────────────────────────────────────────────────────────────
 function getAuthMode() {
   const mode = (process.env.AUTH_MODE || 'open').toLowerCase();
@@ -228,4 +238,5 @@ module.exports = {
   getRegistrationKey,
   isRegistrationOpen,
   getUserCount,
+  getInternalToken,
 };

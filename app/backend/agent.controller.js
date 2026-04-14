@@ -21,6 +21,8 @@ async function spawn(req, res) {
       asyncMode: async_mode || false,
       jobId: job_id || null,
       parentWs: ws,
+      ownerId:    req.user ? req.user.id    : null,
+      ownerEmail: req.user ? req.user.email : null,
     });
 
     res.json(result);
@@ -32,7 +34,7 @@ async function spawn(req, res) {
 
 function status(req, res) {
   const { agentId } = req.params;
-  const agentStatus = getAgentStatus(agentId);
+  const agentStatus = getAgentStatus(agentId, req.user);
   if (!agentStatus) {
     return res.status(404).json({ error: 'Agent not found' });
   }
@@ -40,12 +42,12 @@ function status(req, res) {
 }
 
 function list(req, res) {
-  res.json({ agents: listAgents() });
+  res.json({ agents: listAgents(req.user) });
 }
 
 function kill(req, res) {
   const { agentId } = req.params;
-  const killed = killAgent(agentId);
+  const killed = killAgent(agentId, req.user);
   if (!killed) {
     return res.status(404).json({ error: 'Agent not found' });
   }

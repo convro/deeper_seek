@@ -6,6 +6,14 @@ import re
 MEMORY_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../memory"))
 
 
+def _user_dir():
+    """Return per-user memory directory (legacy root when no user)."""
+    uid = os.environ.get("DEEPERSEEK_CURRENT_USER_ID")
+    if uid:
+        return os.path.join(MEMORY_ROOT, f"u_{uid}")
+    return MEMORY_ROOT
+
+
 def execute(query: str, top_k: int = 5, **kwargs) -> dict:
     """Simple TF-IDF-like keyword search across memory entries.
     Falls back to this when no vector DB is available.
@@ -13,8 +21,9 @@ def execute(query: str, top_k: int = 5, **kwargs) -> dict:
     start = time.time()
     try:
         all_entries = {}
+        udir = _user_dir()
         for tier in ["short", "long"]:
-            path = os.path.join(MEMORY_ROOT, f"{tier}_term.json")
+            path = os.path.join(udir, f"{tier}_term.json")
             if os.path.exists(path):
                 with open(path) as f:
                     data = json.load(f)

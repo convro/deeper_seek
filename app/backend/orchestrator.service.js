@@ -34,11 +34,16 @@ async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
     const timeout = TOOLS_CONFIG.tool_registry[toolName]?.timeout_ms || 60000;
 
     // Propagate current-user context to Python subprocess so tools like
-    // workspace_create can stamp owner_id into job metadata.
+    // workspace_create can stamp owner_id into job metadata, and internal
+    // token so tools like agent_spawn can call back into the authed backend.
     const subEnv = {
       ...process.env,
-      DEEPERSEEK_BACKEND_URL: `http://localhost:${process.env.PORT || 3000}`,
+      DEEPERSEEK_BACKEND_URL: `http://127.0.0.1:${process.env.PORT || 3000}`,
     };
+    try {
+      const authService = require('./auth.service');
+      subEnv.DEEPERSEEK_INTERNAL_TOKEN = authService.getInternalToken();
+    } catch {}
     if (context.ownerId)    subEnv.DEEPERSEEK_CURRENT_USER_ID = String(context.ownerId);
     if (context.ownerEmail) subEnv.DEEPERSEEK_CURRENT_USER_EMAIL = String(context.ownerEmail);
 
@@ -139,7 +144,7 @@ async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
  * Spawn a sub-agent asynchronously or synchronously.
  * Called by the /api/agents/spawn endpoint (and by agent_spawn.py tool).
  */
-async function spawnAgent({ agentType, task, context = '', asyncMode = false, jobId = null, parentWs = null }) {
+async function spawnAgent({ agentType, task, context = '', asyncMode = false, jobId = null, parentWs = null, ownerId = null, ownerEmail = null }) {
   const agentId = uuidv4();
   const agentConf = AGENTS_CONFIG.agents[agentType];
 
@@ -157,6 +162,8 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
     result: null,
     error: null,
     events: [],
+    owner_id:    ownerId    || null,
+    owner_email: ownerEmail || null,
   };
 
   agentRegistry.set(agentId, agentRecord);
@@ -194,6 +201,8 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
         model: agentConf.model,
         onEvent,
         maxRounds: 30,
+        ownerId,
+        ownerEmail,
       });
 
       agentRecord.status = 'completed';
@@ -227,9 +236,18 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
   }
 }
 
-function getAgentStatus(agentId) {
+function canAccessAgent(agent, user) {
+  if (!agent) return false;
+  if (!user)                  return !agent.owner_id;   // open mode
+  if (user.role === 'admin')  return true;
+  if (!agent.owner_id)        return true;               // legacy untagged
+  return agent.owner_id === user.id;
+}
+
+function getAgentStatus(agentId, user = null) {
   const agent = agentRegistry.get(agentId);
   if (!agent) return null;
+  if (!canAccessAgent(agent, user)) return null;
 
   const progress = agent.events.filter(e => e.type === 'tool_call').length;
 
@@ -246,20 +264,23 @@ function getAgentStatus(agentId) {
   };
 }
 
-function listAgents() {
-  return Array.from(agentRegistry.values()).map(a => ({
-    id: a.id,
-    type: a.type,
-    status: a.status,
-    started_at: a.started_at,
-    completed_at: a.completed_at,
-    task_preview: a.task.slice(0, 100),
-  }));
+function listAgents(user = null) {
+  return Array.from(agentRegistry.values())
+    .filter(a => canAccessAgent(a, user))
+    .map(a => ({
+      id: a.id,
+      type: a.type,
+      status: a.status,
+      started_at: a.started_at,
+      completed_at: a.completed_at,
+      task_preview: a.task.slice(0, 100),
+    }));
 }
 
-function killAgent(agentId) {
+function killAgent(agentId, user = null) {
   const agent = agentRegistry.get(agentId);
   if (!agent) return false;
+  if (!canAccessAgent(agent, user)) return false;
   agent.status = 'killed';
   agent.completed_at = new Date().toISOString();
   return true;

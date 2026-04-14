@@ -20,6 +20,29 @@ const { extractToken } = require('./auth.controller');
 function authMiddleware(req, res, next) {
   const mode = authService.getAuthMode();
 
+  // Internal service token — used by Python tool subprocesses that call back
+  // into the backend (e.g. agent_spawn.py). Must be localhost-only AND carry
+  // the shared secret that was generated at boot. Can impersonate a user via
+  // X-Internal-User-Id header.
+  const internalTok = req.headers['x-internal-token'];
+  if (internalTok && internalTok === authService.getInternalToken()) {
+    const remote = req.socket && req.socket.remoteAddress || '';
+    const isLocal = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+    if (isLocal) {
+      const impersonatedId = req.headers['x-internal-user-id'];
+      if (impersonatedId) {
+        const u = authService.findUserById(impersonatedId);
+        if (u) {
+          req.user = { ...authService.publicUser(u), via: 'internal' };
+          return next();
+        }
+      }
+      // No impersonation — treat as admin service call (open-mode compatible)
+      req.user = { id: '__internal__', email: null, role: 'admin', via: 'internal' };
+      return next();
+    }
+  }
+
   // Legacy: ACCESS_KEY grants full access in either mode
   const accessKey = process.env.ACCESS_KEY;
   if (accessKey) {
