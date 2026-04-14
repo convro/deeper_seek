@@ -1,21 +1,72 @@
 'use strict';
 
 /**
- * auth.js — minimal auth for personal single-user tool.
- * Just checks a static API key from .env if set.
- * Not needed for local access — can be disabled entirely.
+ * auth.js — Request authentication middleware.
+ *
+ * Modes (via AUTH_MODE env var):
+ *   - 'open' (default)         : no auth required. req.user = null.
+ *                                Preserves legacy single-user behavior.
+ *   - 'multi_user'             : Bearer token required. req.user is populated.
+ *
+ * Legacy ACCESS_KEY support: still honored in BOTH modes as an additional
+ * accepted credential (X-API-Key header or ?key=...), so old integrations
+ * keep working. In multi_user mode, a request with a valid ACCESS_KEY passes
+ * as an "api-key" user (no per-user namespacing).
  */
 
+const authService = require('./auth.service');
+const { extractToken } = require('./auth.controller');
+
 function authMiddleware(req, res, next) {
-  const requiredKey = process.env.ACCESS_KEY;
+  const mode = authService.getAuthMode();
 
-  // If no ACCESS_KEY set → open access (personal VPS, single user)
-  if (!requiredKey) return next();
+  // Legacy: ACCESS_KEY grants full access in either mode
+  const accessKey = process.env.ACCESS_KEY;
+  if (accessKey) {
+    const provided = req.headers['x-api-key'] || req.query.key;
+    if (provided === accessKey) {
+      req.user = { id: '__api_key__', email: null, role: 'admin', via: 'api_key' };
+      return next();
+    }
+    // If ACCESS_KEY is set and AUTH_MODE is 'open', we still require the key
+    if (mode === 'open') {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
 
-  const provided = req.headers['x-api-key'] || req.query.key;
-  if (provided === requiredKey) return next();
+  if (mode === 'open') {
+    req.user = null;
+    return next();
+  }
 
-  res.status(401).json({ error: 'Unauthorized' });
+  // multi_user mode — require valid bearer token
+  const token = extractToken(req);
+  const user  = token ? authService.verifyToken(token) : null;
+  if (!user) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
+  req.user = { ...authService.publicUser(user), via: 'token' };
+  next();
+}
+
+// Optional middleware: populates req.user if token is present, but never
+// blocks. Used for routes that work for both logged-in and anonymous users.
+function optionalAuth(req, res, next) {
+  const token = extractToken(req);
+  const user  = token ? authService.verifyToken(token) : null;
+  req.user = user ? { ...authService.publicUser(user), via: 'token' } : null;
+  next();
+}
+
+// Admin-only middleware (must be chained AFTER authMiddleware)
+function requireAdmin(req, res, next) {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
 }
 
 module.exports = authMiddleware;
+module.exports.authMiddleware = authMiddleware;
+module.exports.optionalAuth   = optionalAuth;
+module.exports.requireAdmin   = requireAdmin;

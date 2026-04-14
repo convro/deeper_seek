@@ -28,17 +28,23 @@ const agentRegistry = new Map();
 /**
  * Execute a single tool via Python subprocess.
  */
-async function executeTool(toolName, args = {}, onEvent = null) {
+async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
   return new Promise((resolve) => {
     const input = JSON.stringify({ tool: toolName, args });
     const timeout = TOOLS_CONFIG.tool_registry[toolName]?.timeout_ms || 60000;
 
+    // Propagate current-user context to Python subprocess so tools like
+    // workspace_create can stamp owner_id into job metadata.
+    const subEnv = {
+      ...process.env,
+      DEEPERSEEK_BACKEND_URL: `http://localhost:${process.env.PORT || 3000}`,
+    };
+    if (context.ownerId)    subEnv.DEEPERSEEK_CURRENT_USER_ID = String(context.ownerId);
+    if (context.ownerEmail) subEnv.DEEPERSEEK_CURRENT_USER_EMAIL = String(context.ownerEmail);
+
     const proc = spawn('python3', [TOOL_EXECUTOR], {
       cwd: PROJECT_ROOT,
-      env: {
-        ...process.env,
-        DEEPERSEEK_BACKEND_URL: `http://localhost:${process.env.PORT || 3000}`,
-      },
+      env: subEnv,
     });
 
     let stdout = '';

@@ -1,6 +1,7 @@
 // WebSocket client for DeeperSeek real-time events
 
 import type { AgentEvent } from './state';
+import { getAuthToken } from './api';
 
 type EventHandler = (event: AgentEvent) => void;
 
@@ -21,7 +22,9 @@ export class DeeperSeekWS {
     return new Promise((resolve, reject) => {
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const host = window.location.host;
-      const url = `${protocol}://${host}/ws?session_id=${encodeURIComponent(this.sessionId)}`;
+      const token = getAuthToken();
+      const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+      const url = `${protocol}://${host}/ws?session_id=${encodeURIComponent(this.sessionId)}${tokenParam}`;
 
       this.ws = new WebSocket(url);
 

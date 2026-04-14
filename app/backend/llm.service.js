@@ -64,6 +64,8 @@ async function runAgentLoop({
   onEvent = null,
   signal = null,
   maxRounds = 50,
+  ownerId = null,
+  ownerEmail = null,
 }) {
   const client = createClient();
   const systemPrompt = loadSystemPrompt(agentType);
@@ -288,7 +290,7 @@ async function runAgentLoop({
       emit(onEvent, { type: 'tool_call', tool: toolName, args: toolArgs, call_id: toolCall.id });
       logger.tool(`Calling tool: ${toolName}(${JSON.stringify(toolArgs).slice(0, 200)})`);
 
-      const toolResult = await executeTool(toolName, toolArgs, onEvent);
+      const toolResult = await executeTool(toolName, toolArgs, onEvent, { ownerId, ownerEmail });
 
       emit(onEvent, {
         type:        'tool_result',

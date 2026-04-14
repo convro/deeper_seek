@@ -51,6 +51,24 @@ loadAllSessions();
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+/**
+ * Owner check — when multi_user auth is on, sessions are scoped by user.
+ * Returns true if the caller is allowed to access this session.
+ *
+ * Rules:
+ *   - If session has no owner_id (legacy, pre-auth):
+ *       * allowed in 'open' mode
+ *       * allowed to admin / ACCESS_KEY in 'multi_user' mode (migration grace)
+ *   - If session has owner_id: caller must be that owner or admin.
+ */
+function canAccessSession(session, user) {
+  if (!session) return false;
+  if (!user)               return !session.owner_id;        // open mode
+  if (user.role === 'admin') return true;
+  if (!session.owner_id)   return true;                      // legacy session
+  return session.owner_id === user.id;
+}
+
 function generateTitle(message) {
   const text = (message || '').trim().replace(/\s+/g, ' ');
   if (!text) return 'New conversation';
@@ -111,6 +129,7 @@ async function sendMessage(req, res) {
   if (!sessions.has(sessionId)) {
     sessions.set(sessionId, {
       id: sessionId,
+      owner_id: req.user ? req.user.id : null,
       title: generateTitle(message),
       messages: [],
       created_at: new Date().toISOString(),
@@ -119,6 +138,13 @@ async function sendMessage(req, res) {
   }
 
   const session = sessions.get(sessionId);
+
+  // Ownership check — when auth is on, users can't post to each other's sessions
+  if (!canAccessSession(session, req.user)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  // Stamp owner if it was missing (legacy session + authed user)
+  if (req.user && !session.owner_id) session.owner_id = req.user.id;
 
   // Auto-title from first user message
   if (session.messages.filter(m => m.role === 'user').length === 0 && message) {
@@ -207,6 +233,8 @@ async function sendMessage(req, res) {
         onEvent,
         signal: abortController.signal,
         maxRounds: 50,
+        ownerId:    req.user ? req.user.id    : null,
+        ownerEmail: req.user ? req.user.email : null,
       });
 
       // Only persist if we got actual content
@@ -252,6 +280,7 @@ async function sendMessage(req, res) {
 
 function listSessions(req, res) {
   const list = Array.from(sessions.values())
+    .filter(s => canAccessSession(s, req.user))
     .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
     .map(s => ({
       id: s.id,
@@ -272,6 +301,7 @@ function getSession(req, res) {
   const { sessionId } = req.params;
   const session = sessions.get(sessionId);
   if (!session) return res.status(404).json({ error: 'Session not found' });
+  if (!canAccessSession(session, req.user)) return res.status(403).json({ error: 'Forbidden' });
   // Return session but strip large base64 attachments from messages
   const sanitized = {
     ...session,
@@ -291,6 +321,7 @@ function renameSession(req, res) {
   if (!title) return res.status(400).json({ error: 'Missing title' });
   const session = sessions.get(sessionId);
   if (!session) return res.status(404).json({ error: 'Session not found' });
+  if (!canAccessSession(session, req.user)) return res.status(403).json({ error: 'Forbidden' });
   session.title = String(title).slice(0, 100);
   saveSession(session);
   res.json({ id: sessionId, title: session.title });
@@ -298,13 +329,12 @@ function renameSession(req, res) {
 
 function deleteSession(req, res) {
   const { sessionId } = req.params;
-  if (sessions.has(sessionId)) {
-    sessions.delete(sessionId);
-    try { fs.unlinkSync(sessionPath(sessionId)); } catch {}
-    res.json({ deleted: true });
-  } else {
-    res.status(404).json({ error: 'Session not found' });
-  }
+  const session = sessions.get(sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  if (!canAccessSession(session, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  sessions.delete(sessionId);
+  try { fs.unlinkSync(sessionPath(sessionId)); } catch {}
+  res.json({ deleted: true });
 }
 
 module.exports = { sendMessage, listSessions, getSession, renameSession, deleteSession };

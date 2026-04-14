@@ -10,6 +10,7 @@ import { MessagesList, InputArea } from './chat';
 import { EventsDrawer, StatusDot, Spinner } from './components';
 import { Workspace } from './workspace';
 import { Agents }   from './agents';
+import { useAuth, AuthScreen, UserMenu } from './auth';
 import type {
   ChatMessage, AgentEvent, ToolCallRecord, Conversation, Attachment, MessageStatus,
 } from './state';
@@ -39,6 +40,7 @@ interface SidebarProps {
   onRename: (id: string, title: string) => void;
   onTabChange: (tab: Tab) => void;
   loading: boolean;
+  userMenu?: React.ReactNode;
 }
 
 const TAB_DEFS: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -69,7 +71,7 @@ const TAB_DEFS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 ];
 
 function Sidebar({
-  conversations, activeId, activeTab, onSelect, onNew, onDelete, onRename, onTabChange, loading,
+  conversations, activeId, activeTab, onSelect, onNew, onDelete, onRename, onTabChange, loading, userMenu,
 }: SidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle,  setEditTitle]  = useState('');
@@ -171,6 +173,9 @@ function Sidebar({
           </button>
         ))}
       </div>
+
+      {/* User menu (only present when auth is active) */}
+      {userMenu && <div className="sidebar-user">{userMenu}</div>}
     </div>
   );
 }
@@ -255,6 +260,9 @@ function ConvItem({
 
 // ── Main App ──────────────────────────────────────────────────────────────
 function App() {
+  // ── Auth state ────────────────────────────────────────────────────────
+  const [auth, authActions] = useAuth();
+
   // ── Conversations state ───────────────────────────────────────────────
   const [conversations,  setConversations]  = useState<Conversation[]>([]);
   const [activeConvId,   setActiveConvId]   = useState<string>(() => generateSessionId());
@@ -709,6 +717,30 @@ function App() {
   }, []);
 
   // ── Render ────────────────────────────────────────────────────────────
+
+  // Auth gate — wait for bootstrap, then show login if needed
+  if (!auth.ready) {
+    return (
+      <div className="app-boot">
+        <Spinner size={32} />
+      </div>
+    );
+  }
+  if (auth.mode === 'multi_user' && !auth.user) {
+    return (
+      <AuthScreen
+        state={auth}
+        onLogin={authActions.login}
+        onRegister={authActions.register}
+      />
+    );
+  }
+
+  // Shared user-menu element (only rendered in multi_user mode)
+  const userMenu = auth.mode === 'multi_user' && auth.user
+    ? <UserMenu user={auth.user} onLogout={authActions.logout} />
+    : null;
+
   return (
     <div className="app-root">
 
@@ -732,6 +764,7 @@ function App() {
           onRename={handleRename}
           onTabChange={handleTabChange}
           loading={convsLoading}
+          userMenu={userMenu}
         />
       </div>
 
@@ -747,6 +780,7 @@ function App() {
           onRename={handleRename}
           onTabChange={handleTabChange}
           loading={convsLoading}
+          userMenu={userMenu}
         />
       </div>
 

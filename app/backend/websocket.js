@@ -2,6 +2,7 @@
 
 const WebSocket = require('ws');
 const logger = require('./logger');
+const authService = require('./auth.service');
 
 const wss = { server: null };
 // sessionId → WebSocket
@@ -38,11 +39,43 @@ function initWebSocket(httpServer) {
 
     const url = new URL(req.url, `http://localhost`);
     const sessionId = url.searchParams.get('session_id') || `anon-${Date.now()}`;
+    const tokenParam = url.searchParams.get('token');
+
+    // Auth: in multi_user mode, a valid bearer token is required.
+    // In 'open' mode, any connection is accepted (legacy behavior).
+    const mode = authService.getAuthMode();
+    let wsUser = null;
+    if (mode === 'multi_user') {
+      const accessKey = process.env.ACCESS_KEY;
+      if (accessKey && url.searchParams.get('key') === accessKey) {
+        wsUser = { id: '__api_key__', role: 'admin', via: 'api_key' };
+      } else if (tokenParam) {
+        const u = authService.verifyToken(tokenParam);
+        if (u) wsUser = { ...authService.publicUser(u), via: 'token' };
+      }
+      if (!wsUser) {
+        try {
+          ws.send(JSON.stringify({ type: 'error', error: 'Authentication required', code: 'AUTH_REQUIRED' }));
+        } catch {}
+        ws.close(4401, 'Unauthorized');
+        return;
+      }
+    } else if (process.env.ACCESS_KEY) {
+      // 'open' mode but legacy ACCESS_KEY is set → still enforce it
+      if (url.searchParams.get('key') !== process.env.ACCESS_KEY) {
+        try {
+          ws.send(JSON.stringify({ type: 'error', error: 'Unauthorized' }));
+        } catch {}
+        ws.close(4401, 'Unauthorized');
+        return;
+      }
+    }
+    ws.user = wsUser;
 
     sessionSockets.set(sessionId, ws);
     socketSessions.set(ws, sessionId);
 
-    logger.ws(`WebSocket connected: session=${sessionId}`);
+    logger.ws(`WebSocket connected: session=${sessionId}${wsUser ? ` user=${wsUser.email || wsUser.id}` : ''}`);
 
     ws.send(JSON.stringify({
       type: 'connected',

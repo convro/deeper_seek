@@ -13,6 +13,8 @@ const chatController = require('./chat.controller');
 const agentController = require('./agent.controller');
 const workspaceController = require('./workspace.controller');
 const uploadController = require('./upload.controller');
+const authController = require('./auth.controller');
+const authMiddleware = require('./auth');
 
 // Multer setup for file uploads
 const storage = multer.diskStorage({
@@ -27,6 +29,17 @@ const storage = multer.diskStorage({
   },
 });
 const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } });
+
+// ── Auth (public, no middleware) ────────────────
+// These MUST be registered before the protected middleware chain below.
+router.get ('/auth/config',   authController.config);
+router.get ('/auth/me',       authController.me);
+router.post('/auth/register', authController.register);
+router.post('/auth/login',    authController.login);
+router.post('/auth/logout',   authController.logout);
+
+// ── Everything below requires auth (when AUTH_MODE=multi_user) ──────────
+router.use(authMiddleware);
 
 // ── Chat ────────────────────────────────────────
 // POST /api/chat
@@ -133,6 +146,25 @@ router.get('/preview/*', (req, res) => {
   if (!resolvedPath) {
     return res.status(404).send('File not found');
   }
+
+  // Ownership check: infer jobId from the resolved path segment, read meta,
+  // compare owner_id to req.user.
+  try {
+    const rel = path.relative(path.join(PROJECT_ROOT, 'workspace'), resolvedPath);
+    const firstSeg = rel.split(path.sep)[0];
+    // Legacy format: jobs/<jobId>/... — skip the 'jobs' prefix
+    const jobId = (firstSeg === 'jobs') ? rel.split(path.sep)[1] : firstSeg;
+    if (jobId) {
+      const metaPath = path.join(PROJECT_ROOT, 'workspace', firstSeg === 'jobs' ? 'jobs' : '', jobId, 'context', 'meta.json');
+      let meta = {};
+      try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')); } catch {}
+      const user = req.user;
+      const allowed = !user
+        ? !meta.owner_id
+        : (user.role === 'admin' || !meta.owner_id || meta.owner_id === user.id);
+      if (!allowed) return res.status(403).send('Forbidden');
+    }
+  } catch {}
 
   res.sendFile(resolvedPath);
 });

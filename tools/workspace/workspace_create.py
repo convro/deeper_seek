@@ -37,13 +37,19 @@ def execute(job_id: str = None, description: str = "", **kwargs) -> dict:
         for subdir in SUBDIRS:
             os.makedirs(os.path.join(job_path, subdir), exist_ok=True)
 
-        # Write metadata
+        # Write metadata (stamp owner_id from current-user env if auth is on)
+        owner_id    = os.environ.get("DEEPERSEEK_CURRENT_USER_ID") or None
+        owner_email = os.environ.get("DEEPERSEEK_CURRENT_USER_EMAIL") or None
         meta = {
             "job_id": job_id,
             "description": description,
             "created_at": datetime.utcnow().isoformat(),
             "status": "active",
         }
+        if owner_id:
+            meta["owner_id"] = owner_id
+        if owner_email:
+            meta["owner_email"] = owner_email
         with open(os.path.join(job_path, "context", "meta.json"), "w") as f:
             json.dump(meta, f, indent=2)
 
