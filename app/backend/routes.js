@@ -42,6 +42,11 @@ router.post('/auth/logout',   authController.logout);
 // ── Everything below requires auth (when AUTH_MODE=multi_user) ──────────
 router.use(authMiddleware);
 
+// ── Auth (protected) — soul / onboarding profile ─────────────
+router.get ('/auth/soul',      authController.getSoul);
+router.put ('/auth/soul',      authController.saveSoul);
+router.post('/auth/soul/skip', authController.skipSoul);
+
 // ── Chat ────────────────────────────────────────
 // POST /api/chat
 router.post('/chat', chatController.sendMessage);

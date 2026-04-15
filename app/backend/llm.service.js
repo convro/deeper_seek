@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
 const { executeTool, buildToolDefinitions } = require('./orchestrator.service');
+const soulService = require('./soul.service');
 
 const BASE_URL = 'https://api.deepseek.com';
 
@@ -33,8 +34,19 @@ function createClient() {
 
 /**
  * Load the assembled system prompt.
+ *
+ * Composition order (outer → inner):
+ *   [user's soul profile, if any]
+ *   ---
+ *   [agent identity, if agentType was passed]
+ *   ---
+ *   [runtime/base_prompt.txt — the default persona + tool rules]
+ *
+ * The soul goes first so the model reads "who am I talking to" before
+ * "who am I being" — tone/vocabulary calibration happens up-front rather
+ * than as an afterthought.
  */
-function loadSystemPrompt(agentType = null) {
+function loadSystemPrompt(agentType = null, ownerId = null) {
   const projectRoot = path.join(__dirname, '../..');
   const basePath = path.join(projectRoot, 'runtime/base_prompt.txt');
   let systemPrompt = fs.readFileSync(basePath, 'utf-8');
@@ -43,6 +55,13 @@ function loadSystemPrompt(agentType = null) {
     const identityPath = path.join(projectRoot, `ai/agents/${agentType}/identity.txt`);
     if (fs.existsSync(identityPath)) {
       systemPrompt = `${fs.readFileSync(identityPath, 'utf-8')}\n\n---\n\n${systemPrompt}`;
+    }
+  }
+
+  if (ownerId) {
+    const soul = soulService.renderSoulPrompt(ownerId);
+    if (soul) {
+      systemPrompt = `${soul}\n\n---\n\n${systemPrompt}`;
     }
   }
 
@@ -68,7 +87,7 @@ async function runAgentLoop({
   ownerEmail = null,
 }) {
   const client = createClient();
-  const systemPrompt = loadSystemPrompt(agentType);
+  const systemPrompt = loadSystemPrompt(agentType, ownerId);
   const toolDefs = buildToolDefinitions();
   const sysConfig = JSON.parse(
     fs.readFileSync(path.join(__dirname, '../../config/system.json'), 'utf-8')
