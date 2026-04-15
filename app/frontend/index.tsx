@@ -709,6 +709,38 @@ function App() {
     }
   }, [processing, activeConvId, updateMsg]);
 
+  // ── Retry helpers ─────────────────────────────────────────────────────
+  // Find the user prompt that immediately preceded the given assistant
+  // message. We use that prompt to drive both "retry" (re-send same prompt)
+  // and "retry with feedback" (re-send same prompt + user's note about
+  // what should change). Both add a NEW user turn rather than rewriting
+  // history — the model sees its previous attempt and the correction.
+  const findPriorUserPrompt = useCallback((assistantMsgId: string): string | null => {
+    const idx = messages.findIndex(m => m.id === assistantMsgId);
+    if (idx <= 0) return null;
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i].content || '';
+    }
+    return null;
+  }, [messages]);
+
+  const handleRetry = useCallback((assistantMsgId: string) => {
+    if (processing) return;
+    const prior = findPriorUserPrompt(assistantMsgId);
+    if (!prior) return;
+    handleSend(`Spróbuj jeszcze raz — ten sam prompt: ${prior}`);
+  }, [processing, findPriorUserPrompt]); // eslint-disable-line
+
+  const handleRetryWithFeedback = useCallback((assistantMsgId: string, feedback: string) => {
+    if (processing) return;
+    const prior = findPriorUserPrompt(assistantMsgId);
+    if (!prior) return;
+    const text =
+      `Spróbuj jeszcze raz. Co poprawić w poprzedniej odpowiedzi:\n${feedback.trim()}\n\n` +
+      `Oryginalne pytanie:\n${prior}`;
+    handleSend(text);
+  }, [processing, findPriorUserPrompt]); // eslint-disable-line
+
   // ── Current conversation title (for header display) ──────────────────
   const activeConvTitle = useMemo(
     () => conversations.find(c => c.id === activeConvId)?.title ?? '',
@@ -861,7 +893,11 @@ function App() {
           {activeTab === 'chat' && (
             <>
               <div className="messages-wrapper">
-                <MessagesList messages={messages} />
+                <MessagesList
+                  messages={messages}
+                  onRetry={handleRetry}
+                  onRetryWithFeedback={handleRetryWithFeedback}
+                />
               </div>
               <EventsDrawer
                 events={events}

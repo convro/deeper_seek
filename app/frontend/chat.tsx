@@ -181,9 +181,128 @@ function UserMessage({ message }: { message: ChatMessage }) {
   );
 }
 
+// ── Assistant message hover actions ──────────────────────────────────────
+interface AssistantActionsProps {
+  text: string;
+  onRetry?: () => void;
+  onRetryWithFeedback?: (feedback: string) => void;
+}
+
+function AssistantActions({ text, onRetry, onRetryWithFeedback }: AssistantActionsProps) {
+  const [copied, setCopied] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+
+  const copy = () => {
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  };
+
+  return (
+    <>
+    <div className="msg-actions">
+      <button
+        className="msg-action-btn"
+        onClick={copy}
+        title={copied ? 'Copied!' : 'Copy response'}
+      >
+        {copied
+          ? <svg width="13" height="13" viewBox="0 0 16 16" fill="var(--green)"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+          : <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>
+        }
+      </button>
+
+      {onRetry && (
+        <button
+          className="msg-action-btn"
+          onClick={onRetry}
+          title="Try again with the same prompt"
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.001 7.001 0 0 1 14.95 7.16a.75.75 0 1 1-1.49.178A5.501 5.501 0 0 0 8 2.5ZM1.705 8.005a.75.75 0 0 1 .834.656 5.501 5.501 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.001 7.001 0 0 1 1.05 8.84a.75.75 0 0 1 .656-.834Z"/>
+          </svg>
+        </button>
+      )}
+
+      {onRetryWithFeedback && (
+        <button
+          className="msg-action-btn"
+          onClick={() => setFeedbackOpen(true)}
+          title="Tell DeeperSeek what to fix and try again"
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.609Z"/>
+          </svg>
+        </button>
+      )}
+    </div>
+
+    {feedbackOpen && onRetryWithFeedback && (
+      <RetryFeedbackModal
+        onCancel={() => setFeedbackOpen(false)}
+        onSubmit={(text) => { setFeedbackOpen(false); onRetryWithFeedback(text); }}
+      />
+    )}
+    </>
+  );
+}
+
+function RetryFeedbackModal({ onCancel, onSubmit }: {
+  onCancel: () => void;
+  onSubmit: (text: string) => void;
+}) {
+  const [text, setText] = useState('');
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { ref.current?.focus(); }, []);
+
+  const submit = () => {
+    const t = text.trim();
+    if (!t) return;
+    onSubmit(t);
+  };
+
+  return (
+    <div className="retry-modal-backdrop" onClick={onCancel}>
+      <div className="retry-modal" onClick={e => e.stopPropagation()}>
+        <h3 className="retry-modal-title">Co poprawić w odpowiedzi?</h3>
+        <p className="retry-modal-sub">
+          Krótko — co było nie tak, czego brakowało, co zmienić.
+        </p>
+        <textarea
+          ref={ref}
+          className="retry-modal-textarea"
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
+            if (e.key === 'Escape') onCancel();
+          }}
+          placeholder={'np. „za długie”, „chcę więcej kodu, mniej teorii”, „brakuje obsługi błędów”…'}
+          rows={4}
+          maxLength={500}
+        />
+        <div className="retry-modal-actions">
+          <button className="retry-modal-btn-secondary" onClick={onCancel}>Anuluj</button>
+          <button
+            className="retry-modal-btn-primary"
+            onClick={submit}
+            disabled={!text.trim()}
+          >Spróbuj ponownie</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Assistant message ─────────────────────────────────────────────────────
 
-function AssistantMessage({ message }: { message: ChatMessage }) {
+interface AssistantMessageProps {
+  message: ChatMessage;
+  onRetry?: (msgId: string) => void;
+  onRetryWithFeedback?: (msgId: string, feedback: string) => void;
+}
+
+function AssistantMessage({ message, onRetry, onRetryWithFeedback }: AssistantMessageProps) {
   const isThinking = message.status === 'thinking';
   const isError    = message.status === 'error';
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
@@ -192,6 +311,9 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
   const htmlPaths = message.status === 'done' && message.content
     ? extractHtmlPaths(message.content)
     : [];
+
+  // Hover actions only appear once the response has actually landed.
+  const showActions = (message.status === 'done' || message.status === 'error') && message.content;
 
   return (
     <>
@@ -260,6 +382,15 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
           </div>
         )}
 
+        {/* Hover actions: copy / retry / retry-with-feedback */}
+        {showActions && (
+          <AssistantActions
+            text={message.content}
+            onRetry={onRetry ? () => onRetry(message.id) : undefined}
+            onRetryWithFeedback={onRetryWithFeedback ? (fb) => onRetryWithFeedback(message.id, fb) : undefined}
+          />
+        )}
+
         {/* Meta */}
         {message.status === 'done' && message.usage && (
           <div className="msg-meta">
@@ -286,9 +417,13 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
 
 // ── Message list ──────────────────────────────────────────────────────────
 
-interface MessagesListProps { messages: ChatMessage[] }
+interface MessagesListProps {
+  messages: ChatMessage[];
+  onRetry?: (msgId: string) => void;
+  onRetryWithFeedback?: (msgId: string, feedback: string) => void;
+}
 
-export function MessagesList({ messages }: MessagesListProps) {
+export function MessagesList({ messages, onRetry, onRetryWithFeedback }: MessagesListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -328,7 +463,12 @@ export function MessagesList({ messages }: MessagesListProps) {
       {messages.map(msg =>
         msg.role === 'user'
           ? <UserMessage key={msg.id} message={msg} />
-          : <AssistantMessage key={msg.id} message={msg} />
+          : <AssistantMessage
+              key={msg.id}
+              message={msg}
+              onRetry={onRetry}
+              onRetryWithFeedback={onRetryWithFeedback}
+            />
       )}
       <div ref={bottomRef} />
     </div>
