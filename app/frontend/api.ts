@@ -59,7 +59,6 @@ export interface AuthUser {
 
 export interface AuthConfig {
   mode: 'open' | 'multi_user';
-  registration_gated: boolean;
   user_count: number;
 }
 
@@ -67,7 +66,7 @@ export async function fetchAuthConfig(): Promise<AuthConfig> {
   return fetchJson(`${BASE}/auth/config`);
 }
 
-export async function fetchMe(): Promise<{ mode: string; user: AuthUser | null; registration_gated: boolean; user_count: number }> {
+export async function fetchMe(): Promise<{ mode: string; user: AuthUser | null; user_count: number }> {
   return fetchJson(`${BASE}/auth/me`);
 }
 
@@ -81,12 +80,12 @@ export async function loginRequest(email: string, password: string): Promise<{ t
 export async function registerRequest(
   email: string,
   password: string,
+  license_key: string,
   username?: string,
-  invite_code?: string,
-): Promise<{ token: string; user: AuthUser; is_admin_bootstrap: boolean }> {
+): Promise<{ token: string; user: AuthUser }> {
   return fetchJson(`${BASE}/auth/register`, {
     method: 'POST',
-    body: JSON.stringify({ email, password, username, invite_code }),
+    body: JSON.stringify({ email, password, username, license_key }),
   });
 }
 

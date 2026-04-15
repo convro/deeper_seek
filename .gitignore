@@ -27,3 +27,4 @@ uploads/raw/*
 logs/*.log
 runtime/users.json
 runtime/tokens.json
+runtime/licenses.json

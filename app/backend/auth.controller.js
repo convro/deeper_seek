@@ -4,30 +4,27 @@ const authService = require('./auth.service');
 const logger = require('./logger');
 
 // ── POST /api/auth/register ──────────────────────────────────────────────
+// Requires a valid, unused license key. Every registered user is a plain
+// 'user' role — there is no admin bootstrap.
 async function register(req, res) {
   if (authService.getAuthMode() !== 'multi_user') {
     return res.status(403).json({ error: 'Account creation is disabled on this instance.' });
   }
 
-  const { email, password, username, invite_code } = req.body || {};
-
-  // Invite code gate — required for every registration AFTER the first user,
-  // if REGISTRATION_KEY is set.
-  const requiredKey = authService.getRegistrationKey();
-  const userCount   = authService.getUserCount();
-  if (requiredKey && userCount > 0 && invite_code !== requiredKey) {
-    return res.status(403).json({ error: 'Invalid or missing invite code.' });
+  const { email, password, username, license_key } = req.body || {};
+  if (!license_key) {
+    return res.status(400).json({ error: 'License key is required.' });
   }
 
   try {
-    const user  = authService.createUser({ email, password, username });
+    const user  = authService.createUser({ email, password, username, licenseKey: license_key });
     const token = authService.issueToken(user.id);
     res.json({
       token,
       user: authService.publicUser(user),
-      is_admin_bootstrap: user.role === 'admin' && userCount === 0,
     });
   } catch (err) {
+    // Surface all validation failures as 400 (including bad/used license)
     res.status(400).json({ error: err.message || 'Registration failed' });
   }
 }
@@ -67,7 +64,6 @@ async function me(req, res) {
     return res.json({
       mode: 'open',
       user: null,
-      registration_gated: false,
       user_count: 0,
     });
   }
@@ -77,7 +73,6 @@ async function me(req, res) {
   res.json({
     mode: 'multi_user',
     user: authService.publicUser(user),
-    registration_gated: !!authService.getRegistrationKey(),
     user_count: authService.getUserCount(),
   });
 }
@@ -88,7 +83,6 @@ async function me(req, res) {
 async function config(req, res) {
   res.json({
     mode: authService.getAuthMode(),
-    registration_gated: !!authService.getRegistrationKey(),
     user_count: authService.getUserCount(),
   });
 }

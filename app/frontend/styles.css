@@ -1829,6 +1829,12 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   background: rgba(0, 0, 0, 0.5);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
+.auth-input-license {
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 13px;
+}
 
 .auth-error {
   padding: 10px 12px;

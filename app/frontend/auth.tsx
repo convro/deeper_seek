@@ -18,7 +18,6 @@ export interface AuthState {
   mode: AuthMode;
   user: AuthUser | null;
   ready: boolean;           // finished bootstrapping (fetched config + me)
-  registrationGated: boolean;
   userCount: number;
 }
 
@@ -29,7 +28,7 @@ export interface AuthState {
  */
 export function useAuth(): [AuthState, {
   login: (e: string, p: string) => Promise<void>;
-  register: (e: string, p: string, u?: string, invite?: string) => Promise<void>;
+  register: (e: string, p: string, licenseKey: string, u?: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }] {
@@ -37,7 +36,6 @@ export function useAuth(): [AuthState, {
     mode: 'open',
     user: null,
     ready: false,
-    registrationGated: false,
     userCount: 0,
   });
 
@@ -49,7 +47,6 @@ export function useAuth(): [AuthState, {
           mode: 'open',
           user: null,
           ready: true,
-          registrationGated: false,
           userCount: cfg.user_count,
         });
         return;
@@ -61,7 +58,6 @@ export function useAuth(): [AuthState, {
           mode: 'multi_user',
           user: me.user,
           ready: true,
-          registrationGated: me.registration_gated,
           userCount: me.user_count,
         });
       } catch {
@@ -69,7 +65,6 @@ export function useAuth(): [AuthState, {
           mode: 'multi_user',
           user: null,
           ready: true,
-          registrationGated: cfg.registration_gated,
           userCount: cfg.user_count,
         });
       }
@@ -94,8 +89,8 @@ export function useAuth(): [AuthState, {
     setState(s => ({ ...s, user: r.user }));
   }, []);
 
-  const register = useCallback(async (email: string, password: string, username?: string, invite?: string) => {
-    const r = await registerRequest(email, password, username, invite);
+  const register = useCallback(async (email: string, password: string, licenseKey: string, username?: string) => {
+    const r = await registerRequest(email, password, licenseKey, username);
     setAuthToken(r.token);
     setState(s => ({ ...s, user: r.user, userCount: s.userCount + 1 }));
   }, []);
@@ -113,22 +108,17 @@ export function useAuth(): [AuthState, {
 interface AuthScreenProps {
   state: AuthState;
   onLogin:    (email: string, password: string) => Promise<void>;
-  onRegister: (email: string, password: string, username?: string, invite?: string) => Promise<void>;
+  onRegister: (email: string, password: string, licenseKey: string, username?: string) => Promise<void>;
 }
 
 export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
-  const [tab, setTab] = useState<'login' | 'register'>(
-    state.userCount === 0 ? 'register' : 'login',
-  );
+  const [tab, setTab] = useState<'login' | 'register'>('login');
   const [email,      setEmail]    = useState('');
   const [password,   setPassword] = useState('');
   const [username,   setUsername] = useState('');
-  const [invite,     setInvite]   = useState('');
+  const [license,    setLicense]  = useState('');
   const [error,      setError]    = useState<string | null>(null);
   const [loading,    setLoading]  = useState(false);
-
-  const isBootstrap = state.userCount === 0;
-  const needInvite  = state.registrationGated && state.userCount > 0 && tab === 'register';
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,7 +129,8 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
         await onLogin(email.trim(), password);
       } else {
         if (password.length < 8) throw new Error('Password must be at least 8 characters.');
-        await onRegister(email.trim(), password, username.trim() || undefined, invite.trim() || undefined);
+        if (!license.trim())     throw new Error('License key is required.');
+        await onRegister(email.trim(), password, license.trim().toUpperCase(), username.trim() || undefined);
       }
     } catch (err: any) {
       setError(err?.message || 'Something went wrong.');
@@ -170,9 +161,7 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
             ))}
           </h1>
           <p className="auth-tagline">
-            {isBootstrap
-              ? 'Create the first account — you will be the admin.'
-              : tab === 'login' ? 'Welcome back.' : 'Create your account.'}
+            {tab === 'login' ? 'Welcome back.' : 'Create your account.'}
           </p>
         </div>
 
@@ -181,13 +170,12 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
             type="button"
             className={`auth-tab ${tab === 'login' ? 'active' : ''}`}
             onClick={() => { setTab('login'); setError(null); }}
-            disabled={isBootstrap}
           >Sign in</button>
           <button
             type="button"
             className={`auth-tab ${tab === 'register' ? 'active' : ''}`}
             onClick={() => { setTab('register'); setError(null); }}
-          >{isBootstrap ? 'Create admin' : 'Create account'}</button>
+          >Create account</button>
         </div>
 
         <form className="auth-form" onSubmit={submit}>
@@ -233,16 +221,19 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
             />
           </label>
 
-          {needInvite && (
+          {tab === 'register' && (
             <label className="auth-field">
-              <span className="auth-label">Invite code</span>
+              <span className="auth-label">License key</span>
               <input
                 type="text"
-                className="auth-input"
-                value={invite}
-                onChange={e => setInvite(e.target.value)}
-                placeholder="required for registration"
+                className="auth-input auth-input-license"
+                value={license}
+                onChange={e => setLicense(e.target.value.toUpperCase())}
+                placeholder="DS-XXXX-XXXX-XXXX-XXXX"
+                autoComplete="off"
+                spellCheck={false}
                 required
+                maxLength={24}
               />
             </label>
           )}
@@ -252,11 +243,11 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
           <button
             type="submit"
             className="auth-submit"
-            disabled={loading || !email || !password}
+            disabled={loading || !email || !password || (tab === 'register' && !license)}
           >
             {loading
               ? <span className="auth-spinner" />
-              : tab === 'login' ? 'Sign in' : (isBootstrap ? 'Create admin account' : 'Create account')}
+              : tab === 'login' ? 'Sign in' : 'Create account'}
           </button>
         </form>
 
@@ -290,7 +281,6 @@ export function UserMenu({ user, onLogout }: UserMenuProps) {
       >
         <span className="user-avatar">{initial}</span>
         <span className="user-name">{name}</span>
-        {user.role === 'admin' && <span className="user-badge">admin</span>}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" style={{ marginLeft: 'auto' }}>
           <path d="M5 7 1 3h8z" />
         </svg>
@@ -301,7 +291,7 @@ export function UserMenu({ user, onLogout }: UserMenuProps) {
           <div className="user-menu-popover">
             <div className="user-menu-header">
               <div className="user-menu-email">{user.email}</div>
-              <div className="user-menu-role">{user.role === 'admin' ? 'Administrator' : 'Member'}</div>
+              <div className="user-menu-role">Member</div>
             </div>
             <button className="user-menu-item danger" onClick={() => { setOpen(false); onLogout(); }}>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">

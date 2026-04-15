@@ -1,16 +1,25 @@
 'use strict';
 
 /**
- * auth.service.js — User store + password hashing + session tokens.
+ * auth.service.js — User store + password hashing + session tokens + licenses.
  *
  * Zero external deps. Uses Node's built-in crypto (pbkdf2 for password
- * hashing, randomBytes for tokens).
+ * hashing, randomBytes for tokens + license keys).
  *
  * Persistence:
- *   runtime/users.json   — array of user records
- *   runtime/tokens.json  — map of token -> { userId, createdAt, lastSeen }
+ *   runtime/users.json     — array of user records
+ *   runtime/tokens.json    — map of token -> { userId, createdAt, lastSeen }
+ *   runtime/licenses.json  — map of key   -> { createdAt, usedBy, usedAt }
  *
- * Both files have 0600 perms (owner-readable only).
+ * All files have 0600 perms (owner-readable only).
+ *
+ * Registration model:
+ *   Every account must be created with a valid, unused license key. License
+ *   keys are generated on the server via `node scripts/license.js` and
+ *   consumed atomically during registration (one key = one account).
+ *   There is no "admin" role for user accounts — every registered user is
+ *   an equal, isolated tenant. The `role` field is only ever 'admin' for
+ *   synthetic service identities (internal token, ACCESS_KEY api-key).
  */
 
 const crypto = require('crypto');
@@ -18,9 +27,10 @@ const fs     = require('fs');
 const path   = require('path');
 const logger = require('./logger');
 
-const RUNTIME_DIR = path.join(__dirname, '../../runtime');
-const USERS_FILE  = path.join(RUNTIME_DIR, 'users.json');
-const TOKENS_FILE = path.join(RUNTIME_DIR, 'tokens.json');
+const RUNTIME_DIR   = path.join(__dirname, '../../runtime');
+const USERS_FILE    = path.join(RUNTIME_DIR, 'users.json');
+const TOKENS_FILE   = path.join(RUNTIME_DIR, 'tokens.json');
+const LICENSES_FILE = path.join(RUNTIME_DIR, 'licenses.json');
 
 fs.mkdirSync(RUNTIME_DIR, { recursive: true });
 
@@ -68,14 +78,17 @@ function writeJson(file, data) {
 }
 
 // ── In-memory caches (reloaded on boot) ──────────────────────────────────
-let users  = readJson(USERS_FILE,  []);   // [{id, email, username, password, createdAt, lastLoginAt, role}]
-let tokens = readJson(TOKENS_FILE, {});    // { token: {userId, createdAt, lastSeen} }
+let users    = readJson(USERS_FILE,    []);   // [{id, email, username, password, createdAt, lastLoginAt, role, licenseKey}]
+let tokens   = readJson(TOKENS_FILE,   {});    // { token: {userId, createdAt, lastSeen} }
+let licenses = readJson(LICENSES_FILE, {});    // { key: {createdAt, usedBy, usedAt} }
 
-function persistUsers()  { writeJson(USERS_FILE,  users); }
-function persistTokens() { writeJson(TOKENS_FILE, tokens); }
+function persistUsers()    { writeJson(USERS_FILE,    users); }
+function persistTokens()   { writeJson(TOKENS_FILE,   tokens); }
+function persistLicenses() { writeJson(LICENSES_FILE, licenses); }
 
 // ── User helpers ─────────────────────────────────────────────────────────
 function normEmail(e) { return String(e || '').trim().toLowerCase(); }
+function normLicense(k) { return String(k || '').trim().toUpperCase(); }
 
 function publicUser(u) {
   if (!u) return null;
@@ -106,25 +119,39 @@ function validatePassword(pw) {
   return typeof pw === 'string' && pw.length >= 8 && pw.length <= 200;
 }
 
-function createUser({ email, password, username }) {
+function createUser({ email, password, username, licenseKey }) {
   const e = normEmail(email);
-  if (!validateEmail(e))      throw new Error('Invalid email address');
-  if (!validatePassword(password)) throw new Error('Password must be 8-200 characters');
-  if (findUserByEmail(e))     throw new Error('An account with this email already exists');
+  const k = normLicense(licenseKey);
+  if (!validateEmail(e))            throw new Error('Invalid email address');
+  if (!validatePassword(password))  throw new Error('Password must be 8-200 characters');
+  if (findUserByEmail(e))           throw new Error('An account with this email already exists');
+  if (!k)                           throw new Error('License key is required');
+
+  // Atomically validate + consume license
+  const lic = licenses[k];
+  if (!lic)        throw new Error('Invalid license key');
+  if (lic.usedBy)  throw new Error('This license key has already been used');
 
   const user = {
     id: 'u_' + crypto.randomBytes(8).toString('hex'),
     email: e,
     username: (username || '').trim().slice(0, 40) || null,
     password: hashPassword(password),
-    // First registered user becomes admin, subsequent users are regular 'user'
-    role: users.length === 0 ? 'admin' : 'user',
+    role: 'user',            // real users are never admin — no VIP accounts
+    licenseKey: k,
     createdAt: new Date().toISOString(),
     lastLoginAt: null,
   };
+
+  // Stamp license as consumed BEFORE persisting user — if either write fails,
+  // reload caches from disk on next boot and the inconsistency is obvious.
+  lic.usedBy = user.id;
+  lic.usedAt = user.createdAt;
+  persistLicenses();
+
   users.push(user);
   persistUsers();
-  logger.info(`User registered: ${user.email} (role=${user.role})`);
+  logger.info(`User registered: ${user.email} (license=${k})`);
   return user;
 }
 
@@ -135,6 +162,51 @@ function authenticateUser(email, password) {
   u.lastLoginAt = new Date().toISOString();
   persistUsers();
   return u;
+}
+
+// ── License management ───────────────────────────────────────────────────
+// Format: DS-XXXX-XXXX-XXXX-XXXX  (4 groups of 4 uppercase alphanumeric)
+// ~20 bits per group → ~80 bits of entropy total. Plenty for invite-gating.
+const LICENSE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no O/0/1/I
+function _randGroup() {
+  const buf = crypto.randomBytes(4);
+  let out = '';
+  for (let i = 0; i < 4; i++) out += LICENSE_ALPHABET[buf[i] % LICENSE_ALPHABET.length];
+  return out;
+}
+
+function generateLicense() {
+  let key;
+  do {
+    key = `DS-${_randGroup()}-${_randGroup()}-${_randGroup()}-${_randGroup()}`;
+  } while (licenses[key]); // extremely unlikely collision, but be safe
+  licenses[key] = {
+    createdAt: new Date().toISOString(),
+    usedBy: null,
+    usedAt: null,
+  };
+  persistLicenses();
+  return key;
+}
+
+function listLicenses() {
+  return Object.entries(licenses).map(([key, rec]) => ({
+    key,
+    createdAt: rec.createdAt,
+    usedBy: rec.usedBy,
+    usedAt: rec.usedAt,
+    used: !!rec.usedBy,
+  }));
+}
+
+function revokeLicense(key) {
+  const k = normLicense(key);
+  const lic = licenses[k];
+  if (!lic)       return { ok: false, reason: 'Unknown license key' };
+  if (lic.usedBy) return { ok: false, reason: 'License already consumed — cannot revoke' };
+  delete licenses[k];
+  persistLicenses();
+  return { ok: true };
 }
 
 // ── Token management ─────────────────────────────────────────────────────
@@ -206,20 +278,14 @@ function getAuthMode() {
   return mode === 'multi_user' ? 'multi_user' : 'open';
 }
 
-function getRegistrationKey() {
-  return process.env.REGISTRATION_KEY || null;
-}
-
-function isRegistrationOpen() {
-  // When AUTH_MODE=multi_user and no users exist, first registration is always
-  // allowed (bootstraps admin). Otherwise, if REGISTRATION_KEY is set, it is
-  // required. If neither restriction applies, registration is open.
-  return true;
-}
-
-// Count of users — useful for the login screen (show "Create first admin" hint)
 function getUserCount() {
   return users.length;
+}
+
+function getAvailableLicenseCount() {
+  let n = 0;
+  for (const rec of Object.values(licenses)) if (!rec.usedBy) n++;
+  return n;
 }
 
 module.exports = {
@@ -235,8 +301,11 @@ module.exports = {
   revokeToken,
   revokeAllTokensForUser,
   getAuthMode,
-  getRegistrationKey,
-  isRegistrationOpen,
   getUserCount,
+  getAvailableLicenseCount,
   getInternalToken,
+  // licenses
+  generateLicense,
+  listLicenses,
+  revokeLicense,
 };
