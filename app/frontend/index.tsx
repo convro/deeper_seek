@@ -11,6 +11,7 @@ import { EventsDrawer, StatusDot, Spinner } from './components';
 import { Workspace } from './workspace';
 import { Agents }   from './agents';
 import { useAuth, AuthScreen, UserMenu } from './auth';
+import { Onboarding } from './onboarding';
 import type {
   ChatMessage, AgentEvent, ToolCallRecord, Conversation, Attachment, MessageStatus,
 } from './state';
@@ -738,6 +739,13 @@ function App() {
         onRegister={authActions.register}
       />
     );
+  }
+
+  // Soul onboarding gate — authenticated but hasn't yet completed/skipped.
+  // After saving or skipping we re-bootstrap auth so soul_complete flips true
+  // and this branch stops matching.
+  if (auth.mode === 'multi_user' && auth.user && auth.user.soul_complete === false) {
+    return <Onboarding onDone={() => { authActions.refresh(); }} />;
   }
 
   // Shared user-menu element (only rendered in multi_user mode)

@@ -55,6 +55,17 @@ export interface AuthUser {
   role: 'admin' | 'user';
   createdAt: string;
   lastLoginAt: string | null;
+  /** True once the user has either completed or skipped the soul onboarding. */
+  soul_complete?: boolean;
+}
+
+export interface SoulRecord {
+  user_id: string;
+  version: number;
+  updated_at: string;
+  complete: boolean;
+  skipped: boolean;
+  answers: Record<string, unknown>;
 }
 
 export interface AuthConfig {
@@ -94,6 +105,23 @@ export async function logoutRequest(): Promise<void> {
     await fetchJson(`${BASE}/auth/logout`, { method: 'POST' });
   } catch {}
   clearAuthToken();
+}
+
+// ── Soul (onboarding profile) ──────────────────────────────────────────────
+
+export async function fetchSoul(): Promise<{ soul: SoulRecord | null }> {
+  return fetchJson(`${BASE}/auth/soul`);
+}
+
+export async function saveSoul(answers: Record<string, unknown>, complete = true): Promise<{ soul: SoulRecord }> {
+  return fetchJson(`${BASE}/auth/soul`, {
+    method: 'PUT',
+    body: JSON.stringify({ answers, complete }),
+  });
+}
+
+export async function skipSoul(): Promise<{ soul: SoulRecord }> {
+  return fetchJson(`${BASE}/auth/soul/skip`, { method: 'POST' });
 }
 
 export async function sendMessage(
