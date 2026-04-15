@@ -747,6 +747,16 @@ function App() {
     [conversations, activeConvId],
   );
 
+  // ── Empty-state greeting name ─────────────────────────────────────────
+  // The soul's `name` answer would be ideal but loading it client-side is
+  // an extra round-trip; the username (or email handle) is good enough for
+  // a "Cześć, X" greeting. The model still sees the full soul in the
+  // system prompt so it knows the preferred form of address inside replies.
+  const greetingName = useMemo(() => {
+    if (!auth.user) return null;
+    return auth.user.username || auth.user.email.split('@')[0] || null;
+  }, [auth.user]);
+
   // ── Tab change (also closes mobile sidebar) ───────────────────────────
   const handleTabChange = useCallback((tab: Tab) => {
     setActiveTab(tab);
@@ -897,6 +907,8 @@ function App() {
                   messages={messages}
                   onRetry={handleRetry}
                   onRetryWithFeedback={handleRetryWithFeedback}
+                  onPickSuggestion={(t) => handleSend(t)}
+                  greetingName={greetingName}
                 />
               </div>
               <EventsDrawer

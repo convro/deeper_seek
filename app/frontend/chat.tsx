@@ -421,10 +421,42 @@ interface MessagesListProps {
   messages: ChatMessage[];
   onRetry?: (msgId: string) => void;
   onRetryWithFeedback?: (msgId: string, feedback: string) => void;
+  /** Optional: when present, ghost suggestions in the empty state become
+   *  clickable and auto-fill the input via this callback. */
+  onPickSuggestion?: (text: string) => void;
+  /** Optional: greeting name to personalise the empty state title. */
+  greetingName?: string | null;
 }
 
-export function MessagesList({ messages, onRetry, onRetryWithFeedback }: MessagesListProps) {
+// Two ghost suggestions per session — picked once on first mount from a
+// rotating pool so the same user doesn't always see the same prompts.
+// User explicitly asked for "2 not 3" — keep the area uncluttered.
+const SUGGESTION_POOL: string[] = [
+  'Zaplanuj projekt na ten tydzień i rozbij na kroki',
+  'Zrób research po sieci i streszcz mi to po polsku',
+  'Przeglądnij ten kod i powiedz co z nim nie tak',
+  'Napisz mi prompt który robi X — masz wymyślić X',
+  'Wytłumacz mi <coś co cię nudzi> w 5 minut',
+  'Postaw prosty landing page i daj mi link do podglądu',
+  'Pomóż mi nazwać tę rzecz — bez korpo-żargonu',
+  'Pogadajmy luźno — co byś zrobił na moim miejscu w X',
+];
+
+function pickTwo<T>(arr: T[]): T[] {
+  const copy = arr.slice();
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, 2);
+}
+
+export function MessagesList({
+  messages, onRetry, onRetryWithFeedback, onPickSuggestion, greetingName,
+}: MessagesListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Pick suggestions once per mount so they don't reshuffle on every render.
+  const suggestions = React.useMemo(() => pickTwo(SUGGESTION_POOL), []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -439,19 +471,23 @@ export function MessagesList({ messages, onRetry, onRetryWithFeedback }: Message
           className="empty-logo"
           onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
         />
-        <div className="empty-title">DeeperSeek</div>
+        <div className="empty-title">
+          {greetingName ? `Cześć, ${greetingName}.` : 'DeeperSeek'}
+        </div>
         <div className="empty-subtitle">
-          Autonomous AI agent with tools, memory, and multi-agent orchestration.<br />
-          Ask anything — it plans, executes, and delivers real results.
+          {greetingName
+            ? 'Na czym dziś działamy?'
+            : 'Autonomous AI agent with tools, memory, and multi-agent orchestration.'}
         </div>
         <div className="empty-suggestions">
-          {[
-            'Write a Python web scraper',
-            'Analyze this codebase and find bugs',
-            'Research the latest AI papers',
-            'Build a REST API with tests',
-          ].map(ex => (
-            <div key={ex} className="suggestion-chip">{ex}</div>
+          {suggestions.map(ex => (
+            <button
+              key={ex}
+              type="button"
+              className="suggestion-chip"
+              onClick={() => onPickSuggestion?.(ex)}
+              disabled={!onPickSuggestion}
+            >{ex}</button>
           ))}
         </div>
       </div>
