@@ -598,11 +598,17 @@ function App() {
   }, []);
 
   // ── Init ──────────────────────────────────────────────────────────────
+  // Wait for auth to settle before fetching — otherwise the very first
+  // /api/chat/sessions call fires before the bearer token is restored
+  // from localStorage, returns 401, and trips the global "auth required"
+  // listener which immediately logs the user out.
   useEffect(() => {
+    if (!auth.ready) return;
+    if (auth.mode === 'multi_user' && !auth.user) return;
     loadConversations();
     setupWs(activeConvId);
     return () => wsRef.current?.disconnect();
-  }, []); // eslint-disable-line
+  }, [auth.ready, auth.user?.id]); // eslint-disable-line
 
   // ── Create new conversation ───────────────────────────────────────────
   const newConversation = useCallback(() => {
@@ -812,6 +818,20 @@ function App() {
     setMobileSidebar(false);
   }, []);
 
+  // ── Edit profile (re-trigger onboarding) ─────────────────────────────
+  // Must live ABOVE all conditional returns below — React rules of hooks
+  // require the hook count to stay constant across renders. Putting this
+  // useCallback inside the post-gate body crashes with React error #310
+  // the moment the user leaves onboarding (hook count grows by one).
+  const handleEditProfile = useCallback(async () => {
+    try {
+      await resetSoul();
+      await authActions.refresh();   // soul_complete flips back to false → onboarding gate triggers
+    } catch {
+      // swallow — user can retry from the menu
+    }
+  }, [authActions]);
+
   // ── Render ────────────────────────────────────────────────────────────
 
   // Auth gate — wait for bootstrap, then show login if needed
@@ -840,15 +860,6 @@ function App() {
   }
 
   // Shared user-menu element (only rendered in multi_user mode)
-  const handleEditProfile = useCallback(async () => {
-    try {
-      await resetSoul();
-      await authActions.refresh();   // soul_complete flips back to false → onboarding gate triggers
-    } catch {
-      // swallow — user can retry from the menu
-    }
-  }, [authActions]);
-
   const userMenu = auth.mode === 'multi_user' && auth.user
     ? <UserMenu user={auth.user} onLogout={authActions.logout} onEditProfile={handleEditProfile} />
     : null;
