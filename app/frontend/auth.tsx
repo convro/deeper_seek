@@ -291,12 +291,24 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
 interface UserMenuProps {
   user: AuthUser;
   onLogout: () => void;
+  /** Optional: when set, shows an "Edit profile" item that calls this
+   *  (typically wired to reset onboarding so the questionnaire opens again). */
+  onEditProfile?: () => void | Promise<void>;
 }
 
-export function UserMenu({ user, onLogout }: UserMenuProps) {
+function formatJoined(iso: string | undefined): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  } catch { return ''; }
+}
+
+export function UserMenu({ user, onLogout, onEditProfile }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const name = user.username || user.email.split('@')[0];
   const initial = (name[0] || '?').toUpperCase();
+  const roleLabel = user.role === 'admin' ? 'Admin' : 'Member';
 
   return (
     <div className="user-menu">
@@ -306,8 +318,11 @@ export function UserMenu({ user, onLogout }: UserMenuProps) {
         title={user.email}
       >
         <span className="user-avatar">{initial}</span>
-        <span className="user-name">{name}</span>
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" style={{ marginLeft: 'auto' }}>
+        <span className="user-trigger-text">
+          <span className="user-name">{name}</span>
+          <span className="user-sub">{user.email}</span>
+        </span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" style={{ marginLeft: 'auto', flexShrink: 0 }}>
           <path d="M5 7 1 3h8z" />
         </svg>
       </button>
@@ -316,9 +331,34 @@ export function UserMenu({ user, onLogout }: UserMenuProps) {
           <div className="user-menu-backdrop" onClick={() => setOpen(false)} />
           <div className="user-menu-popover">
             <div className="user-menu-header">
-              <div className="user-menu-email">{user.email}</div>
-              <div className="user-menu-role">Member</div>
+              <div className="user-menu-header-row">
+                <span className="user-avatar user-avatar-lg">{initial}</span>
+                <div className="user-menu-meta">
+                  <div className="user-menu-name">{name}</div>
+                  <div className="user-menu-email">{user.email}</div>
+                </div>
+              </div>
+              <div className="user-menu-stats">
+                <span className={`user-menu-role-badge ${user.role === 'admin' ? 'admin' : ''}`}>{roleLabel}</span>
+                {user.createdAt && (
+                  <span className="user-menu-joined">since {formatJoined(user.createdAt)}</span>
+                )}
+              </div>
             </div>
+
+            {onEditProfile && (
+              <button
+                className="user-menu-item"
+                onClick={() => { setOpen(false); onEditProfile(); }}
+                title="Re-do the soul questionnaire"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.609Z"/>
+                </svg>
+                Edit profile
+              </button>
+            )}
+
             <button className="user-menu-item danger" onClick={() => { setOpen(false); onLogout(); }}>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M6 2a1 1 0 0 1 0-2h6a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a1 1 0 1 1 0-2h6V2zM3.707 8.707 5.414 10.414a1 1 0 0 1-1.414 1.414L.293 8.121a1 1 0 0 1 0-1.414L4 3a1 1 0 1 1 1.414 1.414L3.707 6.293H10a1 1 0 1 1 0 2H3.707z"/>

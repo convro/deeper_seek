@@ -83,6 +83,24 @@ function deleteSoul(userId) {
   try { fs.unlinkSync(p); return true; } catch { return false; }
 }
 
+/**
+ * Reset onboarding state without deleting answers — flips complete=false
+ * and skipped=false so the onboarding gate will show again on next page
+ * load. The previous answers remain on disk so the user can edit them
+ * rather than starting from scratch.
+ *
+ * Returns the updated record, or null if no soul exists yet.
+ */
+function resetSoul(userId) {
+  const existing = getSoul(userId);
+  if (!existing) return null;
+  return saveSoul(userId, {
+    answers:  existing.answers || {},
+    complete: false,
+    skipped:  false,
+  });
+}
+
 // ── Rendering the soul into a system-prompt section ─────────────────────
 
 /** Pick a label for an integer slider position given (min, max, labels[]). */
@@ -272,5 +290,6 @@ module.exports = {
   saveSoul,
   isSoulComplete,
   deleteSoul,
+  resetSoul,
   renderSoulPrompt,
 };

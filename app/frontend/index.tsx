@@ -5,7 +5,7 @@ import React, {
 import { createRoot } from 'react-dom/client';
 
 import { DeeperSeekWS }   from './websocket';
-import { sendMessage, listConversations, getConversation, renameConversation, deleteConversation } from './api';
+import { sendMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul } from './api';
 import { MessagesList, InputArea } from './chat';
 import { EventsDrawer, StatusDot, Spinner } from './components';
 import { Workspace } from './workspace';
@@ -749,8 +749,17 @@ function App() {
   }
 
   // Shared user-menu element (only rendered in multi_user mode)
+  const handleEditProfile = useCallback(async () => {
+    try {
+      await resetSoul();
+      await authActions.refresh();   // soul_complete flips back to false → onboarding gate triggers
+    } catch {
+      // swallow — user can retry from the menu
+    }
+  }, [authActions]);
+
   const userMenu = auth.mode === 'multi_user' && auth.user
-    ? <UserMenu user={auth.user} onLogout={authActions.logout} />
+    ? <UserMenu user={auth.user} onLogout={authActions.logout} onEditProfile={handleEditProfile} />
     : null;
 
   return (

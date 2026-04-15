@@ -43,9 +43,10 @@ router.post('/auth/logout',   authController.logout);
 router.use(authMiddleware);
 
 // ── Auth (protected) — soul / onboarding profile ─────────────
-router.get ('/auth/soul',      authController.getSoul);
-router.put ('/auth/soul',      authController.saveSoul);
-router.post('/auth/soul/skip', authController.skipSoul);
+router.get ('/auth/soul',       authController.getSoul);
+router.put ('/auth/soul',       authController.saveSoul);
+router.post('/auth/soul/skip',  authController.skipSoul);
+router.post('/auth/soul/reset', authController.resetSoul);
 
 // ── Chat ────────────────────────────────────────
 // POST /api/chat

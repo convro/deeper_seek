@@ -124,6 +124,10 @@ export async function skipSoul(): Promise<{ soul: SoulRecord }> {
   return fetchJson(`${BASE}/auth/soul/skip`, { method: 'POST' });
 }
 
+export async function resetSoul(): Promise<{ soul: SoulRecord | null }> {
+  return fetchJson(`${BASE}/auth/soul/reset`, { method: 'POST' });
+}
+
 export async function sendMessage(
   message: string,
   sessionId: string,

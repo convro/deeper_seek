@@ -150,6 +150,22 @@ async function skipSoul(req, res) {
   }
 }
 
+// ── POST /api/auth/soul/reset ─────────────────────────────────────────────
+// Re-opens onboarding by flipping complete=false. Existing answers are
+// preserved so the user can edit them; if no soul exists yet returns null
+// (the user already sees onboarding).
+async function resetSoul(req, res) {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  try {
+    const rec = soulService.resetSoul(req.user.id);
+    logger.info(`Soul onboarding reset by ${req.user.email}`);
+    res.json({ soul: rec });
+  } catch (err) {
+    logger.error('Failed to reset soul', err);
+    res.status(500).json({ error: 'Failed to reset' });
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 function extractToken(req) {
   const h = req.headers['authorization'] || '';
@@ -158,4 +174,4 @@ function extractToken(req) {
   return null;
 }
 
-module.exports = { register, login, logout, me, config, extractToken, getSoul, saveSoul, skipSoul };
+module.exports = { register, login, logout, me, config, extractToken, getSoul, saveSoul, skipSoul, resetSoul };
