@@ -173,6 +173,13 @@ export async function renameConversation(sessionId: string, title: string) {
   });
 }
 
+export async function togglePinConversation(sessionId: string, pinned: boolean) {
+  return fetchJson(`${BASE}/chat/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ pinned }),
+  });
+}
+
 export async function deleteConversation(sessionId: string) {
   return fetchJson(`${BASE}/chat/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',

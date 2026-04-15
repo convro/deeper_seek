@@ -65,6 +65,9 @@ export interface Conversation {
   updated_at: string;
   message_count: number;
   last_message?: string | null;
+  /** True when the user has pinned this conversation to the top of the sidebar. */
+  pinned?: boolean;
+  pinned_at?: string | null;
 }
 
 export interface WorkspaceJob {

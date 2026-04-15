@@ -288,6 +288,8 @@ function listSessions(req, res) {
       created_at: s.created_at,
       updated_at: s.updated_at || s.created_at,
       message_count: s.messages.length,
+      pinned: !!s.pinned,
+      pinned_at: s.pinned_at || null,
       last_message: s.messages.length > 0
         ? (typeof s.messages[s.messages.length - 1].content === 'string'
             ? s.messages[s.messages.length - 1].content.slice(0, 100)
@@ -315,16 +317,33 @@ function getSession(req, res) {
   res.json(sanitized);
 }
 
+// Handles BOTH rename (title) and pin toggle (pinned). The frontend uses
+// a single PATCH /api/chat/sessions/:sessionId for both — kept this way so
+// we don't need to add a separate route just for a one-bit toggle.
 function renameSession(req, res) {
   const { sessionId } = req.params;
-  const { title } = req.body;
-  if (!title) return res.status(400).json({ error: 'Missing title' });
+  const { title, pinned } = req.body || {};
+  if (title === undefined && pinned === undefined) {
+    return res.status(400).json({ error: 'Missing title or pinned' });
+  }
   const session = sessions.get(sessionId);
   if (!session) return res.status(404).json({ error: 'Session not found' });
   if (!canAccessSession(session, req.user)) return res.status(403).json({ error: 'Forbidden' });
-  session.title = String(title).slice(0, 100);
+
+  if (typeof title === 'string') {
+    session.title = title.slice(0, 100);
+  }
+  if (typeof pinned === 'boolean') {
+    session.pinned    = pinned;
+    session.pinned_at = pinned ? new Date().toISOString() : null;
+  }
   saveSession(session);
-  res.json({ id: sessionId, title: session.title });
+  res.json({
+    id:        sessionId,
+    title:     session.title,
+    pinned:    !!session.pinned,
+    pinned_at: session.pinned_at || null,
+  });
 }
 
 function deleteSession(req, res) {

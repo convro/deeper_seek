@@ -5,7 +5,7 @@ import React, {
 import { createRoot } from 'react-dom/client';
 
 import { DeeperSeekWS }   from './websocket';
-import { sendMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul } from './api';
+import { sendMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation } from './api';
 import { MessagesList, InputArea } from './chat';
 import { EventsDrawer, StatusDot, Spinner } from './components';
 import { Workspace } from './workspace';
@@ -39,6 +39,7 @@ interface SidebarProps {
   onNew: () => void;
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
+  onTogglePin: (id: string, pinned: boolean) => void;
   onTabChange: (tab: Tab) => void;
   loading: boolean;
   userMenu?: React.ReactNode;
@@ -72,7 +73,7 @@ const TAB_DEFS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 ];
 
 function Sidebar({
-  conversations, activeId, activeTab, onSelect, onNew, onDelete, onRename, onTabChange, loading, userMenu,
+  conversations, activeId, activeTab, onSelect, onNew, onDelete, onRename, onTogglePin, onTabChange, loading, userMenu,
 }: SidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle,  setEditTitle]  = useState('');
@@ -92,24 +93,31 @@ function Sidebar({
   };
 
   const grouped = useMemo(() => {
-    const today: Conversation[] = [];
-    const week:  Conversation[] = [];
-    const older: Conversation[] = [];
+    const pinned: Conversation[] = [];
+    const today:  Conversation[] = [];
+    const week:   Conversation[] = [];
+    const older:  Conversation[] = [];
     const now = Date.now();
     for (const c of conversations) {
+      if (c.pinned) { pinned.push(c); continue; }
       const diff = now - new Date(c.updated_at || c.created_at).getTime();
       if (diff < 86_400_000)      today.push(c);
       else if (diff < 604_800_000) week.push(c);
       else                         older.push(c);
     }
-    return { today, week, older };
+    // Pinned newest-first by pin time, falling back to updated_at
+    pinned.sort((a, b) =>
+      new Date(b.pinned_at || b.updated_at || b.created_at).getTime() -
+      new Date(a.pinned_at || a.updated_at || a.created_at).getTime()
+    );
+    return { pinned, today, week, older };
   }, [conversations]);
 
-  const Group = ({ label, items }: { label: string; items: Conversation[] }) => {
+  const Group = ({ label, items, pinnedGroup = false }: { label: string; items: Conversation[]; pinnedGroup?: boolean }) => {
     if (!items.length) return null;
     return (
       <>
-        <div className="sidebar-group-label">{label}</div>
+        <div className={`sidebar-group-label ${pinnedGroup ? 'sidebar-group-pinned' : ''}`}>{label}</div>
         {items.map(c => (
           <ConvItem
             key={c.id}
@@ -123,6 +131,7 @@ function Sidebar({
             onStartEdit={startEdit}
             onCommitEdit={commitEdit}
             onDelete={onDelete}
+            onTogglePin={onTogglePin}
             setHoverId={setHoverId}
             setEditTitle={setEditTitle}
           />
@@ -156,6 +165,7 @@ function Sidebar({
         {!loading && conversations.length === 0 && (
           <div className="sidebar-empty">No conversations yet.<br />Start a new one above!</div>
         )}
+        <Group label="📌 Pinned"   items={grouped.pinned} pinnedGroup />
         <Group label="Today"       items={grouped.today} />
         <Group label="This week"   items={grouped.week}  />
         <Group label="Older"       items={grouped.older} />
@@ -192,25 +202,33 @@ interface ConvItemProps {
   onStartEdit: (c: Conversation) => void;
   onCommitEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  onTogglePin: (id: string, pinned: boolean) => void;
   setHoverId: (id: string | null) => void;
   setEditTitle: (t: string) => void;
 }
 
 function ConvItem({
   c, active, hovered, editing, editTitle, editRef,
-  onSelect, onStartEdit, onCommitEdit, onDelete, setHoverId, setEditTitle,
+  onSelect, onStartEdit, onCommitEdit, onDelete, onTogglePin, setHoverId, setEditTitle,
 }: ConvItemProps) {
+  const isPinned = !!c.pinned;
   return (
     <div
-      className={`sidebar-item ${active ? 'active' : ''}`}
+      className={`sidebar-item ${active ? 'active' : ''} ${isPinned ? 'pinned' : ''}`}
       onClick={() => !editing && onSelect(c)}
       onMouseEnter={() => setHoverId(c.id)}
       onMouseLeave={() => setHoverId(null)}
     >
       <div className="sidebar-item-icon">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" opacity="0.6">
-          <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.457 1.457 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z"/>
-        </svg>
+        {isPinned ? (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z"/>
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" opacity="0.6">
+            <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.457 1.457 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z"/>
+          </svg>
+        )}
       </div>
       <div className="sidebar-item-content">
         {editing ? (
@@ -235,6 +253,15 @@ function ConvItem({
       </div>
       {(hovered || active) && !editing && (
         <div className="sidebar-item-actions" onClick={e => e.stopPropagation()}>
+          <button
+            className={`sidebar-action-btn ${isPinned ? 'pin-active' : ''}`}
+            onClick={() => onTogglePin(c.id, !isPinned)}
+            title={isPinned ? 'Unpin' : 'Pin to top'}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z"/>
+            </svg>
+          </button>
           <button
             className="sidebar-action-btn"
             onClick={() => onStartEdit(c)}
@@ -630,6 +657,28 @@ function App() {
     } catch {}
   }, []);
 
+  // ── Pin / unpin ───────────────────────────────────────────────────────
+  // Optimistic toggle — update local state first, then sync with backend.
+  // On error we roll back so the sidebar stays consistent with the server.
+  const handleTogglePin = useCallback(async (id: string, pinned: boolean) => {
+    const now = new Date().toISOString();
+    setConversations(prev =>
+      prev.map(c =>
+        c.id === id ? { ...c, pinned, pinned_at: pinned ? now : null } : c
+      )
+    );
+    try {
+      await togglePinConversation(id, pinned);
+    } catch {
+      // Roll back on failure
+      setConversations(prev =>
+        prev.map(c =>
+          c.id === id ? { ...c, pinned: !pinned, pinned_at: !pinned ? now : null } : c
+        )
+      );
+    }
+  }, []);
+
   // ── Delete ────────────────────────────────────────────────────────────
   const handleDelete = useCallback(async (id: string) => {
     try {
@@ -825,6 +874,7 @@ function App() {
           onNew={newConversation}
           onDelete={handleDelete}
           onRename={handleRename}
+          onTogglePin={handleTogglePin}
           onTabChange={handleTabChange}
           loading={convsLoading}
           userMenu={userMenu}
@@ -841,6 +891,7 @@ function App() {
           onNew={newConversation}
           onDelete={handleDelete}
           onRename={handleRename}
+          onTogglePin={handleTogglePin}
           onTabChange={handleTabChange}
           loading={convsLoading}
           userMenu={userMenu}

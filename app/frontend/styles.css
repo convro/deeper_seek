@@ -358,6 +358,30 @@ img { max-width: 100%; }
 }
 .sidebar-action-btn:hover { background: var(--bg3); color: var(--text2); }
 .sidebar-action-btn.danger:hover { background: var(--red-dim); color: var(--red); }
+.sidebar-action-btn.pin-active {
+  color: var(--accent);
+  background: rgba(99, 102, 241, 0.12);
+}
+.sidebar-action-btn.pin-active:hover {
+  background: rgba(99, 102, 241, 0.20);
+  color: var(--accent);
+}
+
+/* ── Pinned conversations ─────────────────────────────────────────── */
+.sidebar-group-label.sidebar-group-pinned {
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 12px;
+}
+.sidebar-item.pinned .sidebar-item-icon {
+  color: var(--accent);
+  opacity: 0.85;
+}
+.sidebar-item.pinned .sidebar-item-title {
+  font-weight: 500;
+}
 
 .sidebar-edit-input {
   width: 100%;
