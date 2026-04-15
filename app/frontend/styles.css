@@ -72,23 +72,6 @@ body {
 }
 button { font-family: inherit; cursor: pointer; touch-action: manipulation; }
 textarea, input { font-family: inherit; }
-
-/* ── iOS auto-zoom-on-focus fix ──────────────────────────────────────────
-   Safari auto-zooms into any input whose computed font-size is < 16px at
-   the moment of focus. We bump all text-accepting controls to 16px on
-   mobile breakpoints. Classes are listed explicitly to out-specify the
-   per-component class rules below. Desktop typography is untouched. */
-@media (max-width: 768px) {
-  input,
-  textarea,
-  select,
-  .auth-input,
-  .auth-input-license,
-  .input-textarea,
-  .sidebar-edit-input {
-    font-size: 16px;
-  }
-}
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 img { max-width: 100%; }
@@ -1998,3 +1981,29 @@ body.keyboard-open .messages-wrapper::after { display: none; }
 .user-menu-item:hover { background: var(--bg4); }
 .user-menu-item.danger { color: var(--red); }
 .user-menu-item.danger:hover { background: var(--red-dim); }
+
+/* ── iOS auto-zoom-on-focus fix — MUST BE LAST ────────────────────────────
+   Safari auto-zooms into any input whose computed font-size is < 16px at
+   the moment of focus. Apple offers no way to disable this via viewport
+   meta without also killing user pinch-zoom (an accessibility regression).
+   The only clean fix is: inputs must be >=16px when the keyboard opens.
+
+   This rule lives at the end of the file so source-order tiebreaks any
+   per-component .auth-input / .input-textarea / .sidebar-edit-input rule
+   at equal specificity. !important is used on the raw element selectors
+   because future dev adding a new .something-input is likely to introduce
+   a class-level font-size and silently re-break iOS focus — the !important
+   makes that impossible without an equally !important desktop override. */
+@media (max-width: 768px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+  .auth-input,
+  .auth-input-license,
+  .input-textarea,
+  .sidebar-edit-input {
+    font-size: 16px;
+  }
+}
