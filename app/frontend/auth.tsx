@@ -188,25 +188,10 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
 
   return (
     <div className="auth-screen">
-      {/* Ambient glow backdrop */}
-      <div className="auth-backdrop">
-        <div className="auth-orb auth-orb-1" />
-        <div className="auth-orb auth-orb-2" />
-        <div className="auth-orb auth-orb-3" />
-      </div>
-
       <div className="auth-card">
         <div className="auth-brand">
           <img src={LOGO_URL} alt="DeeperSeek" className="auth-logo" />
-          <h1 className="auth-title">
-            {'DeeperSeek'.split('').map((ch, i) => (
-              <span
-                key={i}
-                className="auth-title-letter"
-                style={{ animationDelay: `${i * 0.35}s` }}
-              >{ch}</span>
-            ))}
-          </h1>
+          <h1 className="auth-title">DeeperSeek</h1>
           <p className="auth-tagline">
             {tab === 'login' ? 'Welcome back.' : 'Create your account.'}
           </p>
@@ -297,12 +282,6 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
               : tab === 'login' ? 'Sign in' : 'Create account'}
           </button>
         </form>
-
-        <div className="auth-footer">
-          <span className="auth-footer-brand">DS:v1.0</span>
-          <span className="auth-footer-dot" />
-          <span>NODE_ACTIVE</span>
-        </div>
       </div>
     </div>
   );
