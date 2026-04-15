@@ -120,6 +120,53 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
   const [error,      setError]    = useState<string | null>(null);
   const [loading,    setLoading]  = useState(false);
 
+  // ── iOS keyboard pin ────────────────────────────────────────────────
+  // .auth-screen is position:fixed, so when the iOS keyboard opens the
+  // visual viewport shrinks/pans and the card appears to slide under
+  // the keyboard. Pin the element to the live visual viewport instead
+  // of the (static) layout viewport. Mirrors the logic in index.tsx for
+  // the main .app-root container.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const el = document.querySelector('.auth-screen') as HTMLElement | null;
+    if (!el) return;
+
+    let fullHeight = vv ? vv.height : window.innerHeight;
+
+    const update = () => {
+      const h   = vv ? vv.height    : window.innerHeight;
+      const top = vv ? vv.offsetTop : 0;
+      if (h > fullHeight) fullHeight = h;
+
+      el.style.height = h + 'px';
+      el.style.top    = top + 'px';
+
+      document.body.classList.toggle('keyboard-open', h < fullHeight * 0.85);
+
+      // Kill any residual document-level scroll iOS may have introduced
+      window.scrollTo(0, 0);
+    };
+
+    update();
+
+    if (vv) {
+      vv.addEventListener('resize', update, { passive: true });
+      vv.addEventListener('scroll', update, { passive: true });
+    } else {
+      window.addEventListener('resize', update, { passive: true });
+    }
+
+    return () => {
+      if (vv) {
+        vv.removeEventListener('resize', update);
+        vv.removeEventListener('scroll', update);
+      } else {
+        window.removeEventListener('resize', update);
+      }
+      document.body.classList.remove('keyboard-open');
+    };
+  }, []);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);

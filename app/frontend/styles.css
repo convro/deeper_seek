@@ -55,6 +55,9 @@ html, body, #root { height: 100%; }
 html {
   overflow: hidden;
   overscroll-behavior: none;
+  /* Prevent iOS/Android auto text inflation on orientation change */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 body {
   background: var(--bg);
@@ -67,8 +70,25 @@ body {
   overflow: hidden;
   overscroll-behavior: none;
 }
-button { font-family: inherit; cursor: pointer; }
+button { font-family: inherit; cursor: pointer; touch-action: manipulation; }
 textarea, input { font-family: inherit; }
+
+/* ── iOS auto-zoom-on-focus fix ──────────────────────────────────────────
+   Safari auto-zooms into any input whose computed font-size is < 16px at
+   the moment of focus. We bump all text-accepting controls to 16px on
+   mobile breakpoints. Classes are listed explicitly to out-specify the
+   per-component class rules below. Desktop typography is untouched. */
+@media (max-width: 768px) {
+  input,
+  textarea,
+  select,
+  .auth-input,
+  .auth-input-license,
+  .input-textarea,
+  .sidebar-edit-input {
+    font-size: 16px;
+  }
+}
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 img { max-width: 100%; }

@@ -441,6 +441,10 @@ function App() {
   // appear to slide off-screen.  We compensate by tracking both the
   // visual-viewport height *and* its scroll offset, then applying them
   // directly to .app-root (which is position:fixed).
+  //
+  // NOTE: deps include auth state — on first mount the auth screen may
+  // be rendered (no .app-root yet), so the effect must re-run once the
+  // user logs in and .app-root actually appears in the DOM.
   useEffect(() => {
     const vv = window.visualViewport;
     const root = document.querySelector('.app-root') as HTMLElement | null;
@@ -493,7 +497,7 @@ function App() {
         window.removeEventListener('resize', update);
       }
     };
-  }, []);
+  }, [auth.ready, auth.user?.id]);
 
   // ── Swipe gesture to open/close mobile sidebar ─────────────────────
   useEffect(() => {
