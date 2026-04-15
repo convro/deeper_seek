@@ -50,18 +50,24 @@ function listUploads(req, res) {
   const files = [];
   const userSeg  = userDir(req);                          // '' or 'u_<id>'
   const isAdmin  = req.user && req.user.role === 'admin';
+  const isAnonymous = !req.user;                          // open mode / no auth
 
   for (const category of ['images', 'zips', 'files', 'raw']) {
     const base = path.join(UPLOADS_ROOT, category);
     if (!fs.existsSync(base)) continue;
 
-    // Admin: walk the whole category tree so they can see everything.
-    // User:  only their own subdirectory + the legacy shared root (unowned).
+    // Who sees what:
+    //   admin (service/internal) → full category tree
+    //   anonymous (open mode)    → legacy shared root (no u_* namespace yet)
+    //   real user                → ONLY their own u_<id> subdir
+    //                              Legacy untagged files stay hidden in
+    //                              multi_user mode — they predate the auth
+    //                              system and cannot leak across accounts.
     const roots = isAdmin
       ? [base]
-      : (userSeg
-          ? [path.join(base, userSeg), base]        // own + legacy root (non-u_ files)
-          : [base]);
+      : isAnonymous
+        ? [base]
+        : [path.join(base, userSeg)];
 
     for (const root of roots) {
       if (!fs.existsSync(root)) continue;
@@ -69,14 +75,9 @@ function listUploads(req, res) {
         const full = path.join(root, entry);
         let stat;
         try { stat = fs.statSync(full); } catch { continue; }
-        if (stat.isDirectory()) {
-          // Only admin descends into other users' dirs — already handled above.
-          // For non-admin listing the category root, SKIP any u_* subdir
-          // that isn't theirs.
-          if (!isAdmin && root === base && entry.startsWith('u_') && entry !== userSeg) continue;
-          // Otherwise skip (we don't recurse into e.g. session-keyed image dirs)
-          continue;
-        }
+        if (stat.isDirectory()) continue;   // don't recurse (session-keyed dirs)
+        // Extra guard for anonymous listing: never expose u_* subdir listings
+        // (those are per-user and must not appear in open-mode root listing)
         files.push({
           name: entry,
           category,

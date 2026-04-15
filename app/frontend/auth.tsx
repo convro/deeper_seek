@@ -252,9 +252,9 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
         </form>
 
         <div className="auth-footer">
-          <span className="auth-footer-brand">DeeperSeek</span>
-          <span className="auth-footer-dot">•</span>
-          <span>Autonomous AI agent system</span>
+          <span className="auth-footer-brand">DS:v1.0</span>
+          <span className="auth-footer-dot" />
+          <span>NODE_ACTIVE</span>
         </div>
       </div>
     </div>

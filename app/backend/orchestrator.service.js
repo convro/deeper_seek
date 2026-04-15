@@ -239,9 +239,8 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
 function canAccessAgent(agent, user) {
   if (!agent) return false;
   if (!user)                  return !agent.owner_id;   // open mode
-  if (user.role === 'admin')  return true;
-  if (!agent.owner_id)        return true;               // legacy untagged
-  return agent.owner_id === user.id;
+  if (user.role === 'admin')  return true;              // service/internal callers
+  return agent.owner_id === user.id;                     // strict per-user
 }
 
 function getAgentStatus(agentId, user = null) {

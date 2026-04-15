@@ -60,6 +60,26 @@ function initWebSocket(httpServer) {
         ws.close(4401, 'Unauthorized');
         return;
       }
+
+      // Session ownership check: if the client requested to attach to an
+      // existing session_id, verify they own it. This prevents a user from
+      // spying on another account's live event stream by guessing a uuid.
+      if (url.searchParams.get('session_id')) {
+        try {
+          const { peekSessionOwner } = require('./chat.controller');
+          const ownerId = peekSessionOwner(sessionId);
+          // ownerId === undefined → session doesn't exist yet (new WS connect
+          // for a fresh session the user is about to create — allow it)
+          if (ownerId !== undefined && ownerId !== null &&
+              wsUser.role !== 'admin' && ownerId !== wsUser.id) {
+            try {
+              ws.send(JSON.stringify({ type: 'error', error: 'Forbidden', code: 'FORBIDDEN' }));
+            } catch {}
+            ws.close(4403, 'Forbidden');
+            return;
+          }
+        } catch {}
+      }
     } else if (process.env.ACCESS_KEY) {
       // 'open' mode but legacy ACCESS_KEY is set → still enforce it
       if (url.searchParams.get('key') !== process.env.ACCESS_KEY) {
@@ -132,6 +152,8 @@ function handleClientMessage(ws, sessionId, msg) {
         model: model || null,
         onEvent,
         maxRounds: 50,
+        ownerId:    ws.user ? ws.user.id    : null,
+        ownerEmail: ws.user ? ws.user.email : null,
       }).then(result => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({

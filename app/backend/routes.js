@@ -161,8 +161,8 @@ router.get('/preview/*', (req, res) => {
       try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')); } catch {}
       const user = req.user;
       const allowed = !user
-        ? !meta.owner_id
-        : (user.role === 'admin' || !meta.owner_id || meta.owner_id === user.id);
+        ? !meta.owner_id                                       // open mode
+        : (user.role === 'admin' || meta.owner_id === user.id); // strict per-user
       if (!allowed) return res.status(403).send('Forbidden');
     }
   } catch {}

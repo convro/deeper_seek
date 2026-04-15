@@ -7,9 +7,8 @@ const WORKSPACE_ROOT = path.join(__dirname, '../../workspace');
 
 function canAccessJob(meta, user) {
   if (!user) return !meta.owner_id;              // open mode
-  if (user.role === 'admin') return true;
-  if (!meta.owner_id) return true;                // legacy untagged job
-  return meta.owner_id === user.id;
+  if (user.role === 'admin') return true;        // service/internal callers
+  return meta.owner_id === user.id;              // strict per-user
 }
 
 function listJobs(req, res) {

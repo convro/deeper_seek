@@ -56,17 +56,17 @@ loadAllSessions();
  * Returns true if the caller is allowed to access this session.
  *
  * Rules:
- *   - If session has no owner_id (legacy, pre-auth):
- *       * allowed in 'open' mode
- *       * allowed to admin / ACCESS_KEY in 'multi_user' mode (migration grace)
- *   - If session has owner_id: caller must be that owner or admin.
+ *   - Anonymous caller (open mode): only sessions without owner_id.
+ *   - Service identity (internal token / ACCESS_KEY → role='admin'): all sessions.
+ *   - Real user: ONLY sessions they own. Legacy untagged sessions are hidden —
+ *     they predate the auth system and must not leak across newly-registered
+ *     accounts.
  */
 function canAccessSession(session, user) {
   if (!session) return false;
-  if (!user)               return !session.owner_id;        // open mode
-  if (user.role === 'admin') return true;
-  if (!session.owner_id)   return true;                      // legacy session
-  return session.owner_id === user.id;
+  if (!user) return !session.owner_id;           // open mode
+  if (user.role === 'admin') return true;        // service/internal callers
+  return session.owner_id === user.id;           // strict per-user
 }
 
 function generateTitle(message) {
@@ -337,4 +337,15 @@ function deleteSession(req, res) {
   res.json({ deleted: true });
 }
 
-module.exports = { sendMessage, listSessions, getSession, renameSession, deleteSession };
+// Non-HTTP helper used by websocket.js to enforce session ownership on
+// WebSocket attach. Returns:
+//   undefined  → session doesn't exist (caller should allow — it's fresh)
+//   null       → session exists but has no owner (legacy / open-mode)
+//   string     → owner user id
+function peekSessionOwner(sessionId) {
+  const s = sessions.get(sessionId);
+  if (!s) return undefined;
+  return s.owner_id || null;
+}
+
+module.exports = { sendMessage, listSessions, getSession, renameSession, deleteSession, peekSessionOwner };
