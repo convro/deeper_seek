@@ -112,6 +112,10 @@ async function runAgentLoop({
   let finalContent = '';
   const loopDeadline = Date.now() + LOOP_TIMEOUT_MS;
   const recentToolSignatures = [];
+  // Cap on how many times we silently nudge the model to continue after a
+  // text-only round. Prevents an infinite "I'll do X… ok, doing it…" loop.
+  const MAX_TEXT_ONLY_CONTINUATIONS = 2;
+  let consecutiveTextOnly = 0;
 
   emit(onEvent, { type: 'llm_start', model: selectedModel, agent: agentType });
 
@@ -262,11 +266,54 @@ async function runAgentLoop({
     if (msgContent)   emit(onEvent, { type: 'content',   content:  msgContent   });
     if (msgReasoning) emit(onEvent, { type: 'reasoning', content:  msgReasoning });
 
-    // ── No tool calls → generation complete ────────────────────────────
+    // ── No tool calls → either real completion, or a "promised next step"
+    //    that the model failed to actually execute. We try to detect the
+    //    second case and nudge the model to continue (without polluting
+    //    the user-visible stream). The nudge is internal — the assistant
+    //    bubble keeps streaming, no separator message appears in the UI. ─
     if (!toolCalls || toolCalls.length === 0) {
+      const tail = (msgContent || '').trim();
+      const tailLower = tail.slice(-400).toLowerCase();
+
+      // Heuristics for "I will do X next" without doing it. PL + EN markers,
+      // colon/ellipsis endings, and "next step" phrasing.
+      const continuationMarkers = /(\b(let me|i'?ll (now|then|next|go|just|first|start)|now i (will|need|should|am)|next[, ]+(i|let|step)|then i (will|need)|i am going to|i'?m going to|next step|first[, ]+i|kontynuuj|teraz (zrobi|sprawdz|wywoła|wywołam|odpal|odpalę|spr[óo]buj|przygotow|napisz)|sprawdz[ęe]|zaraz (zrobi|sprawdz|spr[óo]buj|odpal)|chwil[ae]|moment[, ]+|ok[ae]j[, ]+(sprawdz|zr[óo]b|teraz|zaraz)|w nast[ęe]pnym kroku|nast[ęe]pny krok|robi[ęe] to (teraz|zaraz)|przechodz[ęe] do|przejd[źz]my do)\b)/i;
+      const trailingHook = /[…:]\s*$|\.{3}\s*$|→\s*$/;
+      const looksLikeContinuation =
+        tail.length > 0 &&
+        consecutiveTextOnly < MAX_TEXT_ONLY_CONTINUATIONS &&
+        rounds < maxRounds &&
+        finishReason !== 'length' &&
+        (continuationMarkers.test(tailLower) || trailingHook.test(tail));
+
+      if (looksLikeContinuation) {
+        consecutiveTextOnly++;
+        logger.debug(`Text-only round ${rounds} looks like a continuation (${consecutiveTextOnly}/${MAX_TEXT_ONLY_CONTINUATIONS}); nudging model to actually call the tools.`);
+        // Push the assistant text as-is so the model sees what it just said,
+        // then add a system-style nudge as a synthetic user turn telling it
+        // to follow through. This stays out of the user's chat history —
+        // the assistant bubble is unchanged on the frontend, and the
+        // synthetic turn lives only in fullMessages.
+        fullMessages.push({ role: 'assistant', content: msgContent });
+        fullMessages.push({
+          role: 'user',
+          content:
+            '[system / continuation-guard] Twoja poprzednia odpowiedź zapowiadała kolejny krok ' +
+            '(np. „zrobię…", „sprawdzę…", „teraz…", "next…", "let me…"), ale nie wywołałeś żadnego ' +
+            'tool calla. Kontynuuj NATYCHMIAST: wywołaj zapowiedziane narzędzia w TEJ odpowiedzi. ' +
+            'Możesz krótko (1 linijka) powiedzieć co robisz i od razu wywołać tool. Nie kończ tury ' +
+            'samym tekstem. Jeśli nie ma już nic do zrobienia — napisz krótkie podsumowanie, bez zapowiedzi.',
+        });
+        continue; // re-enter loop; same pendingMsgId on the frontend → keeps streaming into the same bubble
+      }
+
+      // Genuine completion (or we exhausted continuation nudges)
       emit(onEvent, { type: 'done', content: finalContent, rounds, usage: totalUsage });
       break;
     }
+
+    // Real tool-call round — reset the text-only continuation counter
+    consecutiveTextOnly = 0;
 
     // ── Add assistant turn to history ───────────────────────────────────
     fullMessages.push({

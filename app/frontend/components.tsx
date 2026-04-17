@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { AgentEvent, ToolCallRecord } from './state';
+import type { AgentEvent, ToolCallRecord, LiveAgent } from './state';
 
 // ── Spinner ───────────────────────────────────────────────────────────────
 
@@ -71,31 +71,158 @@ export function ThinkingBlock({ content }: { content: string }) {
 
 // ── Tool call badge ───────────────────────────────────────────────────────
 
-export function ToolCallBadge({ tc }: { tc: ToolCallRecord }) {
+interface ToolCallBadgeProps {
+  tc: ToolCallRecord;
+  /** When this tool call is `agent_spawn`, the live state of the spawned
+   *  sub-agent — pulled from App-level liveAgents map. */
+  liveAgent?: LiveAgent;
+}
+
+export function ToolCallBadge({ tc, liveAgent }: ToolCallBadgeProps) {
   const [open, setOpen] = useState(false);
 
-  const statusColor = tc.status === 'done'
-    ? 'var(--green)'
-    : tc.status === 'error'
-      ? 'var(--red)'
-      : 'var(--orange)';
+  // For an agent_spawn that's still running, show the live sub-agent
+  // status instead of the stale tool-result status.
+  const liveRunning = liveAgent && liveAgent.status === 'running';
 
-  const statusIcon = tc.status === 'done' ? '✓' : tc.status === 'error' ? '✗' : '⟳';
+  const statusColor = liveRunning
+    ? 'var(--orange)'
+    : tc.status === 'done'
+      ? 'var(--green)'
+      : tc.status === 'error'
+        ? 'var(--red)'
+        : 'var(--orange)';
+
+  const statusIcon = liveRunning
+    ? '⟳'
+    : tc.status === 'done' ? '✓' : tc.status === 'error' ? '✗' : '⟳';
 
   return (
-    <div
-      onClick={() => setOpen(o => !o)}
-      className="tool-badge"
-    >
-      <span style={{ color: statusColor, fontWeight: 700, fontSize: 12 }}>{statusIcon}</span>
-      <span style={{ color: 'var(--accent)' }}>{tc.tool}</span>
-      {tc.duration_ms != null && (
-        <span style={{ color: 'var(--text3)' }}>{tc.duration_ms}ms</span>
-      )}
-      {open && (
-        <span style={{ color: 'var(--text2)', marginLeft: 4, fontSize: 10, fontStyle: 'italic' }}>
-          {JSON.stringify(tc.args).slice(0, 80)}
+    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        className="tool-badge"
+      >
+        <span style={{ color: statusColor, fontWeight: 700, fontSize: 12 }}>{statusIcon}</span>
+        <span style={{ color: 'var(--accent)' }}>{tc.tool}</span>
+        {liveAgent && (
+          <span style={{ color: 'var(--purple)', fontSize: 11 }}>
+            [{liveAgent.type}]
+          </span>
+        )}
+        {tc.duration_ms != null && !liveRunning && (
+          <span style={{ color: 'var(--text3)' }}>{tc.duration_ms}ms</span>
+        )}
+        {liveAgent && (
+          <span style={{ color: 'var(--text3)', fontSize: 10 }}>
+            · {liveAgent.toolCount} tool{liveAgent.toolCount === 1 ? '' : 's'}
+          </span>
+        )}
+        {open && (
+          <span style={{ color: 'var(--text2)', marginLeft: 4, fontSize: 10, fontStyle: 'italic' }}>
+            {JSON.stringify(tc.args).slice(0, 80)}
+          </span>
+        )}
+      </div>
+
+      {/* Inline sub-agent live panel. Only shown when this badge represents
+          a spawn AND the sub-agent has any live state (running, finished,
+          or failed during this session). */}
+      {liveAgent && <SubAgentLivePanel agent={liveAgent} />}
+    </div>
+  );
+}
+
+function SubAgentLivePanel({ agent }: { agent: LiveAgent }) {
+  const [expanded, setExpanded] = useState(agent.status === 'running');
+  const isRunning = agent.status === 'running';
+
+  const statusBg =
+    agent.status === 'running'   ? 'var(--orange)18' :
+    agent.status === 'completed' ? 'var(--green)18'  :
+    agent.status === 'failed'    ? 'var(--red)18'    :
+                                   'var(--bg3)';
+  const borderCol =
+    agent.status === 'running'   ? 'var(--orange)44' :
+    agent.status === 'completed' ? 'var(--green)44'  :
+    agent.status === 'failed'    ? 'var(--red)44'    :
+                                   'var(--border)';
+
+  return (
+    <div style={{
+      marginLeft: 14, marginTop: 2, marginBottom: 4,
+      borderLeft: `2px solid ${borderCol}`,
+      paddingLeft: 8,
+      maxWidth: '100%',
+    }}>
+      <div
+        onClick={() => setExpanded(e => !e)}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          fontSize: 11, cursor: 'pointer',
+          padding: '2px 8px', borderRadius: 4,
+          background: statusBg,
+          fontFamily: 'var(--mono)',
+        }}
+      >
+        <span style={{ color: 'var(--text3)', fontSize: 9 }}>{expanded ? '▼' : '▶'}</span>
+        {isRunning && <Spinner size={9} />}
+        <span style={{ color: 'var(--purple)', fontWeight: 600 }}>sub-agent</span>
+        <span style={{ color: 'var(--text2)' }}>{agent.type}</span>
+        {agent.currentTool && isRunning && (
+          <span style={{ color: 'var(--accent)' }}>→ {agent.currentTool}</span>
+        )}
+        <span style={{ color: 'var(--text3)' }}>
+          · {agent.toolCount} call{agent.toolCount === 1 ? '' : 's'}
         </span>
+        {!isRunning && (
+          <span style={{
+            color: agent.status === 'completed' ? 'var(--green)' :
+                   agent.status === 'failed'    ? 'var(--red)'   : 'var(--text3)',
+            fontWeight: 600,
+          }}>
+            {agent.status}
+          </span>
+        )}
+      </div>
+
+      {expanded && (
+        <div style={{
+          marginTop: 4, padding: '6px 10px',
+          background: 'var(--bg2)', borderRadius: 6,
+          fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text2)',
+          maxHeight: 180, overflowY: 'auto',
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          border: `1px solid ${borderCol}`,
+        }}>
+          {agent.error && (
+            <div style={{ color: 'var(--red)', marginBottom: 4 }}>
+              ✗ {agent.error}
+            </div>
+          )}
+          {agent.lastText && (
+            <div style={{ color: isRunning ? 'var(--text3)' : 'var(--text2)' }}>
+              {agent.lastText}
+              {isRunning && <span className="msg-cursor" style={{ marginLeft: 2 }} />}
+            </div>
+          )}
+          {!agent.lastText && !agent.error && (
+            <div style={{ color: 'var(--text3)', fontStyle: 'italic' }}>
+              {isRunning ? 'Sub-agent starting…' : 'No output captured.'}
+            </div>
+          )}
+          {agent.result && agent.result !== agent.lastText && (
+            <div style={{
+              marginTop: 6, paddingTop: 6,
+              borderTop: '1px dashed var(--border)',
+              color: 'var(--text)',
+            }}>
+              <div style={{ fontSize: 10, color: 'var(--green)', marginBottom: 2, letterSpacing: 0.5 }}>RESULT</div>
+              {agent.result.slice(0, 800)}
+              {agent.result.length > 800 && '…'}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

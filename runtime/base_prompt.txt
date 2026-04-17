@@ -76,6 +76,36 @@ These updates appear in real-time in the chat. The user can watch your progress 
 
 ---
 
+## CRITICAL — INTERLEAVING RULE (READ TWICE)
+
+The interface streams `text → tool_call → tool_result → text → tool_call → …`
+exactly the way an agentic IDE assistant does. To make this work the model side
+has ONE non-negotiable rule:
+
+> **Whenever you announce a next action ("teraz zrobię X", "let me check Y",
+>  "I'll now run Z", "sprawdzę…", "next step…", "then I'll…") you MUST emit
+>  the corresponding `tool_calls` IN THE SAME RESPONSE as that announcement.**
+
+Concretely:
+
+- ❌ DO NOT write a turn that ends with "let me search…" or "teraz sprawdzę
+  pliki…" or "OK, zaraz to zrobię" with **no tool_calls attached**.
+  That ends the turn — the user sees a half-finished message and the system
+  has to inject a continuation nudge to wake you back up. This is the
+  single biggest UX bug. Do not be the cause of it.
+- ✅ DO write `"OK, sprawdzam pliki…"` AND attach `fs_tree(...)` as a
+  tool_call in the SAME response. Both ship together; UI streams the text
+  and immediately fires the tool badge.
+- ✅ The ONLY time it's correct to send text without tool_calls is when you
+  are **actually finished** — final summary, answer, or "done." text. Then
+  there is nothing more to do.
+
+If you catch yourself about to write "let me…" / "teraz…" / "I'll…" / "now
+I will…" / "next…" — stop, decide which tool you need, and emit the call
+in the same message. No exceptions.
+
+---
+
 ## EXECUTION FLOW
 
 ### Step 1: UNDERSTAND

@@ -14,6 +14,7 @@ import { useAuth, AuthScreen, UserMenu } from './auth';
 import { Onboarding } from './onboarding';
 import type {
   ChatMessage, AgentEvent, ToolCallRecord, Conversation, Attachment, MessageStatus,
+  LiveAgent,
 } from './state';
 import { generateSessionId, generateId } from './state';
 
@@ -310,6 +311,13 @@ function App() {
   const [wsConnected, setWsConnected] = useState(false);
   const [activeTab,   setActiveTab]   = useState<Tab>('chat');
   const [eventsOpen,  setEventsOpen]  = useState(false);
+  // Live sub-agent map — keyed by agent_id. Updated from WS events; used by
+  // both the Agents sidebar tab (real-time, no polling lag) and the inline
+  // sub-agent badges in chat messages.
+  const [liveAgents,  setLiveAgents]  = useState<Map<string, LiveAgent>>(() => new Map());
+  // Correlation: agent_id → { msgId, callId } so we can tag the parent
+  // agent_spawn tool call when sub-agent events arrive.
+  const agentToCall   = useRef<Map<string, { msgId: string; callId: string }>>(new Map());
 
   // ── Msg helpers ───────────────────────────────────────────────────────
   const updateMsg = useCallback((id: string, patch: Partial<ChatMessage>) => {
@@ -350,6 +358,61 @@ function App() {
                             'content_delta', 'reasoning_delta', 'reasoning', 'content']);
       if (!SKIP.has(event.type)) {
         setEvents(prev => [...prev.slice(-500), { ...event, timestamp: new Date().toISOString() }]);
+      }
+
+      // ── Sub-agent live tracking ────────────────────────────────────
+      // Backend forwards sub-agent events with `agent_id` + `agent_type`
+      // attached. We aggregate them into `liveAgents` so both the sidebar
+      // tab and the inline chat badges render in real-time, no polling.
+      if (event.agent_id && event.agent_type) {
+        const aid = event.agent_id;
+        const now = new Date().toISOString();
+        setLiveAgents(prev => {
+          const next = new Map(prev);
+          const cur: LiveAgent = next.get(aid) ?? {
+            id:          aid,
+            type:        event.agent_type!,
+            status:      'running',
+            toolCount:   0,
+            startedAt:   now,
+            eventCount:  0,
+            lastEventAt: now,
+          };
+          const updated: LiveAgent = {
+            ...cur,
+            type:        event.agent_type || cur.type,
+            eventCount:  cur.eventCount + 1,
+            lastEventAt: now,
+          };
+          if (event.type === 'tool_call' && event.tool) {
+            updated.toolCount   = cur.toolCount + 1;
+            updated.currentTool = event.tool;
+          }
+          if (event.type === 'content_delta' && event.delta) {
+            updated.lastText = ((cur.lastText || '') + event.delta).slice(-400);
+          } else if (event.type === 'content' && event.content) {
+            updated.lastText = String(event.content).slice(-400);
+          }
+          if (event.type === 'done' || event.type === 'final') {
+            updated.status      = 'completed';
+            updated.completedAt = now;
+            if (event.content) updated.result = String(event.content);
+          }
+          if (event.type === 'error') {
+            updated.status      = 'failed';
+            updated.completedAt = now;
+            updated.error       = event.error || 'unknown error';
+          }
+          next.set(aid, updated);
+          return next;
+        });
+
+        // Tag the parent agent_spawn tool call so the chat bubble can find
+        // the sub-agent's live state via state.spawnedAgentId.
+        const link = agentToCall.current.get(aid);
+        if (link) {
+          updateToolCall(link.msgId, link.callId, { spawnedAgentId: aid });
+        }
       }
     });
 
@@ -405,10 +468,19 @@ function App() {
       if (!event.call_id) return;
       const msgId = pendingToolIds.current.get(event.call_id);
       if (!msgId) return;
+      // Correlation: agent_spawn returns { agent_id } in result. Stash the
+      // mapping so subsequent sub-agent events (which carry agent_id) can be
+      // attached back to this exact tool call for inline rendering.
+      const r = event.result as { agent_id?: string } | undefined;
+      const spawnedId = r && typeof r === 'object' ? r.agent_id : undefined;
+      if (spawnedId) {
+        agentToCall.current.set(spawnedId, { msgId, callId: event.call_id });
+      }
       updateToolCall(msgId, event.call_id, {
         result: event.result, error: event.error,
         status: event.status === 'error' ? 'error' : 'done',
         duration_ms: event.duration_ms,
+        ...(spawnedId ? { spawnedAgentId: spawnedId } : {}),
       });
     });
 
@@ -971,6 +1043,7 @@ function App() {
                   onRetryWithFeedback={handleRetryWithFeedback}
                   onPickSuggestion={(t) => handleSend(t)}
                   greetingName={greetingName}
+                  liveAgents={liveAgents}
                 />
               </div>
               <EventsDrawer
@@ -986,7 +1059,7 @@ function App() {
             </>
           )}
           {activeTab === 'workspace' && <Workspace />}
-          {activeTab === 'agents'    && <Agents />}
+          {activeTab === 'agents'    && <Agents liveAgents={liveAgents} />}
         </main>
       </div>
     </div>

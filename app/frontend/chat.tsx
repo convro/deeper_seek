@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import type { ChatMessage, ToolCallRecord, Attachment } from './state';
+import type { ChatMessage, ToolCallRecord, Attachment, LiveAgent } from './state';
 import { generateLocalId } from './state';
 import { Spinner, TypingDots, ThinkingBlock, ToolCallBadge } from './components';
 import { Markdown, PreviewModal } from './markdown';
@@ -300,9 +300,12 @@ interface AssistantMessageProps {
   message: ChatMessage;
   onRetry?: (msgId: string) => void;
   onRetryWithFeedback?: (msgId: string, feedback: string) => void;
+  /** App-level live sub-agent map. Looked up per tool-call's spawnedAgentId
+   *  so badges for `agent_spawn` show the spawned agent's real-time status. */
+  liveAgents?: Map<string, LiveAgent>;
 }
 
-function AssistantMessage({ message, onRetry, onRetryWithFeedback }: AssistantMessageProps) {
+function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents }: AssistantMessageProps) {
   const isThinking = message.status === 'thinking';
   const isError    = message.status === 'error';
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
@@ -348,7 +351,13 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback }: AssistantMe
         {/* Tool badges */}
         {message.toolCalls && message.toolCalls.length > 0 && (
           <div className="msg-tool-badges">
-            {message.toolCalls.map(tc => <ToolCallBadge key={tc.id} tc={tc} />)}
+            {message.toolCalls.map(tc => (
+              <ToolCallBadge
+                key={tc.id}
+                tc={tc}
+                liveAgent={tc.spawnedAgentId ? liveAgents?.get(tc.spawnedAgentId) : undefined}
+              />
+            ))}
           </div>
         )}
 
@@ -426,6 +435,9 @@ interface MessagesListProps {
   onPickSuggestion?: (text: string) => void;
   /** Optional: greeting name to personalise the empty state title. */
   greetingName?: string | null;
+  /** App-level live sub-agent map — passed through to ToolCallBadge so
+   *  `agent_spawn` badges render real-time sub-agent activity inline. */
+  liveAgents?: Map<string, LiveAgent>;
 }
 
 // Two ghost suggestions per session — picked once on first mount from a
@@ -452,7 +464,7 @@ function pickTwo<T>(arr: T[]): T[] {
 }
 
 export function MessagesList({
-  messages, onRetry, onRetryWithFeedback, onPickSuggestion, greetingName,
+  messages, onRetry, onRetryWithFeedback, onPickSuggestion, greetingName, liveAgents,
 }: MessagesListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   // Pick suggestions once per mount so they don't reshuffle on every render.
@@ -504,6 +516,7 @@ export function MessagesList({
               message={msg}
               onRetry={onRetry}
               onRetryWithFeedback={onRetryWithFeedback}
+              liveAgents={liveAgents}
             />
       )}
       <div ref={bottomRef} />
