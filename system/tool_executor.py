@@ -35,6 +35,8 @@ TOOL_MAP = {
     # Web
     "web_fetch":        "tools/web/web_fetch.py",
     "web_search":       "tools/web/web_search.py",
+    "web_research":     "tools/web/web_research.py",
+    "web_browse":       "tools/web/web_browse.py",
     # Workspace
     "workspace_create":   "tools/workspace/workspace_create.py",
     "workspace_load":     "tools/workspace/workspace_load.py",
@@ -45,6 +47,8 @@ TOOL_MAP = {
     "memory_search":      "tools/memory/memory_vector_search.py",
     # Web — images
     "image_search":       "tools/web/image_search.py",
+    "page_images":        "tools/web/page_images.py",
+    "image_reverse":      "tools/web/image_reverse.py",
     # Agents
     "agent_spawn":        "tools/agents/agent_spawn.py",
     "agent_status":       "tools/agents/agent_status.py",
@@ -67,6 +71,10 @@ _PKG_MAP = {
     "pytesseract": "pytesseract", "easyocr": "easyocr", "numpy": "numpy",
     "scipy": "scipy", "requests": "requests", "pandas": "pandas",
     "matplotlib": "matplotlib", "lxml": "lxml", "chardet": "chardet",
+    "httpx": "httpx", "trafilatura": "trafilatura",
+    "pdfminer": "pdfminer.six", "imagehash": "imagehash",
+    "markdownify": "markdownify", "playwright": "playwright",
+    "brotli": "brotli",
 }
 
 

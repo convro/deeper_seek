@@ -1,364 +1,445 @@
 """
-image_search.py — Search and download high-quality images for projects.
+image_search.py — Find and download high-quality images from the open web.
 
-Sources (all free, no API key needed, high resolution):
-  1. Unsplash Source (random HD photos by keyword)
-  2. Pexels HTML scraping (curated HD stock photos)
-  3. Pixabay HTML scraping (free images)
+Sources (queried in parallel; editorial/wiki/news first, stock last):
+  • Google Images          — broad index, best for specific things
+  • Bing Images            — large index, good metadata
+  • DuckDuckGo Images      — privacy proxy
+  • Yandex Images          — strong for photos & reverse lookups
+  • Wikimedia Commons      — high-res, editorial, well-described
+  • Flickr                 — real photography, huge variety
+  • Pexels / Unsplash / Pixabay — polished stock (used last, deprioritized)
 
-Downloads images directly to a target directory.
-No copyright restrictions enforced — this is an experimental/personal tool.
+Pipeline: gather candidates → flip rank (editorial > stock) → parallel
+download → validate (dims, magic bytes) → perceptual-hash dedup → drop blurry
+→ strip EXIF → score → return best N.
+
+Pass a natural query. You can also use dork-style operators in `query`
+(e.g. `site:wikimedia.org "sukiennice krakow"`) — they'll be forwarded.
 """
 
-import json
+from __future__ import annotations
+
+import html as html_mod
 import os
 import re
 import time
-import urllib.request
 import urllib.parse
-import urllib.error
-import hashlib
 from pathlib import Path
+
+from tools.web._common import fetch_sync, normalize_url, domain_of
+from tools.web._images import (
+    download_many, STOCK_HOSTS, PREFERRED_HOSTS,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-# Realistic browser headers
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,"
-              "image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": "https://www.google.com/",
-}
 
-
-def execute(
-    query: str,
-    num_images: int = 5,
-    save_dir: str = "",
-    min_width: int = 800,
-    orientation: str = "any",
-    **kwargs,
-) -> dict:
+def execute(query: str, num_images: int = 6, save_dir: str = "",
+            min_width: int = 900, min_height: int = 600,
+            orientation: str = "any",
+            sources: str = "auto", avoid_stock: bool = True,
+            normalize: bool = False,
+            **kwargs) -> dict:
     """
-    Search and download high-quality images.
+    Search the web for real photographs/images and download the best ones.
 
     Args:
-        query:       Search keywords (e.g. "african gold mine landscape")
-        num_images:  How many images to download (1-15)
-        save_dir:    Directory to save images (auto-created).
-                     If empty, uses workspace/images/<query_slug>/
-        min_width:   Minimum image width in px (default 800)
-        orientation: "any", "landscape", "portrait", "square"
+      query:       What to look for. Natural language + dork operators welcome.
+      num_images:  Final count to keep (1-25).
+      save_dir:    Target directory. Auto-created. Defaults to
+                   workspace/images/<slug>/.
+      min_width:   Minimum accepted image width.
+      min_height:  Minimum accepted image height.
+      orientation: "any" | "landscape" | "portrait" | "square".
+      sources:     "auto" (all) | comma-separated: google,bing,ddg,yandex,
+                   wikimedia,flickr,pexels,unsplash,pixabay
+      avoid_stock: If True (default), deprioritize stock hosts; once 3+ non-stock
+                   images found, skip remaining stock candidates.
+      normalize:   Convert webp/avif to jpg/png for downstream compatibility.
     """
     start = time.time()
-    num_images = max(1, min(num_images, 15))
-
-    # Determine save directory
+    num_images = max(1, min(num_images, 25))
     if not save_dir:
-        slug = re.sub(r"[^a-z0-9]+", "_", query.lower().strip())[:50]
+        slug = re.sub(r"[^a-z0-9]+", "_", query.lower().strip())[:60] or "images"
         save_dir = str(PROJECT_ROOT / "workspace" / "images" / slug)
-
     os.makedirs(save_dir, exist_ok=True)
 
-    downloaded = []
-    errors = []
-    seen_urls = set()
+    if sources == "auto":
+        active = ["wikimedia", "flickr", "google", "bing", "ddg", "yandex",
+                  "unsplash", "pexels", "pixabay"]
+    else:
+        active = [s.strip().lower() for s in sources.split(",") if s.strip()]
 
-    # Collect image URLs from multiple sources
-    candidate_urls = []
+    # ── Gather candidate URLs in parallel via threads ────────────────────────
+    import concurrent.futures
+    candidates: list = []
+    errors: list = []
+    by_source: dict = {}
 
-    # Source 1: Google Images (best quality, supports dorking)
-    try:
-        urls = _google_images_search(query, num_images * 3)
-        candidate_urls.extend(urls)
-    except Exception as e:
-        errors.append(f"Google Images: {e}")
+    source_fns = {
+        "google": _google_images,
+        "bing": _bing_images,
+        "ddg": _ddg_images,
+        "yandex": _yandex_images,
+        "wikimedia": _wikimedia_images,
+        "flickr": _flickr_images,
+        "unsplash": _unsplash,
+        "pexels": _pexels,
+        "pixabay": _pixabay,
+    }
 
-    # Source 2: Unsplash (high quality, curated)
-    try:
-        urls = _unsplash_search(query, num_images * 2, orientation)
-        candidate_urls.extend(urls)
-    except Exception as e:
-        errors.append(f"Unsplash: {e}")
+    target_candidates = max(num_images * 6, 30)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(active))) as pool:
+        futs = {pool.submit(source_fns[s], query, target_candidates, orientation): s
+                for s in active if s in source_fns}
+        for fut in concurrent.futures.as_completed(futs):
+            s = futs[fut]
+            try:
+                urls = fut.result() or []
+                by_source[s] = len(urls)
+                candidates.extend(urls)
+            except Exception as e:
+                by_source[s] = 0
+                errors.append(f"{s}: {e}")
 
-    # Source 3: Pexels
-    try:
-        urls = _pexels_search(query, num_images * 2)
-        candidate_urls.extend(urls)
-    except Exception as e:
-        errors.append(f"Pexels: {e}")
-
-    # Source 4: Pixabay
-    try:
-        urls = _pixabay_search(query, num_images)
-        candidate_urls.extend(urls)
-    except Exception as e:
-        errors.append(f"Pixabay: {e}")
-
-    # Download images
-    for img_url in candidate_urls:
-        if len(downloaded) >= num_images:
-            break
-        if img_url in seen_urls:
+    # Dedup while preserving order (by source priority)
+    seen: set = set()
+    unique: list = []
+    for u in candidates:
+        n = normalize_url(u)
+        if n in seen:
             continue
-        seen_urls.add(img_url)
+        seen.add(n)
+        unique.append(n)
 
-        try:
-            filepath, info = _download_image(img_url, save_dir, min_width)
-            if filepath:
-                downloaded.append({
-                    "path": filepath,
-                    "url": img_url,
-                    "width": info.get("width"),
-                    "height": info.get("height"),
-                    "size_kb": info.get("size_kb"),
-                    "format": info.get("format"),
-                })
-        except Exception as e:
-            errors.append(f"Download {img_url[:80]}: {e}")
+    # ── Download + filter ────────────────────────────────────────────────────
+    infos = download_many(
+        unique, save_dir=save_dir, target_n=num_images,
+        referer="https://www.google.com/", min_width=min_width,
+        min_height=min_height, avoid_stock=avoid_stock,
+    )
+
+    if normalize:
+        from tools.web._images import normalize_format
+        for info in infos:
+            info["path"] = normalize_format(info["path"])
+
+    out_items = [{
+        "path": i["path"],
+        "url": i.get("source_url", ""),
+        "width": i.get("width"),
+        "height": i.get("height"),
+        "size_kb": i.get("size_kb"),
+        "format": i.get("format"),
+        "score": i.get("score"),
+        "preferred": i.get("preferred"),
+        "stock": i.get("stock"),
+        "domain": domain_of(i.get("source_url", "")),
+    } for i in infos]
 
     return {
-        "status": "ok" if downloaded else "error",
+        "status": "ok" if out_items else "error",
         "result": {
             "query": query,
-            "downloaded": downloaded,
-            "count": len(downloaded),
+            "count": len(out_items),
+            "images": out_items,
             "save_dir": save_dir,
-            "errors": errors[:5] if errors else None,
+            "sources_tried": active,
+            "candidates_per_source": by_source,
+            "total_candidates": len(unique),
+            "errors": errors[:4] if errors else None,
         },
-        "error": None if downloaded else f"No images found for '{query}'. Errors: {'; '.join(errors[:3])}",
+        "error": None if out_items else f"No images passed filters. Errors: {'; '.join(errors[:3])}",
         "metadata": {"tool": "image_search", "duration_ms": _ms(start)},
     }
 
 
-# ── Source: Google Images ────────────────────────────────────────────────────
+# ── Sources: Google Images ───────────────────────────────────────────────────
 
-def _google_images_search(query: str, num: int) -> list:
-    """
-    Scrape Google Images for high-res image URLs.
-    Supports dorking operators in the query (site:, filetype:, etc.)
-    """
+def _google_images(query: str, num: int, orientation: str = "any") -> list:
     encoded = urllib.parse.quote_plus(query)
-    # tbs=isz:l = large images only, imgar:w = wide images
-    url = f"https://www.google.com/search?q={encoded}&tbm=isch&tbs=isz:l&hl=en"
+    orient = ""
+    if orientation == "landscape":
+        orient = ",iar:w"
+    elif orientation == "portrait":
+        orient = ",iar:t"
+    elif orientation == "square":
+        orient = ",iar:s"
+    url = f"https://www.google.com/search?q={encoded}&tbm=isch&tbs=isz:l{orient}&hl=en"
+    res = fetch_sync(url, timeout=15, referer="https://www.google.com/")
+    if not res.ok:
+        return []
+    html = res.text
+    urls: list = []
+    for rx in (
+        r'\["(https?://[^"]+\.(?:jpg|jpeg|png|webp|gif|avif)(?:\?[^"]*)?)",[0-9]+,[0-9]+\]',
+        r'"ou":"(https?://[^"]+\.(?:jpg|jpeg|png|webp)(?:\?[^"]*)?)"',
+        r'imgurl=(https?%3A%2F%2F[^&]+\.(?:jpg|jpeg|png|webp))',
+    ):
+        for m in re.findall(rx, html, re.IGNORECASE):
+            u = urllib.parse.unquote(m) if "%3A" in m else m
+            if _valid_img_url(u):
+                urls.append(u)
+            if len(urls) >= num:
+                return urls
+    # Broad fallback — any absolute image URL on the page
+    if len(urls) < num:
+        for m in re.findall(
+            r'(https?://[^\s"\'<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"\'<>]*)?)',
+            html, re.IGNORECASE,
+        ):
+            if _valid_img_url(m) and m not in urls:
+                urls.append(m)
+            if len(urls) >= num:
+                break
+    return urls
 
-    html = _fetch(url)
-    urls = []
 
-    # Google Images embeds full-res URLs in various JSON-like structures
-    # Pattern 1: Direct image URLs from data attributes
-    full_res = re.findall(
-        r'\["(https?://[^"]+\.(?:jpg|jpeg|png|webp)(?:\?[^"]*)?)",[0-9]+,[0-9]+\]',
-        html, re.IGNORECASE
-    )
-    for u in full_res:
-        if _is_valid_image_url(u):
+# ── Sources: Bing Images ─────────────────────────────────────────────────────
+
+def _bing_images(query: str, num: int, orientation: str = "any") -> list:
+    encoded = urllib.parse.quote_plus(query)
+    orient = ""
+    if orientation == "landscape":
+        orient = "+filterui:aspect-wide"
+    elif orientation == "portrait":
+        orient = "+filterui:aspect-tall"
+    elif orientation == "square":
+        orient = "+filterui:aspect-square"
+    url = (f"https://www.bing.com/images/search?q={encoded}{orient}"
+           f"&qft=+filterui:imagesize-large&form=IRFLTR")
+    res = fetch_sync(url, timeout=15, referer="https://www.bing.com/")
+    if not res.ok:
+        return []
+    html = res.text
+    urls: list = []
+    # Bing embeds a JSON "m" attr with real URL under "murl"
+    for m in re.findall(r'"murl":"(https?:[^"]+)"', html):
+        u = m.replace("\\/", "/")
+        if _valid_img_url(u):
             urls.append(u)
         if len(urls) >= num:
             break
-
-    # Pattern 2: og:image and other meta image URLs
     if len(urls) < num:
-        meta_imgs = re.findall(
-            r'(https?://[^\s"\'<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"\'<>]*)?)',
-            html, re.IGNORECASE
-        )
-        for u in meta_imgs:
-            if _is_valid_image_url(u) and u not in urls:
+        for m in re.findall(
+            r'mediaurl=(https?%3A%2F%2F[^&"]+)', html, re.IGNORECASE,
+        ):
+            u = urllib.parse.unquote(m)
+            if _valid_img_url(u) and u not in urls:
                 urls.append(u)
             if len(urls) >= num:
                 break
-
-    return urls[:num]
-
-
-def _is_valid_image_url(url: str) -> bool:
-    """Filter out Google's own thumbnails, tracking pixels, and tiny images."""
-    skip = [
-        "gstatic.com/images", "google.com/images", "googleapis.com",
-        "googleusercontent.com/favicon", "/s/", "=s", "icon", "logo",
-        "1x1", "pixel", "spacer", "blank", "transparent",
-    ]
-    return not any(s in url.lower() for s in skip) and len(url) < 2000
+    return urls
 
 
-# ── Source: Unsplash ─────────────────────────────────────────────────────────
+# ── Sources: DuckDuckGo Images ───────────────────────────────────────────────
 
-def _unsplash_search(query: str, num: int, orientation: str = "any") -> list:
-    """Search Unsplash via their public HTML page and extract image URLs."""
-    encoded = urllib.parse.quote_plus(query)
-    orient_param = ""
-    if orientation in ("landscape", "portrait", "squarish"):
-        orient_param = f"&orientation={orientation}"
-
-    url = f"https://unsplash.com/s/photos/{encoded}?per_page={min(num, 30)}{orient_param}"
-    html = _fetch(url)
-
-    # Extract image URLs from srcset or src attributes (prefer high-res)
-    urls = []
-
-    # Look for photo URLs in the JSON data embedded in the page
-    # Unsplash embeds photo data in script tags
-    photo_patterns = re.findall(
-        r'"(https://images\.unsplash\.com/photo-[^"]+)"',
-        html
-    )
-
-    for raw_url in photo_patterns:
-        # Clean and request a good resolution
-        base = raw_url.split("?")[0]
-        # Request 1600px wide version
-        clean_url = f"{base}?w=1600&q=80&auto=format"
-        if clean_url not in urls:
-            urls.append(clean_url)
-        if len(urls) >= num:
-            break
-
-    # Fallback: direct source URLs
-    if len(urls) < num:
-        src_urls = re.findall(
-            r'src="(https://images\.unsplash\.com/photo-[^"?]+)',
-            html
-        )
-        for u in src_urls:
-            clean = f"{u}?w=1600&q=80&auto=format"
-            if clean not in urls:
-                urls.append(clean)
-            if len(urls) >= num:
-                break
-
-    return urls[:num]
-
-
-# ── Source: Pexels ───────────────────────────────────────────────────────────
-
-def _pexels_search(query: str, num: int) -> list:
-    """Search Pexels via HTML scraping."""
-    encoded = urllib.parse.quote_plus(query)
-    url = f"https://www.pexels.com/search/{encoded}/"
-    html = _fetch(url)
-
-    urls = []
-    # Pexels uses data-large-src or srcset with high-res URLs
-    patterns = re.findall(
-        r'(?:data-large-src|srcset)="([^"]*pexels[^"]*)"',
-        html
-    )
-    for raw in patterns:
-        # Get largest URL from srcset
-        parts = raw.split(",")
-        best = parts[-1].strip().split(" ")[0] if parts else raw
-        if best.startswith("http") and "pexels" in best:
-            # Request a good size
-            clean = re.sub(r'\?.*', '?auto=compress&cs=tinysrgb&w=1600', best)
-            if clean not in urls:
-                urls.append(clean)
-        if len(urls) >= num:
-            break
-
-    # Fallback: look for direct photo URLs
-    if len(urls) < num:
-        img_urls = re.findall(
-            r'"(https://images\.pexels\.com/photos/\d+/[^"?]+)',
-            html
-        )
-        for u in img_urls:
-            clean = f"{u}?auto=compress&cs=tinysrgb&w=1600"
-            if clean not in urls:
-                urls.append(clean)
-            if len(urls) >= num:
-                break
-
-    return urls[:num]
-
-
-# ── Source: Pixabay ──────────────────────────────────────────────────────────
-
-def _pixabay_search(query: str, num: int) -> list:
-    """Search Pixabay via HTML scraping."""
-    encoded = urllib.parse.quote_plus(query)
-    url = f"https://pixabay.com/images/search/{encoded}/"
-    html = _fetch(url)
-
-    urls = []
-    # Pixabay embeds image URLs in various formats
-    img_urls = re.findall(
-        r'src="(https://cdn\.pixabay\.com/photo/[^"]+)"',
-        html
-    )
-    for u in img_urls:
-        # Skip tiny thumbnails
-        if "_150" in u or "_180" in u or "_340" in u:
-            continue
-        if u not in urls:
+def _ddg_images(query: str, num: int, orientation: str = "any") -> list:
+    # DDG requires a vqd token. Fetch the search page first.
+    q = urllib.parse.quote_plus(query)
+    res0 = fetch_sync(f"https://duckduckgo.com/?q={q}&iar=images&iax=images&ia=images",
+                      timeout=15, referer="https://duckduckgo.com/")
+    if not res0.ok:
+        return []
+    vqd_m = re.search(r'vqd="([\w\d-]+)"', res0.text) or re.search(r'vqd=([\w\d-]+)', res0.text)
+    vqd = vqd_m.group(1) if vqd_m else ""
+    if not vqd:
+        return []
+    size = "Large" if orientation != "square" else ""
+    api = (f"https://duckduckgo.com/i.js?l=us-en&o=json&q={q}&vqd={vqd}"
+           f"&f=,,,type:photo,{'size:' + size if size else ''}&p=1")
+    res = fetch_sync(api, timeout=15,
+                     referer=f"https://duckduckgo.com/?q={q}&iar=images",
+                     headers={"X-Requested-With": "XMLHttpRequest"})
+    if not res.ok:
+        return []
+    import json as _json
+    try:
+        data = _json.loads(res.text)
+    except Exception:
+        return []
+    urls: list = []
+    for r in data.get("results", []):
+        u = r.get("image") or r.get("url")
+        if u and _valid_img_url(u):
             urls.append(u)
         if len(urls) >= num:
             break
+    return urls
 
-    return urls[:num]
+
+# ── Sources: Yandex Images ───────────────────────────────────────────────────
+
+def _yandex_images(query: str, num: int, orientation: str = "any") -> list:
+    encoded = urllib.parse.quote_plus(query)
+    url = f"https://yandex.com/images/search?text={encoded}&isize=large"
+    res = fetch_sync(url, timeout=15, referer="https://yandex.com/")
+    if not res.ok:
+        return []
+    html = res.text
+    urls: list = []
+    # Yandex serves a JSON blob inside data-state attribute
+    for m in re.findall(r'"img_href":"(https?:\\?/\\?/[^"]+)"', html):
+        u = m.replace("\\/", "/").replace("\\u0026", "&")
+        if _valid_img_url(u):
+            urls.append(u)
+        if len(urls) >= num:
+            break
+    if len(urls) < num:
+        for m in re.findall(r'"origin":\{"url":"(https?:[^"]+)"', html):
+            u = m.replace("\\/", "/")
+            if _valid_img_url(u) and u not in urls:
+                urls.append(u)
+            if len(urls) >= num:
+                break
+    return urls
 
 
-# ── Download & validate ──────────────────────────────────────────────────────
+# ── Sources: Wikimedia Commons ───────────────────────────────────────────────
 
-def _download_image(url: str, save_dir: str, min_width: int = 800):
-    """Download an image and validate it. Returns (filepath, info) or (None, {})."""
-    req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        data = resp.read()
-        content_type = resp.headers.get("Content-Type", "")
-
-    if len(data) < 5000:  # Too small, probably an error page
-        return None, {}
-
-    # Determine extension
-    if "png" in content_type:
-        ext = ".png"
-    elif "webp" in content_type:
-        ext = ".webp"
-    elif "gif" in content_type:
-        ext = ".gif"
-    else:
-        ext = ".jpg"
-
-    # Generate filename from URL hash
-    url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
-    filename = f"img_{url_hash}{ext}"
-    filepath = os.path.join(save_dir, filename)
-
-    # Write file
-    with open(filepath, "wb") as f:
-        f.write(data)
-
-    # Validate with PIL if available
-    info = {"size_kb": round(len(data) / 1024, 1), "format": ext.lstrip(".")}
+def _wikimedia_images(query: str, num: int, orientation: str = "any") -> list:
+    """Wikimedia API — original (full-resolution) image URLs, well-curated."""
+    params = {
+        "action": "query", "format": "json", "generator": "search",
+        "gsrnamespace": "6", "gsrsearch": query, "gsrlimit": str(min(num * 2, 50)),
+        "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata",
+        "iiurlwidth": "1600",
+    }
+    url = "https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode(params)
+    res = fetch_sync(url, timeout=15)
+    if not res.ok:
+        return []
+    import json as _json
     try:
-        from PIL import Image
-        img = Image.open(filepath)
-        w, h = img.size
-        info["width"] = w
-        info["height"] = h
-
-        if w < min_width:
-            os.remove(filepath)
-            return None, {}
-    except ImportError:
-        pass
+        data = _json.loads(res.text)
     except Exception:
-        pass
+        return []
+    urls: list = []
+    pages = (data.get("query") or {}).get("pages") or {}
+    for p in pages.values():
+        ii = (p.get("imageinfo") or [{}])[0]
+        u = ii.get("url") or ii.get("thumburl")
+        mime = ii.get("mime", "")
+        if u and mime.startswith("image/") and "svg" not in mime:
+            urls.append(u)
+        if len(urls) >= num:
+            break
+    return urls
 
-    return filepath, info
+
+# ── Sources: Flickr ──────────────────────────────────────────────────────────
+
+def _flickr_images(query: str, num: int, orientation: str = "any") -> list:
+    encoded = urllib.parse.quote_plus(query)
+    url = f"https://www.flickr.com/search/?text={encoded}&view_all=1&dimension_search_mode=min&height=1024&width=1024"
+    res = fetch_sync(url, timeout=15, referer="https://www.flickr.com/")
+    if not res.ok:
+        return []
+    html = res.text
+    urls: list = []
+    for m in re.findall(r'"url_[lkhob]":"(\\?/\\?/live\.staticflickr\.com[^"]+)"', html):
+        u = "https:" + m.replace("\\/", "/")
+        if _valid_img_url(u) and u not in urls:
+            urls.append(u)
+        if len(urls) >= num:
+            break
+    if len(urls) < num:
+        for m in re.findall(r'https?://live\.staticflickr\.com/[^"\'\s>]+\.(?:jpg|png|webp)', html):
+            if _valid_img_url(m) and m not in urls:
+                # Bump to large via _b or _k suffix heuristic
+                urls.append(_flickr_upscale(m))
+            if len(urls) >= num:
+                break
+    return urls
 
 
-# ── Utilities ────────────────────────────────────────────────────────────────
+def _flickr_upscale(u: str) -> str:
+    # Flickr URLs: …_<id>_<size>.jpg where size b=1024, h=1600, k=2048
+    return re.sub(r"_([a-z])\.", "_b.", u, count=1) if re.search(r"_[a-z]\.", u) else u
 
-def _fetch(url: str, timeout: int = 15) -> str:
-    """Fetch URL and return HTML text."""
-    req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+
+# ── Sources: Pexels / Unsplash / Pixabay (stock; kept low priority) ──────────
+
+def _pexels(query: str, num: int, orientation: str = "any") -> list:
+    encoded = urllib.parse.quote_plus(query)
+    orient_path = ""
+    if orientation == "landscape":
+        orient_path = "&orientation=landscape"
+    elif orientation == "portrait":
+        orient_path = "&orientation=portrait"
+    url = f"https://www.pexels.com/search/{encoded}/?size=large{orient_path}"
+    res = fetch_sync(url, timeout=15, referer="https://www.pexels.com/")
+    if not res.ok:
+        return []
+    html = res.text
+    urls: list = []
+    for m in re.findall(r'"(https://images\.pexels\.com/photos/\d+/[^"?]+)"', html):
+        urls.append(f"{m}?auto=compress&cs=tinysrgb&w=1920")
+        if len(urls) >= num:
+            break
+    return urls
+
+
+def _unsplash(query: str, num: int, orientation: str = "any") -> list:
+    encoded = urllib.parse.quote_plus(query)
+    orient = ""
+    if orientation in ("landscape", "portrait", "squarish"):
+        orient = f"&orientation={orientation}"
+    elif orientation == "square":
+        orient = "&orientation=squarish"
+    url = f"https://unsplash.com/s/photos/{encoded}?per_page=30{orient}"
+    res = fetch_sync(url, timeout=15, referer="https://unsplash.com/")
+    if not res.ok:
+        return []
+    html = res.text
+    urls: list = []
+    for m in re.findall(r'"(https://images\.unsplash\.com/photo-[^"?]+)"', html):
+        clean = f"{m}?w=1920&q=85&auto=format"
+        if clean not in urls:
+            urls.append(clean)
+        if len(urls) >= num:
+            break
+    return urls
+
+
+def _pixabay(query: str, num: int, orientation: str = "any") -> list:
+    encoded = urllib.parse.quote_plus(query)
+    orient = ""
+    if orientation == "landscape":
+        orient = "&orientation=horizontal"
+    elif orientation == "portrait":
+        orient = "&orientation=vertical"
+    url = f"https://pixabay.com/images/search/{encoded}/?min_width=1920{orient}"
+    res = fetch_sync(url, timeout=15, referer="https://pixabay.com/")
+    if not res.ok:
+        return []
+    html = res.text
+    urls: list = []
+    for m in re.findall(r'(https://cdn\.pixabay\.com/photo/[^"\s]+\.(?:jpg|png|webp))', html):
+        if any(t in m for t in ("_150.", "_180.", "_340.")):
+            continue
+        if m not in urls:
+            urls.append(m)
+        if len(urls) >= num:
+            break
+    return urls
+
+
+# ── URL sanity ───────────────────────────────────────────────────────────────
+
+def _valid_img_url(u: str) -> bool:
+    if not u or len(u) > 2000 or not u.startswith("http"):
+        return False
+    low = u.lower()
+    skip = (
+        "gstatic.com/images", "google.com/images", "googleusercontent.com/favicon",
+        "pinimg.com/originals", "/favicon", "/sprite", "/icon-", "/logo-", "/1x1.",
+        "base64,", "data:image",
+    )
+    if any(s in low for s in skip):
+        return False
+    return True
 
 
 def _ms(start):

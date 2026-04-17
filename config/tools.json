@@ -101,38 +101,120 @@
     },
     "web_fetch": {
       "module": "tools/web/web_fetch.py",
-      "description": "Fetch a URL and return its content (HTML stripped to text)",
+      "description": "Fetch a URL and return rich structured content: readability-cleaned main text (or markdown), title, description, author, publish date, Open Graph metadata, JSON-LD structured data, tables and top links. Handles HTML, JSON and PDFs. Use format='markdown' for nicely formatted extract, 'full' for everything, 'pdf' for PDFs.",
       "parameters": {
         "url": {"type": "string", "description": "URL to fetch"},
-        "format": {"type": "string", "enum": ["text", "html", "json"], "default": "text"},
-        "timeout": {"type": "integer", "default": 15}
+        "format": {"type": "string", "enum": ["text", "markdown", "html", "json", "pdf", "full"], "default": "text"},
+        "timeout": {"type": "integer", "default": 20},
+        "referer": {"type": "string", "description": "Optional Referer header"},
+        "max_chars": {"type": "integer", "default": 80000, "description": "Max characters of content to return"},
+        "include_links": {"type": "boolean", "default": true},
+        "include_tables": {"type": "boolean", "default": true}
       },
       "required": ["url"],
-      "timeout_ms": 30000
-    },
-    "image_search": {
-      "module": "tools/web/image_search.py",
-      "description": "Search and download high-quality HD images from Unsplash/Pexels/Pixabay. Use for any project needing real photos, backgrounds, illustrations. Downloads directly to a directory. No copyright restrictions.",
-      "parameters": {
-        "query": {"type": "string", "description": "Search keywords (e.g. 'african gold mine landscape', 'modern office interior')"},
-        "num_images": {"type": "integer", "default": 5, "description": "Number of images to download (1-15)"},
-        "save_dir": {"type": "string", "description": "Directory to save images (auto-created if empty)"},
-        "min_width": {"type": "integer", "default": 800, "description": "Minimum image width in pixels"},
-        "orientation": {"type": "string", "enum": ["any", "landscape", "portrait", "square"], "default": "any"}
-      },
-      "required": ["query"],
-      "timeout_ms": 120000
+      "timeout_ms": 45000
     },
     "web_search": {
       "module": "tools/web/web_search.py",
-      "description": "Search the web with Google dorking support. Operators: site:domain, -site:domain, filetype:pdf, intitle:\"phrase\", inurl:keyword, intext:\"words\", \"exact match\", before:date, after:date, OR, *. Example: 'site:github.com inurl:api filetype:json'. Uses Google first, falls back to DuckDuckGo.",
+      "description": "Multi-engine web search (Google, Bing, Brave, DuckDuckGo, Startpage, Yandex) in parallel with result merging and engine-agreement ranking. Full Google dorking supported either in the query string OR as structured args (site, exclude_site, filetype, intitle, inurl, intext, exact, or_terms, before, after). Example: query='best battery tech', site=['nature.com','arxiv.org'], after='2023-01-01'.",
       "parameters": {
-        "query": {"type": "string", "description": "Search query — supports Google dork operators (site:, filetype:, intitle:, inurl:, \"exact phrase\", etc.)"},
-        "num_results": {"type": "integer", "default": 8, "description": "Number of results (1-20)"},
-        "engine": {"type": "string", "enum": ["auto", "google", "ddg"], "default": "auto", "description": "Search engine: auto (Google→DDG), google, or ddg"}
+        "query": {"type": "string", "description": "Search query — supports Google dork operators inline (site:, filetype:, intitle:, inurl:, \"exact phrase\", etc.)"},
+        "num_results": {"type": "integer", "default": 10, "description": "Results to return (1-25)"},
+        "engine": {"type": "string", "enum": ["auto", "google", "bing", "brave", "ddg", "startpage", "yandex"], "default": "auto"},
+        "site": {"type": "string", "description": "Restrict to domain(s). String or array."},
+        "exclude_site": {"type": "string", "description": "Exclude domain(s)."},
+        "filetype": {"type": "string", "description": "pdf | doc | xls | csv | ppt | txt | …"},
+        "intitle": {"type": "string", "description": "Phrase that must appear in title"},
+        "inurl": {"type": "string", "description": "Substring that must appear in URL"},
+        "intext": {"type": "string", "description": "Phrase that must appear in body"},
+        "exact": {"type": "string", "description": "Exact-match phrase"},
+        "or_terms": {"type": "array", "items": {"type": "string"}, "description": "OR-joined alternative terms"},
+        "before": {"type": "string", "description": "Date upper bound (YYYY-MM-DD)"},
+        "after": {"type": "string", "description": "Date lower bound (YYYY-MM-DD)"},
+        "lang": {"type": "string", "default": "en"}
       },
       "required": ["query"],
-      "timeout_ms": 20000
+      "timeout_ms": 30000
+    },
+    "web_research": {
+      "module": "tools/web/web_research.py",
+      "description": "End-to-end research pipeline. Expands the topic into multiple sub-queries, searches across engines in parallel, ranks URLs by engine agreement and source quality (Wikipedia / news / academic prioritized, social noise filtered), fetches the top pages in parallel, extracts main content, and returns a structured dossier: sources, per-source excerpts, key bullet points, and extracted key facts with citations. This is the right tool when you actually need to answer a research question.",
+      "parameters": {
+        "topic": {"type": "string", "description": "Topic or research question"},
+        "depth": {"type": "integer", "default": 3, "description": "1=shallow (1 query), 2=multi-angle (3), 3=thorough (5)"},
+        "pages_per_query": {"type": "integer", "default": 5},
+        "max_pages": {"type": "integer", "default": 8, "description": "Pages to actually fetch"},
+        "subqueries": {"type": "array", "items": {"type": "string"}, "description": "Optional caller-defined subqueries (overrides depth)"},
+        "site": {"type": "string"},
+        "exclude_site": {"type": "string"},
+        "filetype": {"type": "string"},
+        "before": {"type": "string"},
+        "after": {"type": "string"},
+        "include_markdown": {"type": "boolean", "default": false}
+      },
+      "required": ["topic"],
+      "timeout_ms": 120000
+    },
+    "web_browse": {
+      "module": "tools/web/web_browse.py",
+      "description": "Drive a headless Chromium (Playwright) to render a page with JavaScript, accept cookie banners, scroll to trigger lazy-loading, screenshot the result and return the fully rendered HTML plus extracted main text, metadata, visible images and links. Use when web_fetch returns too little (SPAs, JS-only content, lazy-loaded images).",
+      "parameters": {
+        "url": {"type": "string", "description": "URL to render"},
+        "wait_until": {"type": "string", "enum": ["load", "domcontentloaded", "networkidle"], "default": "networkidle"},
+        "timeout_ms": {"type": "integer", "default": 25000},
+        "scroll": {"type": "boolean", "default": true},
+        "scroll_steps": {"type": "integer", "default": 8},
+        "screenshot": {"type": "boolean", "default": true},
+        "click_cookie": {"type": "boolean", "default": true},
+        "return_html": {"type": "boolean", "default": false}
+      },
+      "required": ["url"],
+      "timeout_ms": 90000
+    },
+    "image_search": {
+      "module": "tools/web/image_search.py",
+      "description": "Find and download high-quality images from the open web. Queries Google Images, Bing Images, DuckDuckGo Images, Yandex, Wikimedia Commons, Flickr, Pexels, Unsplash, Pixabay — in parallel. Editorial / news / wiki / real-photography sources rank first; generic stock is deprioritized. Pipeline auto-validates dimensions and magic bytes, deduplicates visually identical images with perceptual hashing, drops blurry ones, strips EXIF, and scores each for quality. Pick by quality — go for real, specific, editorial imagery rather than generic stock.",
+      "parameters": {
+        "query": {"type": "string", "description": "What to look for. Natural language; Google-style operators (site:, filetype:, \"phrase\") also accepted."},
+        "num_images": {"type": "integer", "default": 6, "description": "Number of final images to keep (1-25)"},
+        "save_dir": {"type": "string", "description": "Directory to save images (auto-created if empty)"},
+        "min_width": {"type": "integer", "default": 900},
+        "min_height": {"type": "integer", "default": 600},
+        "orientation": {"type": "string", "enum": ["any", "landscape", "portrait", "square"], "default": "any"},
+        "sources": {"type": "string", "default": "auto", "description": "'auto' or comma-separated: google,bing,ddg,yandex,wikimedia,flickr,pexels,unsplash,pixabay"},
+        "avoid_stock": {"type": "boolean", "default": true, "description": "Deprioritize generic stock sources; prefer editorial/real photography"},
+        "normalize": {"type": "boolean", "default": false, "description": "Convert webp/avif to jpg/png for broader compatibility"}
+      },
+      "required": ["query"],
+      "timeout_ms": 150000
+    },
+    "page_images": {
+      "module": "tools/web/page_images.py",
+      "description": "Scrape every image referenced by a single web page: <img src>+srcset (best variant), <picture><source>, CSS background-image, <link rel=preload as=image>, og:image / twitter:image, JSON-LD image fields. Optionally downloads them with the same validation pipeline as image_search. Enable use_browser=true for heavy JS sites.",
+      "parameters": {
+        "url": {"type": "string", "description": "Page URL to scan"},
+        "download": {"type": "boolean", "default": false},
+        "save_dir": {"type": "string", "description": "Where to save if download=true"},
+        "max_download": {"type": "integer", "default": 20},
+        "min_width": {"type": "integer", "default": 400},
+        "min_height": {"type": "integer", "default": 300},
+        "include_hero": {"type": "boolean", "default": true},
+        "use_browser": {"type": "boolean", "default": false, "description": "Render with Playwright first (for JS-heavy sites)"}
+      },
+      "required": ["url"],
+      "timeout_ms": 90000
+    },
+    "image_reverse": {
+      "module": "tools/web/image_reverse.py",
+      "description": "Reverse-image search against Yandex, Google Lens and Bing. Given a publicly hosted image URL, returns the pages where that image appears (source/context) plus visually similar images — useful for tracking down the original, finding higher-resolution versions, or identifying a subject.",
+      "parameters": {
+        "url": {"type": "string", "description": "Publicly accessible image URL"},
+        "path": {"type": "string", "description": "Local file path (currently requires public URL — reserved for future upload support)"},
+        "max_results": {"type": "integer", "default": 15},
+        "engines": {"type": "string", "default": "yandex,google,bing"}
+      },
+      "required": [],
+      "timeout_ms": 60000
     },
     "workspace_create": {
       "module": "tools/workspace/workspace_create.py",

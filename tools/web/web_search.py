@@ -1,106 +1,165 @@
 """
-web_search.py — Multi-engine web search with Google dorking support.
+web_search.py — Multi-engine web search with full Google-dorking support.
 
-Engines:
-  1. Google (via scraping) — supports full dorking syntax
-  2. DuckDuckGo HTML — privacy fallback
+Engines (run in parallel when engine='auto'):
+  1. Google  — scraping (full dork syntax)
+  2. Bing    — scraping (most dork operators supported)
+  3. Brave   — HTML search page
+  4. DuckDuckGo HTML — privacy-friendly fallback
+  5. Yandex  — broad web index, great for images/reverse lookups
+  6. Startpage — Google proxy
 
-Google dorking operators (pass directly in the query):
-  site:example.com         — search only on this domain
-  -site:pinterest.com      — exclude a domain
-  filetype:pdf             — find specific file types
-  intitle:"exact phrase"   — title must contain phrase
-  inurl:keyword            — URL must contain keyword
-  intext:"exact words"     — body text must contain phrase
-  "exact match"            — exact phrase search
-  before:2025-01-01        — results before date
-  after:2024-01-01         — results after date
-  OR                       — logical OR between terms
-  *                        — wildcard (any word)
-  related:example.com      — sites similar to domain
+You can pass structured dork args (site, filetype, intitle, inurl, intext,
+before, after, exclude, exact, or_terms) — they get composed into a query
+on top of whatever you already wrote in `query`.
+
+Dork operators supported directly in the query string:
+  site:example.com           -site:pinterest.com
+  filetype:pdf               intitle:"exact phrase"
+  inurl:keyword              intext:"exact words"
+  "exact match"              before:2025-01-01        after:2024-01-01
+  OR                         *                        related:example.com
 """
 
-import urllib.request
-import urllib.parse
-import json
+from __future__ import annotations
+
+import asyncio
+import html as html_mod
 import re
 import time
+import urllib.parse
+from typing import Optional
+
+from tools.web._common import fetch_sync
 
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,*/*",
-    "Accept-Language": "en-US,en;q=0.9",
-}
+# ── Public entrypoint ────────────────────────────────────────────────────────
 
-
-def execute(query: str, num_results: int = 8, engine: str = "auto", **kwargs) -> dict:
-    """
-    Search the web. Supports Google dorking syntax.
-
-    Args:
-        query:       Search query — supports Google dork operators
-                     (site:, filetype:, intitle:, inurl:, "exact", etc.)
-        num_results: How many results to return (1-20)
-        engine:      "google", "ddg", or "auto" (tries Google first)
-    """
+def execute(query: str, num_results: int = 10, engine: str = "auto",
+            # Structured dorking args
+            site: str = "", exclude_site: str = "", filetype: str = "",
+            intitle: str = "", inurl: str = "", intext: str = "",
+            exact: str = "", or_terms: Optional[list] = None,
+            before: str = "", after: str = "",
+            region: str = "", lang: str = "en",
+            parallel: bool = True, **kwargs) -> dict:
+    """Search the web with multi-engine parallel dispatch and dork support."""
     start = time.time()
-    num_results = max(1, min(num_results, 20))
+    num_results = max(1, min(num_results, 25))
+    q = _compose_query(query, site=site, exclude_site=exclude_site,
+                       filetype=filetype, intitle=intitle, inurl=inurl,
+                       intext=intext, exact=exact, or_terms=or_terms,
+                       before=before, after=after)
 
-    results = []
-    used_engine = None
-    errors = []
+    requested = [engine] if engine != "auto" else [
+        "google", "bing", "brave", "ddg", "startpage", "yandex",
+    ]
 
-    if engine in ("auto", "google"):
+    results: list = []
+    engines_used: list = []
+    errors: list = []
+
+    if parallel and engine == "auto":
         try:
-            results = _google_search(query, num_results)
-            used_engine = "google"
+            agg = asyncio.run(_parallel_search(q, num_results, requested, region, lang))
+            for eng, items, err in agg:
+                if items:
+                    results.extend(items)
+                    engines_used.append(eng)
+                elif err:
+                    errors.append(f"{eng}: {err}")
         except Exception as e:
-            errors.append(f"Google: {e}")
+            errors.append(f"parallel: {e}")
 
-    if not results and engine in ("auto", "ddg"):
-        try:
-            results = _ddg_search(query, num_results)
-            used_engine = "duckduckgo"
-        except Exception as e:
-            errors.append(f"DuckDuckGo: {e}")
+    if not results:
+        for eng in requested:
+            try:
+                items = _dispatch(eng, q, num_results, region, lang)
+                if items:
+                    results.extend(items)
+                    engines_used.append(eng)
+                    if engine != "auto":
+                        break
+                    if len(results) >= num_results * 2:
+                        break
+            except Exception as e:
+                errors.append(f"{eng}: {e}")
 
-    if results:
+    merged = _merge_rank(results, num_results)
+
+    if merged:
         return {
             "status": "ok",
             "result": {
-                "query": query,
-                "engine": used_engine,
-                "results": results,
-                "count": len(results),
-                "dork_operators_used": _detect_dorks(query),
+                "query": q,
+                "original_query": query,
+                "engines": engines_used,
+                "results": merged,
+                "count": len(merged),
+                "dork_operators_used": _detect_dorks(q),
+                "errors": errors[:3] if errors else None,
             },
             "error": None,
             "metadata": {"tool": "web_search", "duration_ms": _ms(start)},
         }
-    else:
-        return _err(
-            f"No results for '{query}'. Errors: {'; '.join(errors)}",
-            "web_search", start,
-        )
+    return _err(
+        f"No results for '{q}'. Errors: {'; '.join(errors[:4])}",
+        "web_search", start,
+    )
+
+
+# ── Structured dork composition ──────────────────────────────────────────────
+
+def _compose_query(base: str, site: str = "", exclude_site: str = "",
+                   filetype: str = "", intitle: str = "", inurl: str = "",
+                   intext: str = "", exact: str = "",
+                   or_terms: Optional[list] = None,
+                   before: str = "", after: str = "") -> str:
+    parts: list[str] = [base.strip()] if base else []
+    if site:
+        for s in _as_list(site):
+            parts.append(f"site:{s}")
+    if exclude_site:
+        for s in _as_list(exclude_site):
+            parts.append(f"-site:{s}")
+    if filetype:
+        parts.append(f"filetype:{filetype.lstrip('.').lower()}")
+    if intitle:
+        parts.append(f'intitle:"{intitle}"' if " " in intitle else f"intitle:{intitle}")
+    if inurl:
+        parts.append(f"inurl:{inurl}")
+    if intext:
+        parts.append(f'intext:"{intext}"' if " " in intext else f"intext:{intext}")
+    if exact:
+        parts.append(f'"{exact}"')
+    if or_terms:
+        parts.append("(" + " OR ".join(or_terms) + ")")
+    if before:
+        parts.append(f"before:{before}")
+    if after:
+        parts.append(f"after:{after}")
+    return " ".join(p for p in parts if p).strip()
+
+
+def _as_list(v):
+    if isinstance(v, (list, tuple)):
+        return [str(x) for x in v if x]
+    return [str(v)] if v else []
 
 
 def _detect_dorks(query: str) -> list:
-    """Detect which dork operators are present in the query."""
     ops = []
     patterns = {
-        "site:": r"site:\S+",
+        "site:": r"\bsite:\S+",
         "-site:": r"-site:\S+",
-        "filetype:": r"filetype:\S+",
-        "intitle:": r"intitle:",
-        "inurl:": r"inurl:",
-        "intext:": r"intext:",
+        "filetype:": r"\bfiletype:\S+",
+        "intitle:": r"\bintitle:",
+        "inurl:": r"\binurl:",
+        "intext:": r"\bintext:",
         "exact_phrase": r'"[^"]+"',
-        "before:": r"before:\S+",
-        "after:": r"after:\S+",
-        "related:": r"related:\S+",
+        "before:": r"\bbefore:\S+",
+        "after:": r"\bafter:\S+",
+        "related:": r"\brelated:\S+",
         "OR": r"\bOR\b",
         "wildcard": r"\*",
     }
@@ -110,118 +169,273 @@ def _detect_dorks(query: str) -> list:
     return ops
 
 
-# ── Google Search ────────────────────────────────────────────────────────────
+# ── Parallel dispatch ────────────────────────────────────────────────────────
 
-def _google_search(query: str, num: int) -> list:
-    """Scrape Google search results. Full dork syntax support."""
+async def _parallel_search(q: str, num: int, engines: list,
+                           region: str, lang: str) -> list:
+    loop = asyncio.get_event_loop()
+    tasks = [
+        loop.run_in_executor(None, _safe_call, eng, q, num, region, lang)
+        for eng in engines
+    ]
+    return await asyncio.gather(*tasks)
+
+
+def _safe_call(eng: str, q: str, num: int, region: str, lang: str):
+    try:
+        return (eng, _dispatch(eng, q, num, region, lang), None)
+    except Exception as e:
+        return (eng, [], str(e))
+
+
+def _dispatch(engine: str, query: str, num: int, region: str, lang: str) -> list:
+    if engine == "google":
+        return _google(query, num, region, lang)
+    if engine == "bing":
+        return _bing(query, num, region, lang)
+    if engine == "brave":
+        return _brave(query, num, region, lang)
+    if engine == "ddg":
+        return _ddg(query, num, region, lang)
+    if engine == "startpage":
+        return _startpage(query, num, region, lang)
+    if engine == "yandex":
+        return _yandex(query, num, region, lang)
+    raise ValueError(f"Unknown engine: {engine}")
+
+
+# ── Result merging / ranking ─────────────────────────────────────────────────
+
+def _merge_rank(items: list, target: int) -> list:
+    """Dedup by URL, combine snippets, boost by engine agreement."""
+    bucket: dict = {}
+    for i, it in enumerate(items):
+        u = it.get("url", "").strip()
+        if not u:
+            continue
+        norm = re.sub(r"[#?].*$", "", u.lower().rstrip("/"))
+        if norm not in bucket:
+            bucket[norm] = {**it, "_engines": [it.get("engine")],
+                            "_best_rank": it.get("rank", i)}
+        else:
+            b = bucket[norm]
+            if it.get("engine") not in b["_engines"]:
+                b["_engines"].append(it.get("engine"))
+            b["_best_rank"] = min(b["_best_rank"], it.get("rank", i))
+            if len(it.get("snippet") or "") > len(b.get("snippet") or ""):
+                b["snippet"] = it.get("snippet")
+            if not b.get("title") and it.get("title"):
+                b["title"] = it["title"]
+
+    merged = list(bucket.values())
+    merged.sort(key=lambda r: (len(r["_engines"]) * 100 - r["_best_rank"]), reverse=True)
+    out = []
+    for r in merged[:target]:
+        out.append({
+            "title": r.get("title", ""),
+            "url": r.get("url", ""),
+            "snippet": (r.get("snippet") or "")[:400],
+            "engines": r.get("_engines", []),
+        })
+    return out
+
+
+# ── Engine: Google ───────────────────────────────────────────────────────────
+
+def _google(query: str, num: int, region: str = "", lang: str = "en") -> list:
     encoded = urllib.parse.quote_plus(query)
-    url = f"https://www.google.com/search?q={encoded}&num={min(num + 5, 30)}&hl=en"
+    gl = f"&gl={region}" if region else ""
+    url = f"https://www.google.com/search?q={encoded}&num={min(num + 5, 30)}&hl={lang}{gl}&pws=0"
+    res = fetch_sync(url, timeout=15, referer="https://www.google.com/", use_cache=True)
+    if not res.ok:
+        raise RuntimeError(res.error or f"HTTP {res.status}")
+    html = res.text
+    items = []
 
-    req = urllib.request.Request(url, headers={
-        **HEADERS,
-        "Referer": "https://www.google.com/",
-    })
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        html = resp.read().decode("utf-8", errors="replace")
-
-    results = []
-
-    # Method 1: Standard result blocks
-    # Google wraps results in <div class="g"> blocks
-    blocks = re.findall(r'<div class="[^"]*g[^"]*">(.*?)</div>\s*</div>\s*</div>', html, re.DOTALL)
-
-    for block in blocks:
-        # Extract URL
-        url_match = re.search(r'<a[^>]+href="(https?://[^"]+)"', block)
-        if not url_match:
+    for m in re.finditer(
+        r'<a[^>]+href="(https?://[^"#]+)"[^>]*>\s*(?:<br>)?\s*<h3[^>]*>(.*?)</h3>',
+        html, re.DOTALL,
+    ):
+        href = m.group(1)
+        if "google.com" in href and "/search" in href:
             continue
-        result_url = url_match.group(1)
+        title = _clean(m.group(2))
+        snippet = _extract_nearby_snippet(html, m.end())
+        items.append({"engine": "google", "title": title, "url": _unwrap_google(href),
+                      "snippet": snippet, "rank": len(items)})
+        if len(items) >= num:
+            break
 
-        # Skip Google's own URLs
-        if "google.com" in result_url and "/search" in result_url:
-            continue
-
-        # Extract title
-        title_match = re.search(r'<h3[^>]*>(.*?)</h3>', block, re.DOTALL)
-        title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip() if title_match else ""
-
-        # Extract snippet
-        snippet_match = re.search(
-            r'<div[^>]*(?:class="[^"]*VwiC3b[^"]*"|data-sncf)[^>]*>(.*?)</div>',
-            block, re.DOTALL
-        )
-        snippet = re.sub(r'<[^>]+>', '', snippet_match.group(1)).strip() if snippet_match else ""
-
-        if result_url and title:
-            results.append({
-                "title": title,
-                "url": result_url,
-                "snippet": snippet[:300],
-            })
-            if len(results) >= num:
+    if not items:
+        for m in re.finditer(r'<a[^>]+href="/url\?q=(https?://[^&"]+)', html):
+            url_ = urllib.parse.unquote(m.group(1))
+            items.append({"engine": "google", "title": url_[:80], "url": url_,
+                          "snippet": "", "rank": len(items)})
+            if len(items) >= num:
                 break
-
-    # Method 2: Fallback — broader pattern matching
-    if not results:
-        # Look for any href + h3 pairs
-        pairs = re.findall(
-            r'<a[^>]+href="(https?://(?!google\.com)[^"]+)"[^>]*>.*?<h3[^>]*>(.*?)</h3>',
-            html, re.DOTALL
-        )
-        for href, raw_title in pairs:
-            title = re.sub(r'<[^>]+>', '', raw_title).strip()
-            if title and href:
-                results.append({"title": title, "url": href, "snippet": ""})
-                if len(results) >= num:
-                    break
-
-    return results
+    return items
 
 
-# ── DuckDuckGo Search ────────────────────────────────────────────────────────
+def _unwrap_google(u: str) -> str:
+    if u.startswith("/url?"):
+        m = re.search(r"q=([^&]+)", u)
+        if m:
+            return urllib.parse.unquote(m.group(1))
+    return u
 
-def _ddg_search(query: str, num: int) -> list:
-    """Use DuckDuckGo HTML search as fallback."""
+
+def _extract_nearby_snippet(html: str, pos: int) -> str:
+    chunk = html[pos:pos + 2000]
+    m = re.search(
+        r'<div[^>]*(?:class="[^"]*(?:VwiC3b|lEBKkf|yXK7lf|MUxGbd)[^"]*"|data-sncf)[^>]*>(.*?)</div>',
+        chunk, re.DOTALL,
+    )
+    if not m:
+        m = re.search(r'<span[^>]*class="[^"]*st[^"]*"[^>]*>(.*?)</span>', chunk, re.DOTALL)
+    return _clean(m.group(1)) if m else ""
+
+
+# ── Engine: Bing ─────────────────────────────────────────────────────────────
+
+def _bing(query: str, num: int, region: str = "", lang: str = "en") -> list:
+    encoded = urllib.parse.quote_plus(query)
+    url = f"https://www.bing.com/search?q={encoded}&count={min(num + 5, 30)}&setlang={lang}"
+    res = fetch_sync(url, timeout=15, referer="https://www.bing.com/", use_cache=True)
+    if not res.ok:
+        raise RuntimeError(res.error or f"HTTP {res.status}")
+    html = res.text
+    items = []
+    for m in re.finditer(
+        r'<li class="b_algo"[^>]*>.*?<h2[^>]*><a[^>]+href="([^"]+)"[^>]*>(.*?)</a></h2>'
+        r'(?:.*?<p[^>]*>(.*?)</p>)?',
+        html, re.DOTALL,
+    ):
+        href = m.group(1)
+        title = _clean(m.group(2))
+        snippet = _clean(m.group(3) or "")
+        items.append({"engine": "bing", "title": title, "url": href,
+                      "snippet": snippet, "rank": len(items)})
+        if len(items) >= num:
+            break
+    return items
+
+
+# ── Engine: Brave ────────────────────────────────────────────────────────────
+
+def _brave(query: str, num: int, region: str = "", lang: str = "en") -> list:
+    encoded = urllib.parse.quote_plus(query)
+    url = f"https://search.brave.com/search?q={encoded}&source=web"
+    res = fetch_sync(url, timeout=15, referer="https://search.brave.com/", use_cache=True)
+    if not res.ok:
+        raise RuntimeError(res.error or f"HTTP {res.status}")
+    html = res.text
+    items = []
+    for m in re.finditer(
+        r'<a[^>]+href="(https?://[^"]+)"[^>]*>.*?<(?:span|div)[^>]+class="[^"]*(?:title|snippet-title)[^"]*"[^>]*>(.*?)</(?:span|div)>',
+        html, re.DOTALL,
+    ):
+        href = m.group(1)
+        if "brave.com" in href:
+            continue
+        items.append({"engine": "brave", "title": _clean(m.group(2)),
+                      "url": href, "snippet": "", "rank": len(items)})
+        if len(items) >= num:
+            break
+    return items
+
+
+# ── Engine: DuckDuckGo HTML ──────────────────────────────────────────────────
+
+def _ddg(query: str, num: int, region: str = "", lang: str = "en") -> list:
     encoded = urllib.parse.quote_plus(query)
     url = f"https://html.duckduckgo.com/html/?q={encoded}"
-
-    req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        html = resp.read().decode("utf-8", errors="replace")
-
-    results = []
-
-    blocks = re.findall(
+    res = fetch_sync(url, timeout=15, referer="https://duckduckgo.com/", use_cache=True)
+    if not res.ok:
+        raise RuntimeError(res.error or f"HTTP {res.status}")
+    html = res.text
+    items = []
+    for m in re.finditer(
         r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>.*?'
         r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>',
-        html, re.DOTALL
-    )
+        html, re.DOTALL,
+    ):
+        href = m.group(1)
+        real = _ddg_unwrap(href)
+        title = _clean(m.group(2))
+        snippet = _clean(m.group(3))
+        items.append({"engine": "ddg", "title": title, "url": real,
+                      "snippet": snippet, "rank": len(items)})
+        if len(items) >= num:
+            break
+    return items
 
-    for href, title, snippet in blocks:
-        title = re.sub(r"<[^>]+>", "", title).strip()
-        snippet = re.sub(r"<[^>]+>", "", snippet).strip()
 
-        url_match = re.search(r"uddg=([^&]+)", href)
-        real_url = urllib.parse.unquote(url_match.group(1)) if url_match else href
+def _ddg_unwrap(href: str) -> str:
+    m = re.search(r"uddg=([^&]+)", href)
+    return urllib.parse.unquote(m.group(1)) if m else href
 
-        if real_url and title:
-            results.append({"title": title, "url": real_url, "snippet": snippet})
-            if len(results) >= num:
+
+# ── Engine: Startpage ────────────────────────────────────────────────────────
+
+def _startpage(query: str, num: int, region: str = "", lang: str = "en") -> list:
+    encoded = urllib.parse.quote_plus(query)
+    url = f"https://www.startpage.com/do/search?query={encoded}&cat=web"
+    res = fetch_sync(url, timeout=15, referer="https://www.startpage.com/", use_cache=True)
+    if not res.ok:
+        raise RuntimeError(res.error or f"HTTP {res.status}")
+    html = res.text
+    items = []
+    for m in re.finditer(
+        r'<a[^>]+class="[^"]*w-gl__result-url[^"]*"[^>]+href="([^"]+)"[^>]*>.*?'
+        r'<h[1-3][^>]*class="[^"]*w-gl__result-title[^"]*"[^>]*>(.*?)</h[1-3]>',
+        html, re.DOTALL,
+    ):
+        items.append({"engine": "startpage", "title": _clean(m.group(2)),
+                      "url": m.group(1), "snippet": "", "rank": len(items)})
+        if len(items) >= num:
+            break
+    if not items:
+        for m in re.finditer(
+            r'<a[^>]+class="result-link"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+            html, re.DOTALL,
+        ):
+            items.append({"engine": "startpage", "title": _clean(m.group(2)),
+                          "url": m.group(1), "snippet": "", "rank": len(items)})
+            if len(items) >= num:
                 break
+    return items
 
-    if not results:
-        links = re.findall(r'uddg=([^&"]+)', html)
-        titles = re.findall(r'class="result__a"[^>]*>([^<]+)<', html)
-        for link, title in zip(links, titles):
-            results.append({
-                "title": title.strip(),
-                "url": urllib.parse.unquote(link),
-                "snippet": "",
-            })
-            if len(results) >= num:
-                break
 
-    return results
+# ── Engine: Yandex ───────────────────────────────────────────────────────────
+
+def _yandex(query: str, num: int, region: str = "", lang: str = "en") -> list:
+    encoded = urllib.parse.quote_plus(query)
+    url = f"https://yandex.com/search/?text={encoded}&lr=213"
+    res = fetch_sync(url, timeout=15, referer="https://yandex.com/", use_cache=True)
+    if not res.ok:
+        raise RuntimeError(res.error or f"HTTP {res.status}")
+    html = res.text
+    items = []
+    for m in re.finditer(
+        r'<a[^>]+class="[^"]*OrganicTitle-Link[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+        html, re.DOTALL,
+    ):
+        href = m.group(1)
+        if not href.startswith("http"):
+            continue
+        items.append({"engine": "yandex", "title": _clean(m.group(2)),
+                      "url": href, "snippet": "", "rank": len(items)})
+        if len(items) >= num:
+            break
+    return items
+
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+
+def _clean(fragment: str) -> str:
+    fragment = re.sub(r"<[^>]+>", "", fragment)
+    fragment = html_mod.unescape(fragment)
+    return re.sub(r"\s+", " ", fragment).strip()
 
 
 def _err(msg, tool, start):
