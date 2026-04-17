@@ -248,14 +248,18 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   agent:       'AGNT',
 };
 
-export function EventItem({ event }: { event: AgentEvent }) {
+export function EventItem({ event, indent = false }: { event: AgentEvent; indent?: boolean }) {
   const [open, setOpen] = useState(false);
   const dotColor = EVENT_DOT_COLOR[event.type] || 'var(--text4)';
   const typeLabel = EVENT_TYPE_LABEL[event.type] || event.type.slice(0, 4).toUpperCase();
   const hasDetail = !!(event.args || event.result || event.error);
 
   return (
-    <div>
+    <div style={indent ? {
+      marginLeft: 18,
+      borderLeft: '2px solid var(--purple)33',
+      paddingLeft: 10,
+    } : undefined}>
       <div
         className="event-item"
         onClick={() => hasDetail && setOpen(o => !o)}
@@ -282,6 +286,30 @@ export function EventItem({ event }: { event: AgentEvent }) {
           {JSON.stringify({ args: event.args, result: event.result, error: event.error }, null, 2)}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Groups consecutive sub-agent events (those carrying agent_id) under a
+ * collapsible header so the main-turn activity stays easy to scan.
+ */
+function SubAgentGroupHeader({ agentType, agentId, count }: { agentType?: string; agentId: string; count: number }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      padding: '4px 10px 2px',
+      fontSize: 10, fontFamily: 'var(--mono)',
+      color: 'var(--purple)', letterSpacing: 0.5,
+      marginTop: 4,
+    }}>
+      <span>↳</span>
+      <span style={{ fontWeight: 600 }}>SUB-AGENT</span>
+      {agentType && <span style={{ color: 'var(--text2)' }}>{agentType}</span>}
+      <span style={{ color: 'var(--text4)' }}>#{agentId.slice(0, 6)}</span>
+      <span style={{ color: 'var(--text3)', marginLeft: 'auto' }}>
+        {count} event{count === 1 ? '' : 's'}
+      </span>
     </div>
   );
 }
@@ -326,7 +354,39 @@ export function EventsDrawer({ events, open, onToggle, processing }: EventsDrawe
               Tool activity will appear here in real-time
             </div>
           )}
-          {events.map((ev, i) => <EventItem key={i} event={ev} />)}
+          {(() => {
+            // Collapse runs of consecutive sub-agent events (same agent_id)
+            // into an indented group with a header. Main-turn events are
+            // rendered inline, sub-agent events appear under their spawn.
+            const out: React.ReactNode[] = [];
+            let i = 0;
+            while (i < events.length) {
+              const ev = events[i];
+              if (!ev.agent_id) {
+                out.push(<EventItem key={i} event={ev} />);
+                i++;
+                continue;
+              }
+              // Gather the full run of consecutive events for this agent_id
+              const aid = ev.agent_id;
+              const start = i;
+              while (i < events.length && events[i].agent_id === aid) i++;
+              const slice = events.slice(start, i);
+              const atype = slice.find(e => e.agent_type)?.agent_type;
+              out.push(
+                <SubAgentGroupHeader
+                  key={`h-${start}`}
+                  agentId={aid}
+                  agentType={atype}
+                  count={slice.length}
+                />
+              );
+              slice.forEach((sev, j) => {
+                out.push(<EventItem key={`${start}-${j}`} event={sev} indent />);
+              });
+            }
+            return out;
+          })()}
           <div ref={bottomRef} />
         </div>
       )}

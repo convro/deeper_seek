@@ -52,6 +52,9 @@ router.post('/auth/soul/reset', authController.resetSoul);
 // POST /api/chat
 router.post('/chat', chatController.sendMessage);
 
+// POST /api/chat/regenerate — silent retry (no visible user bubble)
+router.post('/chat/regenerate', chatController.regenerate);
+
 // GET /api/chat/sessions
 router.get('/chat/sessions', chatController.listSessions);
 

@@ -156,6 +156,22 @@ export async function sendMessage(
   });
 }
 
+/**
+ * Silent retry — asks the backend to re-run the agent loop for the most
+ * recent user turn WITHOUT adding a visible user bubble. Optional `feedback`
+ * is passed as an ephemeral (non-persisted) nudge so the model knows what to
+ * improve. Mirrors ChatGPT/Claude "regenerate" UX.
+ */
+export async function regenerateMessage(sessionId: string, feedback?: string) {
+  return fetchJson(`${BASE}/chat/regenerate`, {
+    method: 'POST',
+    body: JSON.stringify({
+      session_id: sessionId,
+      feedback: feedback && feedback.trim() ? feedback.trim() : undefined,
+    }),
+  });
+}
+
 // ── Conversations ──────────────────────────────────────────────────────────
 
 export async function listConversations() {

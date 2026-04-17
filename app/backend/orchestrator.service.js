@@ -22,8 +22,29 @@ const AGENTS_CONFIG = JSON.parse(
   fs.readFileSync(path.join(PROJECT_ROOT, 'config/agents.json'), 'utf-8')
 );
 
-// In-memory agent state (per process — not persisted between restarts)
+// In-memory agent state (per process — not persisted between restarts).
+// Capped to MAX_REGISTRY_SIZE: when full, completed/failed/killed records
+// are evicted oldest-first. Running agents are never evicted, so a burst of
+// spawns will still succeed but old transcripts age out gracefully.
+const MAX_REGISTRY_SIZE = 200;
 const agentRegistry = new Map();
+
+function pruneAgentRegistry() {
+  if (agentRegistry.size < MAX_REGISTRY_SIZE) return;
+  // Evict non-running entries, oldest first (Map iteration is insertion order)
+  const target = Math.floor(MAX_REGISTRY_SIZE * 0.8); // bring back down to 160
+  for (const [id, a] of agentRegistry) {
+    if (agentRegistry.size <= target) break;
+    if (a.status !== 'running') agentRegistry.delete(id);
+  }
+  // Still over? Drop oldest regardless of state as a last resort.
+  if (agentRegistry.size >= MAX_REGISTRY_SIZE) {
+    const keys = Array.from(agentRegistry.keys());
+    for (let i = 0; i < keys.length && agentRegistry.size >= target; i++) {
+      agentRegistry.delete(keys[i]);
+    }
+  }
+}
 
 /**
  * Execute a single tool via Python subprocess.
@@ -144,7 +165,7 @@ async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
  * Spawn a sub-agent asynchronously or synchronously.
  * Called by the /api/agents/spawn endpoint (and by agent_spawn.py tool).
  */
-async function spawnAgent({ agentType, task, context = '', asyncMode = false, jobId = null, parentWs = null, ownerId = null, ownerEmail = null }) {
+async function spawnAgent({ agentType, task, context = '', asyncMode = false, jobId = null, parentWs = null, parentSessionId = null, ownerId = null, ownerEmail = null }) {
   const agentId = uuidv4();
   const agentConf = AGENTS_CONFIG.agents[agentType];
 
@@ -166,6 +187,7 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
     owner_email: ownerEmail || null,
   };
 
+  pruneAgentRegistry();
   agentRegistry.set(agentId, agentRecord);
   logger.agent(`Spawned agent ${agentId} (${agentType}): ${task.slice(0, 100)}`);
 
@@ -181,14 +203,18 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
 
   // Collect events for this agent
   const agentEvents = [];
+  // Forward sub-agent events to the parent session. Prefer the session-
+  // aware sendEvent (survives WS drops via replay buffer); fall back to
+  // raw parentWs only for legacy callers that still pass a socket handle.
+  const wsMod = require('./websocket');
   const onEvent = (event) => {
     agentRecord.events.push(event);
     agentEvents.push(event);
-    // Forward to parent WebSocket if available
-    if (parentWs && parentWs.readyState === 1) {
-      try {
-        parentWs.send(JSON.stringify({ agent_id: agentId, agent_type: agentType, ...event }));
-      } catch {}
+    const tagged = { agent_id: agentId, agent_type: agentType, ...event };
+    if (parentSessionId) {
+      wsMod.sendEvent(parentSessionId, tagged);
+    } else if (parentWs && parentWs.readyState === 1) {
+      try { parentWs.send(JSON.stringify(tagged)); } catch {}
     }
   };
 

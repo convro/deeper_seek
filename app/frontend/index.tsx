@@ -5,7 +5,7 @@ import React, {
 import { createRoot } from 'react-dom/client';
 
 import { DeeperSeekWS }   from './websocket';
-import { sendMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation } from './api';
+import { sendMessage, regenerateMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation } from './api';
 import { MessagesList, InputArea } from './chat';
 import { EventsDrawer, StatusDot, Spinner } from './components';
 import { Workspace } from './workspace';
@@ -485,6 +485,10 @@ function App() {
     });
 
     const finalize = (event: AgentEvent) => {
+      // Sub-agent completion events are tagged with agent_id by the backend
+      // and must NOT terminate the main turn's UI state. They are absorbed
+      // by the liveAgents tracker above.
+      if (event.agent_id) return;
       const id = pendingMsgId.current;
       if (!id) return;
       if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
@@ -510,6 +514,8 @@ function App() {
     ws.on('final', finalize);
 
     ws.on('error', (event) => {
+      // Sub-agent errors must not flip the main assistant bubble to error.
+      if (event.agent_id) return;
       if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
       const id = pendingMsgId.current;
       if (id) {
@@ -682,9 +688,25 @@ function App() {
     return () => wsRef.current?.disconnect();
   }, [auth.ready, auth.user?.id]); // eslint-disable-line
 
+  // ── Reset all turn-scoped state (pending refs, live agents, timers) ───
+  // Shared by newConversation / switchConversation so switching mid-turn
+  // never leaves stale correlation entries that could hijack the next turn.
+  const resetTurnState = useCallback(() => {
+    if (processingTimeoutRef.current) {
+      clearTimeout(processingTimeoutRef.current);
+      processingTimeoutRef.current = null;
+    }
+    pendingMsgId.current = null;
+    pendingToolIds.current.clear();
+    agentToCall.current.clear();
+    setLiveAgents(new Map());
+    setProcessing(false);
+  }, []);
+
   // ── Create new conversation ───────────────────────────────────────────
   const newConversation = useCallback(() => {
     const id = generateSessionId();
+    resetTurnState();
     setActiveConvId(id);
     setMessages([]);
     setEvents([]);
@@ -698,11 +720,12 @@ function App() {
     }, ...prev]);
     setMobileSidebar(false);
     setupWs(id);
-  }, [setupWs]);
+  }, [setupWs, resetTurnState]);
 
   // ── Switch conversation ───────────────────────────────────────────────
   const switchConversation = useCallback(async (conv: Conversation) => {
     if (conv.id === activeConvId && !mobileSidebar) return;
+    resetTurnState();
     setActiveConvId(conv.id);
     setMessages([]);
     setEvents([]);
@@ -723,7 +746,7 @@ function App() {
       );
       setMessages(msgs);
     } catch {}
-  }, [activeConvId, mobileSidebar, setupWs]);
+  }, [activeConvId, mobileSidebar, setupWs, resetTurnState]);
 
   // ── Rename ────────────────────────────────────────────────────────────
   const handleRename = useCallback(async (id: string, title: string) => {
@@ -805,7 +828,8 @@ function App() {
     setEvents([]);
     setProcessing(true);
 
-    // Frontend safety timeout — 10 minutes max
+    // Frontend safety timeout — must exceed backend LOOP_TIMEOUT_MS (20min)
+    // so the server's own timeout + final 'error' event always wins the race.
     if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
     processingTimeoutRef.current = setTimeout(() => {
       if (pendingMsgId.current) {
@@ -816,7 +840,7 @@ function App() {
         pendingMsgId.current = null;
         setProcessing(false);
       }
-    }, 10 * 60 * 1000);
+    }, 22 * 60 * 1000);
 
     try {
       await sendMessage(text, activeConvId, undefined, attachments);
@@ -836,37 +860,67 @@ function App() {
     }
   }, [processing, activeConvId, updateMsg]);
 
-  // ── Retry helpers ─────────────────────────────────────────────────────
-  // Find the user prompt that immediately preceded the given assistant
-  // message. We use that prompt to drive both "retry" (re-send same prompt)
-  // and "retry with feedback" (re-send same prompt + user's note about
-  // what should change). Both add a NEW user turn rather than rewriting
-  // history — the model sees its previous attempt and the correction.
-  const findPriorUserPrompt = useCallback((assistantMsgId: string): string | null => {
-    const idx = messages.findIndex(m => m.id === assistantMsgId);
-    if (idx <= 0) return null;
-    for (let i = idx - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') return messages[i].content || '';
+  // ── Silent retry (ChatGPT/Claude-style regenerate) ───────────────────
+  // Instead of injecting a visible "try again" user bubble, we:
+  //   1. Reset the target assistant message in-place (clear content, tools,
+  //      reasoning; flip status back to 'thinking').
+  //   2. Point pendingMsgId at it so the streaming WS events rewrite the
+  //      same bubble.
+  //   3. Hit /api/chat/regenerate — backend pops the stale assistant turn,
+  //      optionally threads in ephemeral feedback, and re-runs the loop.
+  // The UI shows ONLY the regenerated response. No extra user turn appears.
+  const performSilentRetry = useCallback(async (assistantMsgId: string, feedback?: string) => {
+    if (processing) return;
+    const target = messages.find(m => m.id === assistantMsgId);
+    if (!target || target.role !== 'assistant') return;
+
+    // Reset the bubble in-place
+    updateMsg(assistantMsgId, {
+      content: '',
+      reasoning: '',
+      toolCalls: [],
+      status: 'thinking',
+      rounds: undefined,
+      usage: undefined,
+    });
+
+    // Wire streaming back to this bubble
+    pendingMsgId.current = assistantMsgId;
+    pendingToolIds.current.clear();
+    agentToCall.current.clear();
+    setLiveAgents(new Map());
+    setEvents([]);
+    setProcessing(true);
+
+    if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
+    processingTimeoutRef.current = setTimeout(() => {
+      if (pendingMsgId.current) {
+        updateMsg(pendingMsgId.current, {
+          content: 'The request timed out on the client. The server may still be working — try refreshing.',
+          status: 'error',
+        });
+        pendingMsgId.current = null;
+        setProcessing(false);
+      }
+    }, 22 * 60 * 1000);
+
+    try {
+      await regenerateMessage(activeConvId, feedback);
+    } catch (err: any) {
+      if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
+      updateMsg(assistantMsgId, { content: `Error: ${err.message}`, status: 'error' });
+      pendingMsgId.current = null;
+      setProcessing(false);
     }
-    return null;
-  }, [messages]);
+  }, [processing, messages, activeConvId, updateMsg]);
 
   const handleRetry = useCallback((assistantMsgId: string) => {
-    if (processing) return;
-    const prior = findPriorUserPrompt(assistantMsgId);
-    if (!prior) return;
-    handleSend(`Spróbuj jeszcze raz — ten sam prompt: ${prior}`);
-  }, [processing, findPriorUserPrompt]); // eslint-disable-line
+    performSilentRetry(assistantMsgId);
+  }, [performSilentRetry]);
 
   const handleRetryWithFeedback = useCallback((assistantMsgId: string, feedback: string) => {
-    if (processing) return;
-    const prior = findPriorUserPrompt(assistantMsgId);
-    if (!prior) return;
-    const text =
-      `Spróbuj jeszcze raz. Co poprawić w poprzedniej odpowiedzi:\n${feedback.trim()}\n\n` +
-      `Oryginalne pytanie:\n${prior}`;
-    handleSend(text);
-  }, [processing, findPriorUserPrompt]); // eslint-disable-line
+    performSilentRetry(assistantMsgId, feedback);
+  }, [performSilentRetry]);
 
   // ── Current conversation title (for header display) ──────────────────
   const activeConvTitle = useMemo(

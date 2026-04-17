@@ -1,7 +1,6 @@
 'use strict';
 
 const { spawnAgent, getAgentStatus, listAgents, killAgent } = require('./orchestrator.service');
-const { getWsForSession } = require('./websocket');
 const logger = require('./logger');
 
 async function spawn(req, res) {
@@ -12,15 +11,15 @@ async function spawn(req, res) {
   }
 
   try {
-    const ws = session_id ? getWsForSession(session_id) : null;
-
     const result = await spawnAgent({
       agentType: agent_type,
       task,
       context: context || '',
       asyncMode: async_mode || false,
       jobId: job_id || null,
-      parentWs: ws,
+      // Passing sessionId (instead of a raw WS handle) lets the orchestrator
+      // route events through sendEvent, which survives the client's WS drops.
+      parentSessionId: session_id || null,
       ownerId:    req.user ? req.user.id    : null,
       ownerEmail: req.user ? req.user.email : null,
     });

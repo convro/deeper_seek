@@ -275,9 +275,59 @@ async function runAgentLoop({
       const tail = (msgContent || '').trim();
       const tailLower = tail.slice(-400).toLowerCase();
 
-      // Heuristics for "I will do X next" without doing it. PL + EN markers,
-      // colon/ellipsis endings, and "next step" phrasing.
-      const continuationMarkers = /(\b(let me|i'?ll (now|then|next|go|just|first|start)|now i (will|need|should|am)|next[, ]+(i|let|step)|then i (will|need)|i am going to|i'?m going to|next step|first[, ]+i|kontynuuj|teraz (zrobi|sprawdz|wywoła|wywołam|odpal|odpalę|spr[óo]buj|przygotow|napisz)|sprawdz[ęe]|zaraz (zrobi|sprawdz|spr[óo]buj|odpal)|chwil[ae]|moment[, ]+|ok[ae]j[, ]+(sprawdz|zr[óo]b|teraz|zaraz)|w nast[ęe]pnym kroku|nast[ęe]pny krok|robi[ęe] to (teraz|zaraz)|przechodz[ęe] do|przejd[źz]my do)\b)/i;
+      // Heuristics for "I will do X next" without doing it.
+      // Kept INTENTIONALLY narrow: the marker MUST pair an intention word
+      // with a concrete tool-invocation verb. This avoids false positives
+      // on benign phrases like "please let me know" or "I'll summarize".
+      //
+      // Tool-invocation verbs (EN): check, search, run, read, write, try,
+      //   fix, verify, test, inspect, examine, investigate, look, see,
+      //   fetch, query, grep, find, scan, build, compile, install, debug,
+      //   call, spawn, execute, explore, probe, open, edit, patch, create,
+      //   deploy, print, list
+      // Tool-invocation verbs (PL): sprawdz, wywoła, odpal, uruchom,
+      //   przetestuj, napisz, popraw, zbuduj, skompiluj, wyszuk, przeanali,
+      //   przejrz, spróbuj, zrobi, wywołam, odpalę, uruchomię, wyślę,
+      //   wykonam, deplo, zapisz, stwórz, utworz, otworz, otwórz
+      const TOOL_VERB_EN =
+        '(?:check|search|run|read|write|try|fix|verify|test|inspect|examine|' +
+        'investigate|look|see|fetch|query|grep|find|scan|build|compile|install|' +
+        'debug|call|spawn|execute|explore|probe|open|edit|patch|create|deploy|' +
+        'print|list|pull|push|clone|commit|browse|crawl|parse|analy[sz]e|load|start)';
+      // \w in JS regex (no `u` flag) matches only [A-Za-z0-9_] — it does
+      // NOT match Polish diacritics (ą ć ę ł ń ó ś ź ż). We build an
+      // explicit word-char class to cover verb suffixes like "sprawdzę".
+      const PLW = '[a-zA-Z\\u00f3\\u0105\\u0107\\u0119\\u0142\\u0144\\u015B\\u017A\\u017C]';
+      const TOOL_VERB_PL =
+        `(?:sprawdz${PLW}*|wywoła${PLW}*|odpal${PLW}*|uruchom${PLW}*|przetestuj${PLW}*|napisz${PLW}*|` +
+        `popraw${PLW}*|zbuduj${PLW}*|skompiluj${PLW}*|wyszuk${PLW}*|przeanaliz${PLW}*|przejrz${PLW}*|` +
+        `spr[óo]buj${PLW}*|zrobi${PLW}*|wykonam|wykonaj${PLW}*|deploy${PLW}*|zapisz${PLW}*|` +
+        `stw[óo]rz${PLW}*|utworz${PLW}*|otw[óo]rz${PLW}*|wy[śs]l[ęe]|pobierz${PLW}*|poka[żz]${PLW}*|` +
+        `skanuj${PLW}*|przeszuk${PLW}*|dopisz${PLW}*|zaktualizuj${PLW}*|przeanalizuj${PLW}*)`;
+
+      const continuationMarkers = new RegExp(
+        '\\b(?:' +
+          // English patterns — intent + tool verb in the SAME clause
+          `(?:let me|let's|i['\u2019]?ll|i will|i'?m going to|i am going to|i need to|` +
+          `going to|now i['\u2019]?ll|now i will|next[, ]+i['\u2019]?ll|next[, ]+i will|` +
+          `then i['\u2019]?ll|then i will|first[, ]+i['\u2019]?ll|i['\u2019]?ll just|` +
+          `i['\u2019]?ll now|i['\u2019]?ll go|i['\u2019]?ll start|starting to)` +
+          `\\s+(?:\\w+\\s+){0,3}${TOOL_VERB_EN}` +
+        '|' +
+          // Polish patterns — intent + tool verb
+          `(?:teraz|zaraz|ju[żz]|w tej chwili|za chwil[ęe]|momencik|w nast[ęe]pnym kroku|` +
+          `nast[ęe]pnie|w takim razie|okej[,]?|dobra[,]?|dobrze[,]?|musz[ęe]|powinienem|` +
+          `zamierzam|id[ęe] zaraz|wi[ęe]c teraz|poczekaj[,]?)` +
+          `\\s+(?:\\w+\\s+){0,3}${TOOL_VERB_PL}` +
+        '|' +
+          // Standalone first-person future verbs (PL) are strong signals alone
+          `${TOOL_VERB_PL}\\s*(?:to|najpierw|teraz|zaraz|wszystko|plik|kod|repo)` +
+        ')',
+        'i'
+      );
+
+      // Trailing hooks — colon, ellipsis, arrow — indicate a promised step.
+      // These are strong enough on their own without a marker.
       const trailingHook = /[…:]\s*$|\.{3}\s*$|→\s*$/;
       const looksLikeContinuation =
         tail.length > 0 &&

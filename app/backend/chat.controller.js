@@ -4,7 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
 const { runAgentLoop } = require('./llm.service');
-const { getWsForSession } = require('./websocket');
+const { sendEvent } = require('./websocket');
 const logger = require('./logger');
 
 const PROJECT_ROOT = path.join(__dirname, '../..');
@@ -207,18 +207,14 @@ async function sendMessage(req, res) {
   const abortController = new AbortController();
   sessionAbortControllers.set(sessionId, abortController);
 
-  const ws = getWsForSession(sessionId);
   res.json({ session_id: sessionId, status: 'processing', title: session.title });
 
-  // Run agent loop async — events stream via WebSocket
+  // Run agent loop async — events stream via WebSocket (buffered across
+  // drops via sendEvent).
   setImmediate(async () => {
     try {
       const onEvent = (event) => {
-        // Re-resolve WS each event in case it reconnected
-        const activeWs = getWsForSession(sessionId);
-        if (activeWs && activeWs.readyState === 1) {
-          try { activeWs.send(JSON.stringify({ session_id: sessionId, ...event })); } catch {}
-        }
+        sendEvent(sessionId, event);
         if (event.type === 'tool_call') {
           logger.tool(`[${sessionId}] Tool: ${event.tool}(${JSON.stringify(event.args).slice(0, 100)})`);
         }
@@ -244,35 +240,132 @@ async function sendMessage(req, res) {
         saveSession(session);
       }
 
-      if (ws && ws.readyState === 1) {
-        try {
-          ws.send(JSON.stringify({
-            session_id: sessionId,
-            type: 'final',
-            content: result.content,
-            rounds: result.rounds,
-            usage: result.usage,
-          }));
-        } catch {}
-      }
+      sendEvent(sessionId, {
+        type: 'final',
+        content: result.content,
+        rounds: result.rounds,
+        usage: result.usage,
+      });
 
       logger.info(`[${sessionId}] Completed in ${result.rounds} rounds`);
     } catch (err) {
       logger.error(`[${sessionId}] Agent loop failed`, err);
-      const activeWs = getWsForSession(sessionId);
-      if (activeWs && activeWs.readyState === 1) {
-        try {
-          activeWs.send(JSON.stringify({
-            session_id: sessionId,
-            type: 'error',
-            error: err.message,
-          }));
-        } catch {}
-      }
+      sendEvent(sessionId, { type: 'error', error: err.message });
     } finally {
       // Clean up abort controller if it's still ours
       if (sessionAbortControllers.get(sessionId) === abortController) {
         sessionAbortControllers.delete(sessionId);
+      }
+    }
+  });
+}
+
+/**
+ * Silent regenerate — re-runs the agent loop for the most recent user turn
+ * WITHOUT adding a new visible user bubble (ChatGPT / Claude-style retry).
+ *
+ * Behavior:
+ *   - Pops trailing assistant messages from session history.
+ *   - If feedback is provided, it is appended to the context as an ephemeral
+ *     user note (NOT persisted to session.messages) so the model sees the
+ *     correction but nothing new shows up in the transcript.
+ *   - Streams events on the same per-session WebSocket as sendMessage.
+ */
+async function regenerate(req, res) {
+  const { session_id, feedback, model } = req.body || {};
+  if (!session_id) return res.status(400).json({ error: 'Missing session_id' });
+
+  const session = sessions.get(session_id);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  if (!canAccessSession(session, req.user)) return res.status(403).json({ error: 'Forbidden' });
+
+  // Need at least one user turn to regenerate from.
+  const hasUser = session.messages.some(m => m.role === 'user');
+  if (!hasUser) return res.status(400).json({ error: 'Nothing to regenerate — no prior user turn' });
+
+  // Pop trailing assistant message(s) — we want the model to re-answer the
+  // last user turn, not append to an existing assistant turn.
+  while (session.messages.length > 0 &&
+         session.messages[session.messages.length - 1].role === 'assistant') {
+    session.messages.pop();
+  }
+  session.updated_at = new Date().toISOString();
+  saveSession(session);
+
+  // Abort any previously running loop for this session
+  const prevController = sessionAbortControllers.get(session_id);
+  if (prevController) {
+    prevController.abort();
+    sessionAbortControllers.delete(session_id);
+  }
+  const abortController = new AbortController();
+  sessionAbortControllers.set(session_id, abortController);
+
+  res.json({ session_id, status: 'regenerating' });
+
+  setImmediate(async () => {
+    try {
+      const onEvent = (event) => { sendEvent(session_id, event); };
+
+      // Build context from persisted history, then append ephemeral feedback
+      // as an untracked user note so the regenerate has guidance without
+      // polluting the visible transcript.
+      let contextMessages = buildContextMessages(session.messages);
+      const fb = typeof feedback === 'string' ? feedback.trim() : '';
+      if (fb) {
+        contextMessages = [
+          ...contextMessages,
+          {
+            role: 'user',
+            content:
+              '[system / silent-retry] Użytkownik prosi o ponowne wygenerowanie poprzedniej odpowiedzi. ' +
+              'Ta wiadomość nie jest widoczna w interfejsie — traktuj ją jako wewnętrzną wskazówkę.\n' +
+              'Co ma być lepsze tym razem:\n' + fb,
+          },
+        ];
+      } else {
+        contextMessages = [
+          ...contextMessages,
+          {
+            role: 'user',
+            content:
+              '[system / silent-retry] Wygeneruj ponownie odpowiedź na ostatnie pytanie użytkownika. ' +
+              'Ta wiadomość nie jest widoczna w UI — traktuj ją jako wewnętrzny sygnał do retry. ' +
+              'Odpowiedz świeżo, bez kopiowania poprzedniej próby.',
+          },
+        ];
+      }
+
+      const result = await runAgentLoop({
+        messages: contextMessages,
+        agentType: null,
+        model: model || null,
+        onEvent,
+        signal: abortController.signal,
+        maxRounds: 50,
+        ownerId:    req.user ? req.user.id    : null,
+        ownerEmail: req.user ? req.user.email : null,
+      });
+
+      if (result.content) {
+        session.messages.push({ role: 'assistant', content: result.content });
+        session.updated_at = new Date().toISOString();
+        saveSession(session);
+      }
+
+      sendEvent(session_id, {
+        type: 'final',
+        content: result.content,
+        rounds: result.rounds,
+        usage: result.usage,
+      });
+      logger.info(`[${session_id}] Regenerate completed in ${result.rounds} rounds`);
+    } catch (err) {
+      logger.error(`[${session_id}] Regenerate failed`, err);
+      sendEvent(session_id, { type: 'error', error: err.message });
+    } finally {
+      if (sessionAbortControllers.get(session_id) === abortController) {
+        sessionAbortControllers.delete(session_id);
       }
     }
   });
@@ -367,4 +460,4 @@ function peekSessionOwner(sessionId) {
   return s.owner_id || null;
 }
 
-module.exports = { sendMessage, listSessions, getSession, renameSession, deleteSession, peekSessionOwner };
+module.exports = { sendMessage, regenerate, listSessions, getSession, renameSession, deleteSession, peekSessionOwner };
