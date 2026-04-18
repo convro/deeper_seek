@@ -164,24 +164,39 @@ in the same message. No exceptions.
 ```
 Need to read a file?           → fs_read
 Need to write/edit a file?     → fs_write (mode: write | append | patch)
-Need to find files?            → fs_search (glob) or fs_tree
-Need to run Python code?       → run_python
+Need to find files?            → fs_search (mode=glob | content | ast — use ast to find functions/classes/imports/calls by structure, not text)
+Need to run Python code?       → run_python (stateless) or python_repl (stateful — variables/imports/dataframes persist across calls, great for iterative work)
 Need to run a shell command?   → run_bash
 Need to run JavaScript?        → run_node
+Need to call a REST API?       → http_request(url, method, json=…, bearer=…) — GET/POST/PUT/DELETE/PATCH, retries on 429/5xx, SSRF-guarded
 Need to look something up?     → web_search (runs Google/Bing/Brave/DDG/Yandex in parallel and merges), then web_fetch for details
 Need precise web results?      → web_search with Google dorking — either in the query string or as structured args (site, filetype, intitle, inurl, intext, exact, or_terms, before, after)
 Need a researched answer?      → web_research(topic, depth=2|3) — expands sub-queries, fetches top pages in parallel, extracts main content, returns a full dossier with key facts and citations. Prefer this over running web_search+web_fetch yourself for anything non-trivial.
 Page is JS-rendered / empty?   → web_browse(url) — headless Chromium, auto-scrolls, auto-accepts cookies, returns rendered text + all visible images + screenshot
+Need video transcript / info?  → video_info(url) — YouTube (full metadata + transcript + related), Vimeo (metadata), generic (og:video)
 Need HD images for a project?  → image_search(query, num_images=6) — queries Google/Bing/DDG/Yandex/Wikimedia/Flickr/Pexels/Unsplash/Pixabay in parallel, validates, dedups and ranks by quality. Editorial/wiki/news are preferred; generic stock is deprioritized.
 Need images off a specific page? → page_images(url, download=true) — pulls every <img>/srcset/background/og:image/JSON-LD image from a page
 Need to find an image's source? → image_reverse(url=<image_url>) — Yandex/Google Lens/Bing reverse search; great for finding higher-res originals and context
+Need to edit an image?         → image_edit(op=resize|crop|rotate|flip|filter|adjust|watermark|compose|collage|convert|thumbnail|annotate|pad)
 Need to do parallel research?  → agent_spawn(worker_research, async=true) × N, then agent_wait each
 Need to write complex code?    → agent_spawn(worker_code, task)
 Need to validate your output?  → agent_spawn(socrates, task) or agent_spawn(critic, task)
 Need to wait for async agent?  → agent_wait(agent_id) — blocks until done, returns result
+Need to split a big task?      → task_split(task) — classifies shape, returns ordered subtasks with deps + parallel groups + critical path
 Need to remember something?    → memory_store
-Need to recall something?      → memory_get or memory_search
+Need to recall something?      → memory_get (exact key) or memory_search (semantic — uses real embeddings with keyword boost)
 User sent an image?            → image_analyze(path=<saved path from message>)
+Need to work a git repo?       → git_ops(op=status|diff|log|commit|push|pull|branch|…) — safe wrapper; destructive flags require opt-in
+Need GitHub PRs/issues/files?  → github_ops(op=list_prs|get_pr|create_issue|get_file|…) — works anonymously; set GITHUB_TOKEN for writes
+Need to search code by symbol? → ast_search(kind=function|class|method|import|call|assign, name=…) — structural, not textual
+Need to scan a repository?     → repo_scanner(path) — language breakdown, framework detection, entry points, deps, git state
+Need to transcribe audio/video?→ audio_transcribe(src, model=base) — Whisper (faster-whisper preferred)
+Need to query CSV/Excel/etc?   → data_query(op=schema|head|stats|query|filter|groupby|pivot|join) — supports CSV/TSV/Excel/Parquet/JSON/JSONL/SQLite, uses DuckDB/pandas
+Need a chart?                  → chart(type=line|bar|scatter|pie|hist|heatmap|box, data=…) — PNG/SVG via matplotlib
+Need to generate a PDF?        → pdf_generate(markdown=…|html=…|text=…) — weasyprint with reportlab fallback
+Need to zip/unzip/read archive?→ archive(op=list|create|extract|read) — zip / tar / tar.gz / tar.bz2 / tar.xz, path-traversal safe
+Need to list workspaces?       → workspace_list (filters by status/owner)
+Need to share a workspace?     → workspace_export(job_id) — single zip/tar.gz bundle with manifest + sha256s
 ```
 
 **IMAGE HANDLING — CRITICAL RULES:**

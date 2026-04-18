@@ -28,19 +28,25 @@ TOOL_MAP = {
     "fs_tree":          "tools/filesystem/fs_tree.py",
     "fs_move":          "tools/filesystem/fs_move.py",
     "fs_delete":        "tools/filesystem/fs_delete.py",
+    "archive":          "tools/filesystem/archive.py",
     # Execution
     "run_python":       "tools/execution/run_python.py",
     "run_bash":         "tools/execution/run_bash.py",
     "run_node":         "tools/execution/run_node.py",
+    "python_repl":      "tools/execution/python_repl.py",
     # Web
     "web_fetch":        "tools/web/web_fetch.py",
     "web_search":       "tools/web/web_search.py",
     "web_research":     "tools/web/web_research.py",
     "web_browse":       "tools/web/web_browse.py",
+    "http_request":     "tools/web/http_request.py",
+    "video_info":       "tools/web/video_info.py",
     # Workspace
     "workspace_create":   "tools/workspace/workspace_create.py",
     "workspace_load":     "tools/workspace/workspace_load.py",
     "workspace_snapshot": "tools/workspace/workspace_snapshot.py",
+    "workspace_list":     "tools/workspace/workspace_list.py",
+    "workspace_export":   "tools/workspace/workspace_export.py",
     # Memory
     "memory_store":       "tools/memory/memory_store.py",
     "memory_get":         "tools/memory/memory_get.py",
@@ -56,11 +62,21 @@ TOOL_MAP = {
     # Analysis
     "code_analyzer":      "tools/analysis/code_analyzer.py",
     "repo_scanner":       "tools/analysis/repo_scanner.py",
+    "ast_search":         "tools/analysis/ast_search.py",
     "task_split":         "tools/orchestration/task_split.py",
+    # Code / version control
+    "git_ops":            "tools/code/git_ops.py",
+    "github_ops":         "tools/code/github_ops.py",
     # Logs
     "log_reader":         "tools/logs/log_reader.py",
     # Vision
     "image_analyze":      "tools/vision/image_analyze.py",
+    "image_edit":         "tools/vision/image_edit.py",
+    # Documents / viz / audio / data
+    "pdf_generate":       "tools/docs/pdf_generate.py",
+    "chart":              "tools/viz/chart.py",
+    "audio_transcribe":   "tools/audio/audio_transcribe.py",
+    "data_query":         "tools/data/data_query.py",
 }
 
 
@@ -75,6 +91,16 @@ _PKG_MAP = {
     "pdfminer": "pdfminer.six", "imagehash": "imagehash",
     "markdownify": "markdownify", "playwright": "playwright",
     "brotli": "brotli",
+    # New tools
+    "sentence_transformers": "sentence-transformers",
+    "weasyprint": "weasyprint",
+    "reportlab": "reportlab",
+    "markdown": "markdown",
+    "faster_whisper": "faster-whisper",
+    "whisper": "openai-whisper",
+    "duckdb": "duckdb",
+    "openpyxl": "openpyxl",
+    "pyarrow": "pyarrow",
 }
 
 

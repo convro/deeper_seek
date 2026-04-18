@@ -26,15 +26,41 @@
     },
     "fs_search": {
       "module": "tools/filesystem/fs_search.py",
-      "description": "Search for files by glob pattern or search file contents with regex",
+      "description": "Search for files by glob pattern, search file contents with regex, OR run a structural AST search for symbols (functions, classes, methods, imports, calls, assignments) across Python/JS/TS.",
       "parameters": {
-        "pattern": {"type": "string", "description": "Glob or regex pattern"},
+        "pattern": {"type": "string", "description": "Glob (mode=glob), regex (mode=content), or symbol name / fnmatch-glob (mode=ast)"},
         "path": {"type": "string", "description": "Root directory to search in", "default": "."},
-        "mode": {"type": "string", "enum": ["glob", "content"], "default": "glob"},
-        "case_sensitive": {"type": "boolean", "default": false}
+        "mode": {"type": "string", "enum": ["glob", "content", "ast"], "default": "glob"},
+        "case_sensitive": {"type": "boolean", "default": false},
+        "context": {"type": "integer", "description": "Lines of context around each match (content/ast modes)", "default": 0},
+        "max_results": {"type": "integer", "default": 200},
+        "include": {"type": "array", "items": {"type": "string"}, "description": "Extra include globs (content/ast modes)"},
+        "exclude": {"type": "array", "items": {"type": "string"}, "description": "Extra exclude globs (content/ast modes)"},
+        "kind": {"type": "string", "enum": ["any", "function", "class", "method", "import", "call", "assign"], "default": "any", "description": "AST-mode only: which kind of symbol to match"},
+        "regex_name": {"type": "string", "description": "AST-mode only: alternative to pattern, Python regex for symbol names"},
+        "languages": {"type": "array", "items": {"type": "string"}, "description": "AST-mode only: languages to scan (python, js, ts, jsx, tsx)"}
       },
       "required": ["pattern"],
       "timeout_ms": 15000
+    },
+    "archive": {
+      "module": "tools/filesystem/archive.py",
+      "description": "Create, inspect, extract, or read single files from zip / tar / tar.gz / tar.bz2 / tar.xz archives. Path-traversal safe; size-capped to defuse zip bombs.",
+      "parameters": {
+        "op": {"type": "string", "enum": ["list", "create", "extract", "read"]},
+        "path": {"type": "string", "description": "Archive path (for list/extract/read)"},
+        "paths": {"type": "array", "items": {"type": "string"}, "description": "Source files/dirs to bundle (for create)"},
+        "dest": {"type": "string", "description": "Output path (create) or extraction dir (extract)"},
+        "format": {"type": "string", "enum": ["auto", "zip", "tar", "tar.gz", "tar.bz2", "tar.xz"], "default": "auto"},
+        "member": {"type": "string", "description": "Archive-relative path (for read)"},
+        "members": {"type": "array", "items": {"type": "string"}, "description": "Subset of members to extract"},
+        "max_bytes": {"type": "integer", "description": "Extraction size cap", "default": 2000000000},
+        "max_entries": {"type": "integer", "default": 5000},
+        "base_dir": {"type": "string", "description": "Base dir for archive-relative names on create"},
+        "overwrite": {"type": "boolean", "default": false}
+      },
+      "required": ["op"],
+      "timeout_ms": 120000
     },
     "fs_tree": {
       "module": "tools/filesystem/fs_tree.py",
@@ -98,6 +124,20 @@
       },
       "required": ["code"],
       "timeout_ms": 60000
+    },
+    "python_repl": {
+      "module": "tools/execution/python_repl.py",
+      "description": "Stateful Python REPL — unlike run_python, variables/imports/dataframes survive across calls per-session. Ideal for iterative data exploration.",
+      "parameters": {
+        "code": {"type": "string", "description": "Python code to run in the session"},
+        "session": {"type": "string", "description": "Session id (default 'default')", "default": "default"},
+        "timeout": {"type": "integer", "description": "Seconds", "default": 30},
+        "reset": {"type": "boolean", "description": "Drop and recreate the session before running", "default": false},
+        "kill": {"type": "boolean", "description": "Kill the session", "default": false},
+        "list_sessions": {"type": "boolean", "description": "List active sessions", "default": false}
+      },
+      "required": [],
+      "timeout_ms": 120000
     },
     "web_fetch": {
       "module": "tools/web/web_fetch.py",
@@ -204,6 +244,47 @@
       "required": ["url"],
       "timeout_ms": 90000
     },
+    "http_request": {
+      "module": "tools/web/http_request.py",
+      "description": "Generic REST client. GET/POST/PUT/PATCH/DELETE with JSON / form / multipart bodies, bearer or basic auth, automatic retry with exponential backoff on 429/5xx, SSRF guard (refuses private/link-local IPs unless allow_private=true). Responses auto-parsed as JSON/text or flagged binary.",
+      "parameters": {
+        "url": {"type": "string"},
+        "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"], "default": "GET"},
+        "headers": {"type": "object"},
+        "params": {"type": "object", "description": "URL query parameters"},
+        "json": {"description": "JSON body (dict/list)"},
+        "form": {"type": "object", "description": "application/x-www-form-urlencoded body"},
+        "multipart": {"type": "object", "description": "multipart/form-data body — each value may be a string or {path: ...}"},
+        "data": {"type": "string", "description": "Raw request body"},
+        "bearer": {"type": "string", "description": "Bearer token (sets Authorization)"},
+        "basic": {"type": "array", "items": {"type": "string"}, "description": "[username, password] for HTTP Basic auth"},
+        "timeout": {"type": "number", "default": 30},
+        "retries": {"type": "integer", "default": 2},
+        "retry_on": {"type": "array", "items": {"type": "integer"}, "description": "Status codes to retry (default 408/425/429/5xx)"},
+        "follow_redirects": {"type": "boolean", "default": true},
+        "max_bytes": {"type": "integer", "default": 5000000, "description": "Body preview cap"},
+        "save_to": {"type": "string", "description": "If set, save raw body to this path"},
+        "allow_private": {"type": "boolean", "default": false, "description": "Allow private/link-local IPs (disables SSRF guard)"},
+        "verify_ssl": {"type": "boolean", "default": true}
+      },
+      "required": ["url"],
+      "timeout_ms": 60000
+    },
+    "video_info": {
+      "module": "tools/web/video_info.py",
+      "description": "Video metadata + transcript extraction. YouTube: full metadata + transcripts (auto-generated and manual) with timestamps via the public timedtext API, optional on-the-fly translation, related videos. Vimeo: oEmbed metadata. Generic: Open Graph video metadata.",
+      "parameters": {
+        "url": {"type": "string", "description": "YouTube / Vimeo / any video URL"},
+        "transcript": {"type": "boolean", "default": true},
+        "lang": {"type": "string", "description": "Preferred transcript language (e.g. 'en', 'pl')"},
+        "translate_to": {"type": "string", "description": "Translate transcript into this language"},
+        "timeout": {"type": "integer", "default": 20},
+        "max_related": {"type": "integer", "default": 10},
+        "max_transcript_chars": {"type": "integer", "default": 80000}
+      },
+      "required": ["url"],
+      "timeout_ms": 45000
+    },
     "image_reverse": {
       "module": "tools/web/image_reverse.py",
       "description": "Reverse-image search against Yandex, Google Lens and Bing. Given a publicly hosted image URL, returns the pages where that image appears (source/context) plus visually similar images — useful for tracking down the original, finding higher-resolution versions, or identifying a subject.",
@@ -245,6 +326,34 @@
       "required": ["job_id"],
       "timeout_ms": 10000
     },
+    "workspace_list": {
+      "module": "tools/workspace/workspace_list.py",
+      "description": "List all workspaces with summary metadata (status, description, owner, created/modified times, optional size/file count). Filters by status and owner; respects per-user scoping when auth is on.",
+      "parameters": {
+        "status": {"type": "string", "enum": ["any", "active", "complete", "archived"], "default": "any"},
+        "owner_id": {"type": "string", "description": "Filter by owner; auto-set from env when auth is on"},
+        "limit": {"type": "integer", "default": 100},
+        "sort": {"type": "string", "enum": ["recent", "name", "size"], "default": "recent"},
+        "with_size": {"type": "boolean", "default": false, "description": "Compute file count + bytes (slower)"}
+      },
+      "required": [],
+      "timeout_ms": 15000
+    },
+    "workspace_export": {
+      "module": "tools/workspace/workspace_export.py",
+      "description": "Bundle a workspace into a single zip or tar.gz archive with an embedded manifest (file list + sha256). Useful for sharing/archival. Size-capped and ownership-enforced.",
+      "parameters": {
+        "job_id": {"type": "string", "description": "Workspace to export"},
+        "dest": {"type": "string", "description": "Output path (default /tmp/<job_id>_export_<ts>.zip)"},
+        "format": {"type": "string", "enum": ["zip", "tar.gz"], "default": "zip"},
+        "include": {"type": "array", "items": {"type": "string"}, "description": "Extra include globs"},
+        "exclude": {"type": "array", "items": {"type": "string"}, "description": "Extra exclude globs"},
+        "max_bytes": {"type": "integer", "default": 500000000},
+        "include_meta": {"type": "boolean", "default": true}
+      },
+      "required": ["job_id"],
+      "timeout_ms": 120000
+    },
     "memory_store": {
       "module": "tools/memory/memory_store.py",
       "description": "Store a key-value entry in memory (short or long term)",
@@ -269,13 +378,15 @@
     },
     "memory_search": {
       "module": "tools/memory/memory_vector_search.py",
-      "description": "Semantic search through stored memories",
+      "description": "Semantic search through stored memories. 3-layer fallback: sentence-transformers embeddings (cached) → hashed TF-IDF on character trigrams → token overlap. Combines semantic similarity with lexical overlap so both concepts and exact keywords surface.",
       "parameters": {
         "query": {"type": "string", "description": "Search query"},
-        "top_k": {"type": "integer", "default": 5}
+        "top_k": {"type": "integer", "default": 5},
+        "tier": {"type": "string", "enum": ["short", "long", "both"], "default": "both"},
+        "min_score": {"type": "number", "default": 0.05, "description": "Drop results below this combined score"}
       },
       "required": ["query"],
-      "timeout_ms": 10000
+      "timeout_ms": 15000
     },
     "agent_spawn": {
       "module": "tools/agents/agent_spawn.py",
@@ -311,13 +422,55 @@
     },
     "task_split": {
       "module": "tools/orchestration/task_split.py",
-      "description": "Decompose a complex task into an ordered list of subtasks with dependencies",
+      "description": "Decompose a complex task into an ordered list of subtasks with dependencies, parallel groups, and critical path. Classifies the task shape (research/build/fix/refactor/migrate/analyze/document/media/data/deploy) and composes from templates.",
       "parameters": {
         "task": {"type": "string", "description": "Task to decompose"},
-        "max_subtasks": {"type": "integer", "default": 10}
+        "max_subtasks": {"type": "integer", "default": 10},
+        "context": {"type": "string", "description": "Optional extra context"}
       },
       "required": ["task"],
       "timeout_ms": 5000
+    },
+    "ast_search": {
+      "module": "tools/analysis/ast_search.py",
+      "description": "Structural code search that understands syntax. Finds functions, classes, methods, imports, call sites, and assignments by walking Python ASTs / JS-TS structure regex (never plain text). Supports exact names, fnmatch globs, or regex.",
+      "parameters": {
+        "root": {"type": "string", "default": "."},
+        "kind": {"type": "string", "enum": ["any", "function", "class", "method", "import", "call", "assign"], "default": "any"},
+        "name": {"type": "string", "description": "Exact symbol name or fnmatch glob"},
+        "regex": {"type": "string", "description": "Alternative: Python regex pattern"},
+        "languages": {"type": "array", "items": {"type": "string"}, "description": "Subset of: python, js, ts, jsx, tsx"},
+        "include": {"type": "array", "items": {"type": "string"}},
+        "exclude": {"type": "array", "items": {"type": "string"}},
+        "max_results": {"type": "integer", "default": 500},
+        "context": {"type": "integer", "default": 2}
+      },
+      "required": [],
+      "timeout_ms": 30000
+    },
+    "git_ops": {
+      "module": "tools/code/git_ops.py",
+      "description": "Safe git wrapper: status, diff, log, branch, add, commit, checkout, push, pull, fetch, clone, remote, reset, stash, blame, show, ls_files. Destructive flags require explicit opt-in (force=true / allow_hard=true).",
+      "parameters": {
+        "op": {"type": "string", "enum": ["status", "diff", "log", "branch", "add", "commit", "checkout", "push", "pull", "fetch", "clone", "remote", "reset", "stash", "blame", "show", "ls_files"]},
+        "cwd": {"type": "string", "description": "Repo directory (default: process cwd)"},
+        "timeout": {"type": "integer", "default": 60}
+      },
+      "required": ["op"],
+      "timeout_ms": 120000
+    },
+    "github_ops": {
+      "module": "tools/code/github_ops.py",
+      "description": "GitHub REST v3 client. Works anonymously (60/hr) or with GITHUB_TOKEN (5000/hr, write access). Supports: repo_get, repo_search, user_get, list_issues, get_issue, create_issue, comment_issue, close_issue, list_prs, get_pr, create_pr, merge_pr, review_pr, get_file, list_dir, list_commits, get_commit, list_branches, list_tags, list_releases, get_release, workflow_runs, rate_limit.",
+      "parameters": {
+        "op": {"type": "string"},
+        "owner": {"type": "string"},
+        "repo": {"type": "string"},
+        "token": {"type": "string", "description": "Override GITHUB_TOKEN for this call"},
+        "timeout": {"type": "integer", "default": 30}
+      },
+      "required": ["op"],
+      "timeout_ms": 45000
     },
     "code_analyzer": {
       "module": "tools/analysis/code_analyzer.py",
@@ -360,6 +513,105 @@
       },
       "required": ["path"],
       "timeout_ms": 300000
+    },
+    "image_edit": {
+      "module": "tools/vision/image_edit.py",
+      "description": "Image manipulation via Pillow. Ops: info, resize, crop (box/center), rotate, flip, filter (blur/sharpen/edge/grayscale/sepia/invert/contour/emboss), adjust (brightness/contrast/saturation/gamma), watermark (text or image, positioned), compose (paste overlay), collage (grid), convert (format/quality), thumbnail, annotate (rectangles/circles/lines/text), pad.",
+      "parameters": {
+        "op": {"type": "string"},
+        "src": {"type": "string"},
+        "dest": {"type": "string"},
+        "quality": {"type": "integer", "default": 88},
+        "keep_exif": {"type": "boolean", "default": false}
+      },
+      "required": ["op"],
+      "timeout_ms": 60000
+    },
+    "pdf_generate": {
+      "module": "tools/docs/pdf_generate.py",
+      "description": "Generate PDFs from markdown, HTML, plain text, or a source file. Uses weasyprint when available for rich HTML/CSS rendering, falls back to reportlab. Supports title/author metadata, custom CSS, configurable page size and margins.",
+      "parameters": {
+        "markdown": {"type": "string", "description": "Markdown source"},
+        "html": {"type": "string", "description": "HTML source"},
+        "text": {"type": "string", "description": "Plain text"},
+        "source_path": {"type": "string", "description": "Path to .md / .html / .txt file"},
+        "dest": {"type": "string", "description": "Output PDF path"},
+        "title": {"type": "string"},
+        "author": {"type": "string"},
+        "page_size": {"type": "string", "enum": ["A4", "Letter"], "default": "A4"},
+        "margin_mm": {"type": "integer", "default": 20},
+        "css": {"type": "string", "description": "Extra CSS (weasyprint only)"},
+        "base_url": {"type": "string", "description": "Base URL for resolving images (weasyprint only)"},
+        "backend": {"type": "string", "enum": ["auto", "weasyprint", "reportlab"], "default": "auto"}
+      },
+      "required": [],
+      "timeout_ms": 60000
+    },
+    "chart": {
+      "module": "tools/viz/chart.py",
+      "description": "Render charts as PNG / SVG / PDF via matplotlib. Types: line, area, bar (grouped or stacked, horizontal or vertical), scatter (optional sizes/colors/labels), pie, donut, histogram, heatmap, box. Data shape depends on type (see tool docstring).",
+      "parameters": {
+        "type": {"type": "string", "enum": ["line", "area", "bar", "scatter", "pie", "donut", "histogram", "hist", "heatmap", "box"], "default": "line"},
+        "data": {"type": "object", "description": "Chart-type-specific data"},
+        "title": {"type": "string"},
+        "xlabel": {"type": "string"},
+        "ylabel": {"type": "string"},
+        "legend": {"type": "boolean", "default": true},
+        "grid": {"type": "boolean", "default": true},
+        "colors": {"description": "Color list or matplotlib colormap name"},
+        "width": {"type": "integer", "default": 900},
+        "height": {"type": "integer", "default": 540},
+        "dpi": {"type": "integer", "default": 120},
+        "dest": {"type": "string"},
+        "format": {"type": "string", "enum": ["png", "svg", "pdf"]}
+      },
+      "required": ["type", "data"],
+      "timeout_ms": 45000
+    },
+    "audio_transcribe": {
+      "module": "tools/audio/audio_transcribe.py",
+      "description": "Transcribe audio / video with Whisper. Uses faster-whisper when available (4x faster, lower memory), falls back to openai-whisper. Auto language detection, optional translation to English, optional per-word timestamps, voice-activity detection.",
+      "parameters": {
+        "src": {"type": "string", "description": "Audio/video file path"},
+        "model": {"type": "string", "enum": ["tiny", "base", "small", "medium", "large-v3"], "default": "base"},
+        "language": {"type": "string", "default": "auto"},
+        "task": {"type": "string", "enum": ["transcribe", "translate"], "default": "transcribe"},
+        "vad": {"type": "boolean", "default": true},
+        "word_timestamps": {"type": "boolean", "default": false},
+        "max_duration": {"type": "integer", "default": 3600},
+        "beam_size": {"type": "integer", "default": 5}
+      },
+      "required": ["src"],
+      "timeout_ms": 1800000
+    },
+    "data_query": {
+      "module": "tools/data/data_query.py",
+      "description": "Schema + query tool for CSV / TSV / Excel / Parquet / JSON / JSONL / SQLite files. Ops: schema (columns + types + null counts + samples), head, sample, stats (per-column), query (DuckDB if available, else SQLite in-memory), filter (pandas query), unique (distinct + counts), groupby, pivot, join.",
+      "parameters": {
+        "op": {"type": "string", "enum": ["schema", "head", "sample", "stats", "query", "filter", "unique", "groupby", "pivot", "join"]},
+        "src": {"type": "string"},
+        "src2": {"type": "string", "description": "Second file for join"},
+        "format": {"type": "string", "enum": ["auto", "csv", "tsv", "json", "jsonl", "xlsx", "parquet", "sqlite"], "default": "auto"},
+        "format2": {"type": "string", "default": "auto"},
+        "table": {"type": "string", "default": "data"},
+        "sql": {"type": "string", "description": "SQL for query op"},
+        "expr": {"type": "string", "description": "pandas query expression for filter op"},
+        "column": {"type": "string", "description": "Column for unique op"},
+        "columns": {"type": "array", "items": {"type": "string"}, "description": "Subset of columns for stats"},
+        "by": {"description": "Grouping key(s)"},
+        "agg": {"type": "object", "description": "Aggregations for groupby (e.g. {amount: 'sum'})"},
+        "index": {"description": "Pivot index"},
+        "values": {"type": "string", "description": "Pivot values column"},
+        "aggfunc": {"type": "string", "default": "sum"},
+        "on": {"description": "Join key(s)"},
+        "how": {"type": "string", "enum": ["inner", "left", "right", "outer"], "default": "inner"},
+        "n": {"type": "integer", "default": 20},
+        "seed": {"type": "integer", "default": 0},
+        "limit": {"type": "integer", "default": 100},
+        "max_rows": {"type": "integer", "default": 1000}
+      },
+      "required": ["op"],
+      "timeout_ms": 60000
     }
   }
 }
