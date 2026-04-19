@@ -1114,22 +1114,21 @@ body.keyboard-open .messages-wrapper::after { display: none; }
 .tool-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  background: rgba(255,255,255,0.035);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 20px;
-  padding: 3px 10px 3px 7px;
+  gap: 4px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 1px 4px;
   font-size: 11px;
   font-family: var(--mono);
   cursor: pointer;
-  margin-right: 3px;
-  margin-bottom: 4px;
-  transition: background 0.15s, border-color 0.15s;
-  color: var(--text2);
+  margin-right: 6px;
+  margin-bottom: 3px;
+  transition: color 0.12s;
+  color: var(--text3);
 }
 .tool-badge:hover {
-  background: rgba(255,255,255,0.065);
-  border-color: rgba(255,255,255,0.13);
+  color: var(--text2);
 }
 
 /* ── Event items — terminal-log style ─────────────────────────────────── */
@@ -1824,7 +1823,7 @@ body.keyboard-open .messages-wrapper::after { display: none; }
 
   /* ── Tool badges — wrap nicely ── */
   .msg-tool-badges { gap: 3px; }
-  .tool-badge { font-size: 10.5px; padding: 2px 7px; }
+  .tool-badge { font-size: 10.5px; padding: 1px 3px; }
 
   /* ── Status ── */
   .header-status-label { display: none; }
