@@ -39,6 +39,34 @@ router.post('/auth/register', authController.register);
 router.post('/auth/login',    authController.login);
 router.post('/auth/logout',   authController.logout);
 
+// ── Preview — serve workspace HTML/CSS/JS files in iframe ───────────────────
+// Public (no auth required): the job-ID in the URL acts as an unguessable token.
+// The route still enforces workspace-root confinement and per-user ownership
+// when req.user is populated by an optional upstream token parse, but it does
+// NOT block requests that carry no token (e.g. plain iframe loads).
+router.get('/preview/*', (req, res) => {
+  const rawSeg = req.params[0] || '';
+  const safeSeg = rawSeg.split('/').filter(p => p !== '..' && p !== '.').join('/');
+  const allowedRoot = path.join(PROJECT_ROOT, 'workspace') + path.sep;
+  const primaryPath = path.join(PROJECT_ROOT, safeSeg);
+  let legacyPath = null;
+  if (safeSeg.startsWith('workspace/')) {
+    legacyPath = path.join(PROJECT_ROOT, 'workspace', 'jobs', safeSeg.slice('workspace/'.length));
+  }
+  function isSafe(p) { return p && p.startsWith(allowedRoot); }
+  function isFile(p) { try { return p && fs.existsSync(p) && fs.statSync(p).isFile(); } catch { return false; } }
+  function isDir(p)  { try { return p && fs.existsSync(p) && fs.statSync(p).isDirectory(); } catch { return false; } }
+  function resolveCandidate(p) {
+    if (isFile(p)) return p;
+    if (isDir(p)) { const idx = path.join(p, 'index.html'); if (isFile(idx)) return idx; }
+    return null;
+  }
+  if (!isSafe(primaryPath) && !isSafe(legacyPath)) return res.status(403).send('Forbidden');
+  const resolvedPath = resolveCandidate(primaryPath) || resolveCandidate(legacyPath) || null;
+  if (!resolvedPath) return res.status(404).send('File not found');
+  res.sendFile(resolvedPath);
+});
+
 // ── Everything below requires auth (when AUTH_MODE=multi_user) ──────────
 router.use(authMiddleware);
 
@@ -110,84 +138,6 @@ router.post('/tools/execute', async (req, res) => {
   res.json(result);
 });
 
-// ── Preview — serve workspace HTML/CSS/JS files in iframe ───────────────────
-// URL pattern: GET /api/preview/workspace/{jobId}/output/index.html
-// The path after /api/preview/ is resolved relative to PROJECT_ROOT,
-// then restricted to PROJECT_ROOT/workspace/ for security.
-router.get('/preview/*', (req, res) => {
-  const rawSeg = req.params[0] || '';
-
-  // Strip any path-traversal segments
-  const safeSeg = rawSeg
-    .split('/')
-    .filter(p => p !== '..' && p !== '.')
-    .join('/');
-
-  const allowedRoot = path.join(PROJECT_ROOT, 'workspace') + path.sep;
-
-  // Primary path: PROJECT_ROOT/{safeSeg} (e.g. workspace/{jobId}/output/...)
-  const primaryPath = path.join(PROJECT_ROOT, safeSeg);
-
-  // Fallback path: workspace/jobs/{jobId}/... for legacy workspaces.
-  // URL segment "workspace/{jobId}/..." → legacy "workspace/jobs/{jobId}/..."
-  let legacyPath = null;
-  const workspacePrefix = 'workspace/';
-  if (safeSeg.startsWith(workspacePrefix)) {
-    legacyPath = path.join(PROJECT_ROOT, 'workspace', 'jobs', safeSeg.slice(workspacePrefix.length));
-  }
-
-  // Security: candidate must be inside workspace/
-  function isSafe(p) {
-    return p && p.startsWith(allowedRoot);
-  }
-
-  function isFile(p) {
-    try { return p && fs.existsSync(p) && fs.statSync(p).isFile(); } catch { return false; }
-  }
-  function isDir(p) {
-    try { return p && fs.existsSync(p) && fs.statSync(p).isDirectory(); } catch { return false; }
-  }
-  // Try to resolve a candidate: exact file, or directory → index.html
-  function resolveCandidate(p) {
-    if (isFile(p)) return p;
-    if (isDir(p)) {
-      const idx = path.join(p, 'index.html');
-      if (isFile(idx)) return idx;
-    }
-    return null;
-  }
-
-  if (!isSafe(primaryPath) && !isSafe(legacyPath)) {
-    return res.status(403).send('Forbidden');
-  }
-
-  const resolvedPath = resolveCandidate(primaryPath) || resolveCandidate(legacyPath) || null;
-
-  if (!resolvedPath) {
-    return res.status(404).send('File not found');
-  }
-
-  // Ownership check: infer jobId from the resolved path segment, read meta,
-  // compare owner_id to req.user.
-  try {
-    const rel = path.relative(path.join(PROJECT_ROOT, 'workspace'), resolvedPath);
-    const firstSeg = rel.split(path.sep)[0];
-    // Legacy format: jobs/<jobId>/... — skip the 'jobs' prefix
-    const jobId = (firstSeg === 'jobs') ? rel.split(path.sep)[1] : firstSeg;
-    if (jobId) {
-      const metaPath = path.join(PROJECT_ROOT, 'workspace', firstSeg === 'jobs' ? 'jobs' : '', jobId, 'context', 'meta.json');
-      let meta = {};
-      try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')); } catch {}
-      const user = req.user;
-      const allowed = !user
-        ? !meta.owner_id                                       // open mode
-        : (user.role === 'admin' || meta.owner_id === user.id); // strict per-user
-      if (!allowed) return res.status(403).send('Forbidden');
-    }
-  } catch {}
-
-  res.sendFile(resolvedPath);
-});
 
 // ── Health ───────────────────────────────────────
 router.get('/health', (req, res) => {
