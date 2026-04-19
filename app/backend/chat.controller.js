@@ -433,9 +433,24 @@ function listSessions(req, res) {
 function linkGithubRepo(req, res) {
   const { sessionId } = req.params;
   const { repo, branch } = req.body || {};
-  const session = sessions.get(sessionId);
-  if (!session) return res.status(404).json({ error: 'Session not found' });
+
+  // Session may not exist yet — frontend generates IDs locally and the backend
+  // record is only created on first message. Create a stub now so the link persists.
+  let session = sessions.get(sessionId);
+  if (!session) {
+    session = {
+      id:         sessionId,
+      owner_id:   req.user ? req.user.id : null,
+      title:      'New conversation',
+      messages:   [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    sessions.set(sessionId, session);
+  }
+
   if (!canAccessSession(session, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  if (req.user && !session.owner_id) session.owner_id = req.user.id;
 
   if (repo) {
     session.github_repo   = String(repo).trim();
