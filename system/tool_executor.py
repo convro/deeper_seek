@@ -77,6 +77,16 @@ TOOL_MAP = {
     "chart":              "tools/viz/chart.py",
     "audio_transcribe":   "tools/audio/audio_transcribe.py",
     "data_query":         "tools/data/data_query.py",
+    # Web — interactive browser
+    "web_interact":       "tools/web/web_interact.py",
+    # Security / pentesting
+    "port_scan":          "tools/security/port_scan.py",
+    "dir_fuzz":           "tools/security/dir_fuzz.py",
+    "dns_recon":          "tools/security/dns_recon.py",
+    "web_audit":          "tools/security/web_audit.py",
+    "sqli_test":          "tools/security/sqli_test.py",
+    "ssl_inspect":        "tools/security/ssl_inspect.py",
+    "tech_detect":        "tools/security/tech_detect.py",
 }
 
 
