@@ -5,7 +5,9 @@ import React, {
 import { createRoot } from 'react-dom/client';
 
 import { DeeperSeekWS }   from './websocket';
-import { sendMessage, regenerateMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation } from './api';
+import { sendMessage, regenerateMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation, fetchUserSettings, saveUserSettings } from './api';
+import type { UserSettings } from './api';
+import { SettingsModal } from './settings-modal';
 import { MessagesList, InputArea } from './chat';
 import { EventsDrawer, StatusDot, Spinner } from './components';
 import { Workspace } from './workspace';
@@ -958,6 +960,20 @@ function App() {
     }
   }, [authActions]);
 
+  // ── Settings modal ────────────────────────────────────────────────────
+  const [showSettings, setShowSettings] = useState(false);
+  const [userSettings, setUserSettings] = useState<UserSettings>({ extended_thinking: true });
+
+  useEffect(() => {
+    if (auth.mode !== 'multi_user' || !auth.user) return;
+    fetchUserSettings().then(r => setUserSettings(r.settings)).catch(() => {});
+  }, [auth.mode, auth.user?.id]);
+
+  const handleSaveSettings = useCallback(async (s: UserSettings) => {
+    await saveUserSettings(s);
+    setUserSettings(s);
+  }, []);
+
   // ── Render ────────────────────────────────────────────────────────────
 
   // Auth gate — wait for bootstrap, then show login if needed
@@ -987,7 +1003,7 @@ function App() {
 
   // Shared user-menu element (only rendered in multi_user mode)
   const userMenu = auth.mode === 'multi_user' && auth.user
-    ? <UserMenu user={auth.user} onLogout={authActions.logout} onEditProfile={handleEditProfile} />
+    ? <UserMenu user={auth.user} onLogout={authActions.logout} onEditProfile={handleEditProfile} onSettings={() => setShowSettings(true)} />
     : null;
 
   return (
@@ -1116,6 +1132,14 @@ function App() {
           {activeTab === 'agents'    && <Agents liveAgents={liveAgents} />}
         </main>
       </div>
+
+      {showSettings && (
+        <SettingsModal
+          settings={userSettings}
+          onSave={handleSaveSettings}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   );
 }

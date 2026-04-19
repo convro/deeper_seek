@@ -166,6 +166,29 @@ async function resetSoul(req, res) {
   }
 }
 
+// ── GET /api/auth/settings ───────────────────────────────────────────────
+async function getSettings(req, res) {
+  if (!req.user) return res.json({ settings: { extended_thinking: true } });
+  const settings = soulService.getUserSettings(req.user.id);
+  res.json({ settings });
+}
+
+// ── PUT /api/auth/settings ───────────────────────────────────────────────
+async function saveSettings(req, res) {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  const { settings } = req.body || {};
+  if (!settings || typeof settings !== 'object') {
+    return res.status(400).json({ error: 'Missing settings object' });
+  }
+  try {
+    const rec = soulService.saveUserSettings(req.user.id, settings);
+    res.json({ settings: rec.settings });
+  } catch (err) {
+    logger.error('Failed to save settings', err);
+    res.status(500).json({ error: 'Failed to save' });
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 function extractToken(req) {
   const h = req.headers['authorization'] || '';
@@ -174,4 +197,4 @@ function extractToken(req) {
   return null;
 }
 
-module.exports = { register, login, logout, me, config, extractToken, getSoul, saveSoul, skipSoul, resetSoul };
+module.exports = { register, login, logout, me, config, extractToken, getSoul, saveSoul, skipSoul, resetSoul, getSettings, saveSettings };

@@ -85,6 +85,7 @@ async function runAgentLoop({
   maxRounds = 50,
   ownerId = null,
   ownerEmail = null,
+  userSettings = {},
 }) {
   const client = createClient();
   const systemPrompt = loadSystemPrompt(agentType, ownerId);
@@ -98,7 +99,11 @@ async function runAgentLoop({
         .agents[agentType]
     : null;
 
-  const selectedModel = model || agentConfig?.model || sysConfig.llm.models.orchestrator;
+  // Respect user's extended_thinking setting: if disabled for main agent, use the faster worker
+  const defaultModel = (!agentType && userSettings.extended_thinking === false)
+    ? sysConfig.llm.models.worker
+    : sysConfig.llm.models.orchestrator;
+  const selectedModel = model || agentConfig?.model || defaultModel;
   const temperature   = agentConfig?.temperature ?? sysConfig.llm.defaults.temperature;
   const maxTokens     = agentConfig?.max_tokens   ?? sysConfig.llm.defaults.max_tokens;
 

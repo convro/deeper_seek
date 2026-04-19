@@ -6,6 +6,7 @@ const path = require('path');
 const { runAgentLoop } = require('./llm.service');
 const { sendEvent } = require('./websocket');
 const logger = require('./logger');
+const soulService = require('./soul.service');
 
 const PROJECT_ROOT = path.join(__dirname, '../..');
 const UPLOADS_IMAGES_DIR = path.join(PROJECT_ROOT, 'uploads/images');
@@ -221,6 +222,7 @@ async function sendMessage(req, res) {
       };
 
       const contextMessages = buildContextMessages(session.messages);
+      const userSettings = soulService.getUserSettings(req.user?.id);
 
       const result = await runAgentLoop({
         messages: contextMessages,
@@ -231,6 +233,7 @@ async function sendMessage(req, res) {
         maxRounds: 50,
         ownerId:    req.user ? req.user.id    : null,
         ownerEmail: req.user ? req.user.email : null,
+        userSettings,
       });
 
       // Only persist if we got actual content
@@ -336,6 +339,7 @@ async function regenerate(req, res) {
         ];
       }
 
+      const regenUserSettings = soulService.getUserSettings(req.user?.id);
       const result = await runAgentLoop({
         messages: contextMessages,
         agentType: null,
@@ -345,6 +349,7 @@ async function regenerate(req, res) {
         maxRounds: 50,
         ownerId:    req.user ? req.user.id    : null,
         ownerEmail: req.user ? req.user.email : null,
+        userSettings: regenUserSettings,
       });
 
       if (result.content) {

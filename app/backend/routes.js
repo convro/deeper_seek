@@ -76,6 +76,10 @@ router.put ('/auth/soul',       authController.saveSoul);
 router.post('/auth/soul/skip',  authController.skipSoul);
 router.post('/auth/soul/reset', authController.resetSoul);
 
+// ── Auth (protected) — user settings ─────────────────────────
+router.get('/auth/settings', authController.getSettings);
+router.put('/auth/settings', authController.saveSettings);
+
 // ── Chat ────────────────────────────────────────
 // POST /api/chat
 router.post('/chat', chatController.sendMessage);

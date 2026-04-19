@@ -49,13 +49,18 @@ function getSoul(userId) {
   }
 }
 
+const DEFAULT_SETTINGS = { extended_thinking: true };
+
 /**
  * Atomic write. `data` must contain at least {answers, complete, skipped}.
+ * Preserves existing `settings` unless `data.settings` is explicitly provided.
  * Returns the stored record.
  */
 function saveSoul(userId, data) {
   const p = soulPath(userId);
   if (!p) throw new Error('Invalid user id');
+
+  const existing = getSoul(userId);
 
   const record = {
     user_id:    userId,
@@ -64,12 +69,31 @@ function saveSoul(userId, data) {
     complete:   !!data.complete,
     skipped:    !!data.skipped,
     answers:    (data.answers && typeof data.answers === 'object') ? data.answers : {},
+    settings:   (data.settings && typeof data.settings === 'object')
+      ? data.settings
+      : (existing?.settings || DEFAULT_SETTINGS),
   };
 
   const tmp = p + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(record, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, p);
   return record;
+}
+
+function getUserSettings(userId) {
+  if (!userId) return { ...DEFAULT_SETTINGS };
+  const s = getSoul(userId);
+  return { ...DEFAULT_SETTINGS, ...(s?.settings || {}) };
+}
+
+function saveUserSettings(userId, settings) {
+  const existing = getSoul(userId) || { answers: {}, complete: false, skipped: false };
+  return saveSoul(userId, {
+    answers:  existing.answers || {},
+    complete: existing.complete ?? false,
+    skipped:  existing.skipped ?? false,
+    settings: { ...DEFAULT_SETTINGS, ...(existing.settings || {}), ...settings },
+  });
 }
 
 function isSoulComplete(userId) {
@@ -304,4 +328,6 @@ module.exports = {
   deleteSoul,
   resetSoul,
   renderSoulPrompt,
+  getUserSettings,
+  saveUserSettings,
 };

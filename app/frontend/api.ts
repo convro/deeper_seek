@@ -107,6 +107,23 @@ export async function logoutRequest(): Promise<void> {
   clearAuthToken();
 }
 
+// ── User Settings ──────────────────────────────────────────────────────────
+
+export interface UserSettings {
+  extended_thinking: boolean;
+}
+
+export async function fetchUserSettings(): Promise<{ settings: UserSettings }> {
+  return fetchJson(`${BASE}/auth/settings`);
+}
+
+export async function saveUserSettings(settings: UserSettings): Promise<{ settings: UserSettings }> {
+  return fetchJson(`${BASE}/auth/settings`, {
+    method: 'PUT',
+    body: JSON.stringify({ settings }),
+  });
+}
+
 // ── Soul (onboarding profile) ──────────────────────────────────────────────
 
 export async function fetchSoul(): Promise<{ soul: SoulRecord | null }> {
