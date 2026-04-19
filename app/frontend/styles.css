@@ -1327,6 +1327,29 @@ body.keyboard-open .messages-wrapper::after { display: none; }
 }
 .msg-preview-btn:active { transform: translateY(0); }
 .msg-preview-path { font-weight: 400; opacity: 0.75; }
+.msg-download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg3);
+  color: var(--text2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--mono);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.msg-download-btn:hover {
+  background: var(--bg4);
+  border-color: var(--text3);
+  color: var(--text1);
+  transform: translateY(-1px);
+}
+.msg-download-btn:active { transform: translateY(0); }
 
 /* Preview modal */
 .preview-backdrop {

@@ -99,11 +99,23 @@ async function runAgentLoop({
         .agents[agentType]
     : null;
 
-  // Respect user's extended_thinking setting: if disabled for main agent, use the faster worker
-  const defaultModel = (!agentType && userSettings.extended_thinking === false)
-    ? sysConfig.llm.models.worker
-    : sysConfig.llm.models.orchestrator;
-  const selectedModel = model || agentConfig?.model || defaultModel;
+  // Model selection respecting user settings.
+  // Main orchestrator: uses reasoner unless extended_thinking is disabled.
+  // Sub-agents: use their own config model unless agent_extended_thinking is disabled,
+  //   in which case any reasoner-class agent is downgraded to the worker (chat) model.
+  let selectedModel = model;
+  if (!selectedModel) {
+    if (agentType) {
+      const configModel = agentConfig?.model || sysConfig.llm.models.orchestrator;
+      selectedModel = (userSettings.agent_extended_thinking === false && configModel === sysConfig.llm.models.orchestrator)
+        ? sysConfig.llm.models.worker
+        : configModel;
+    } else {
+      selectedModel = userSettings.extended_thinking === false
+        ? sysConfig.llm.models.worker
+        : sysConfig.llm.models.orchestrator;
+    }
+  }
   const temperature   = agentConfig?.temperature ?? sysConfig.llm.defaults.temperature;
   const maxTokens     = agentConfig?.max_tokens   ?? sysConfig.llm.defaults.max_tokens;
 

@@ -71,6 +71,63 @@ function extractPathsFromToolCalls(toolCalls: ToolCallRecord[]): string[] {
   return Array.from(found);
 }
 
+const ARCHIVE_RE = /\.(zip|tar\.gz|tar\.bz2|tar\.xz|tar|gz|bz2|7z|rar|pdf)$/i;
+
+/** Detect downloadable files (zip, archive, pdf, …) in message text and tool results. */
+function extractDownloadPaths(content: string, toolCalls?: ToolCallRecord[]): string[] {
+  const found = new Set<string>();
+
+  if (content) {
+    const re = new RegExp(`workspace\\/(${JOB_ID})\\/[^\\s"')\\]\`<>]+`, 'g');
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content)) !== null) {
+      if (ARCHIVE_RE.test(m[0])) found.add(m[0]);
+    }
+    const rebt = new RegExp(`\`(workspace\\/(${JOB_ID})\\/[^\`]+)\``, 'g');
+    while ((m = rebt.exec(content)) !== null) {
+      if (ARCHIVE_RE.test(m[1])) found.add(m[1]);
+    }
+  }
+
+  if (toolCalls) {
+    for (const tc of toolCalls) {
+      if (tc.status !== 'done') continue;
+      const candidates: string[] = [];
+
+      // Tool args
+      for (const key of ['path', 'output_path', 'dest', 'file_path', 'filepath']) {
+        const v = (tc.args as Record<string, unknown>)?.[key];
+        if (typeof v === 'string') candidates.push(v);
+      }
+
+      // Tool result
+      const result = tc.result as Record<string, unknown> | null | undefined;
+      if (result && typeof result === 'object') {
+        for (const key of ['path', 'output_path', 'zip_path', 'archive_path', 'file', 'dest']) {
+          const v = result[key];
+          if (typeof v === 'string') candidates.push(v);
+        }
+        // Some tools return { result: { path: ... } }
+        const inner = result.result as Record<string, unknown> | undefined;
+        if (inner && typeof inner === 'object') {
+          for (const key of ['path', 'zip_path', 'archive_path']) {
+            const v = inner[key];
+            if (typeof v === 'string') candidates.push(v);
+          }
+        }
+      }
+
+      for (const raw of candidates) {
+        if (!ARCHIVE_RE.test(raw)) continue;
+        const norm = raw.replace(/^.*?workspace\//, 'workspace/');
+        if (norm.startsWith('workspace/')) found.add(norm);
+      }
+    }
+  }
+
+  return Array.from(found);
+}
+
 const MAX_INLINE_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 // ── Attachment helpers ────────────────────────────────────────────────────
@@ -365,20 +422,25 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents }:
   const isError    = message.status === 'error';
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
 
-  // Detect workspace HTML file references for "Preview Site" buttons.
-  // Primary source: message text. Secondary: tool call args (catches cases
-  // where the AI writes files but doesn't narrate the path in its final text).
-  const htmlPaths = message.status === 'done'
+  const isDone = message.status === 'done';
+
+  // Detect workspace HTML paths for preview + downloadable files for download.
+  // Both scan message text AND tool call args/results for max reliability.
+  const htmlPaths = isDone
     ? (() => {
         const fromText  = message.content ? extractHtmlPaths(message.content) : [];
         const fromTools = message.toolCalls ? extractPathsFromToolCalls(message.toolCalls) : [];
         const merged = [...fromText, ...fromTools];
-        return merged.filter((p, i) => merged.indexOf(p) === i); // dedup
+        return merged.filter((p, i) => merged.indexOf(p) === i);
       })()
     : [];
 
+  const downloadPaths = isDone
+    ? extractDownloadPaths(message.content || '', message.toolCalls)
+    : [];
+
   // Hover actions only appear once the response has actually landed.
-  const showActions = (message.status === 'done' || message.status === 'error') && message.content;
+  const showActions = (isDone || message.status === 'error') && message.content;
 
   return (
     <>
@@ -410,7 +472,14 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents }:
           <ThinkingBlock content={message.reasoning} />
         )}
 
-        {/* Tool badges */}
+        {/* Content — rendered first so tool badges appear below streamed text */}
+        {!isThinking && message.content && (
+          <div className={`msg-ai-content ${isError ? 'msg-error' : ''}`}>
+            <Markdown content={message.content} />
+          </div>
+        )}
+
+        {/* Tool badges — after content so latest activity sits below the text */}
         {message.toolCalls && message.toolCalls.length > 0 && (
           <div className="msg-tool-badges">
             {message.toolCalls.map(tc => (
@@ -423,20 +492,13 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents }:
           </div>
         )}
 
-        {/* Content */}
-        {!isThinking && message.content && (
-          <div className={`msg-ai-content ${isError ? 'msg-error' : ''}`}>
-            <Markdown content={message.content} />
-          </div>
-        )}
-
         {/* Streaming cursor */}
         {message.status === 'streaming' && (
           <span className="msg-cursor" />
         )}
 
-        {/* Preview site buttons — shown when AI created HTML files */}
-        {htmlPaths.length > 0 && (
+        {/* Action row: preview (HTML) + download (zip/archive/pdf) */}
+        {(htmlPaths.length > 0 || downloadPaths.length > 0) && (
           <div className="msg-preview-row">
             {htmlPaths.map(p => (
               <button
@@ -449,6 +511,20 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents }:
                 </svg>
                 Preview&nbsp;<span className="msg-preview-path">{p.split('/').pop()}</span>
               </button>
+            ))}
+            {downloadPaths.map(p => (
+              <a
+                key={p}
+                href={`/api/download/${p}`}
+                download
+                className="msg-download-btn"
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                  <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+                </svg>
+                Download&nbsp;<span className="msg-preview-path">{p.split('/').pop()}</span>
+              </a>
             ))}
           </div>
         )}

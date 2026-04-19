@@ -60,6 +60,25 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
                 <span className="settings-toggle-knob" />
               </button>
             </div>
+
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-name">Agent Extended Thinking</div>
+                <div className="settings-row-desc">
+                  {local.agent_extended_thinking
+                    ? 'Specialist agents (planner, validator) use DeepSeek-R1. More thorough, slower.'
+                    : 'All agents use DeepSeek-Chat. Faster parallel execution, lighter tasks.'}
+                </div>
+              </div>
+              <button
+                className={`settings-toggle ${local.agent_extended_thinking ? 'on' : 'off'}`}
+                onClick={() => toggle('agent_extended_thinking')}
+                aria-pressed={local.agent_extended_thinking}
+                title={local.agent_extended_thinking ? 'Turn off' : 'Turn on'}
+              >
+                <span className="settings-toggle-knob" />
+              </button>
+            </div>
           </div>
         </div>
 

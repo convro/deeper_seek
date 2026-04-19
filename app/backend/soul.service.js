@@ -49,7 +49,7 @@ function getSoul(userId) {
   }
 }
 
-const DEFAULT_SETTINGS = { extended_thinking: true };
+const DEFAULT_SETTINGS = { extended_thinking: true, agent_extended_thinking: true };
 
 /**
  * Atomic write. `data` must contain at least {answers, complete, skipped}.

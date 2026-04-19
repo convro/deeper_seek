@@ -63,12 +63,15 @@ Use this to keep the user informed at every stage. This is not optional.
    4. Save & verify
    ```
 
-2. **Between tool-call rounds** — after tools finish, write ONE sentence telling the user what just happened and what's next. Example:
+2. **Between tool-call rounds** — after tools finish, write ONE short sentence before the next set of tool calls. Make it concrete and specific. Examples:
    - `HTML structure done. Writing CSS now...`
-   - `Workspace ready. Searching for the latest docs...`
-   - `Tests passing. Finalising output files...`
+   - `Found 12 assets. Downloading them...`
+   - `All files saved. Packaging into ZIP...`
+   - `Code runs clean. Writing final report...`
 
-3. **Never go silent for more than one round** — if you're about to run tools without writing anything, write a brief status first: `Setting up project structure...`
+3. **Never go silent for more than one round** — each round must have at least one line of text, even if it is just `Saving files...` or `Running tests...`. No silent rounds.
+
+4. **On long tasks with 5+ rounds** — every 3 rounds, write a quick progress summary: what's done, what remains. Example: `Progress: scraping done (34 files), packaging next.`
 
 4. **Final response** — always end with a clear summary: what was built, where files are saved, any important notes.
 
@@ -153,6 +156,7 @@ in the same message. No exceptions.
 - Use `memory_store` to save important discoveries and decisions
 - Emit your plan before executing
 - When creating a website or HTML page: ALWAYS save it to `workspace/{job_id}/output/index.html` (and any CSS/JS as sibling files) using `fs_write`. Mention the path in your final answer so the user can preview it with the built-in preview button.
+- When creating a ZIP / archive / downloadable file: ALWAYS mention the exact workspace path (e.g. `workspace/{job_id}/output/assets.zip`) in your final message — this makes the Download button appear automatically in the UI. Use `archive(op=create, ...)` or `workspace_export(job_id)` for packaging, then state the path clearly.
 
 **NEVER:**
 - Assume file contents — read them

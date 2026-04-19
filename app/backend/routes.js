@@ -41,9 +41,6 @@ router.post('/auth/logout',   authController.logout);
 
 // ── Preview — serve workspace HTML/CSS/JS files in iframe ───────────────────
 // Public (no auth required): the job-ID in the URL acts as an unguessable token.
-// The route still enforces workspace-root confinement and per-user ownership
-// when req.user is populated by an optional upstream token parse, but it does
-// NOT block requests that carry no token (e.g. plain iframe loads).
 router.get('/preview/*', (req, res) => {
   const rawSeg = req.params[0] || '';
   const safeSeg = rawSeg.split('/').filter(p => p !== '..' && p !== '.').join('/');
@@ -65,6 +62,24 @@ router.get('/preview/*', (req, res) => {
   const resolvedPath = resolveCandidate(primaryPath) || resolveCandidate(legacyPath) || null;
   if (!resolvedPath) return res.status(404).send('File not found');
   res.sendFile(resolvedPath);
+});
+
+// ── Download — serve workspace files as attachment (zip, pdf, etc.) ─────────
+// Public (no auth required): job-ID in URL is the access token.
+router.get('/download/*', (req, res) => {
+  const rawSeg = req.params[0] || '';
+  const safeSeg = rawSeg.split('/').filter(p => p !== '..' && p !== '.').join('/');
+  const allowedRoot = path.join(PROJECT_ROOT, 'workspace') + path.sep;
+  const filePath = path.join(PROJECT_ROOT, safeSeg);
+  if (!filePath.startsWith(allowedRoot)) return res.status(403).send('Forbidden');
+  try {
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return res.status(404).send('File not found');
+    }
+  } catch { return res.status(404).send('File not found'); }
+  const filename = path.basename(filePath);
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.sendFile(filePath);
 });
 
 // ── Everything below requires auth (when AUTH_MODE=multi_user) ──────────

@@ -111,6 +111,7 @@ export async function logoutRequest(): Promise<void> {
 
 export interface UserSettings {
   extended_thinking: boolean;
+  agent_extended_thinking: boolean;
 }
 
 export async function fetchUserSettings(): Promise<{ settings: UserSettings }> {

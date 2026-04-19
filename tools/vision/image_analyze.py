@@ -66,18 +66,8 @@ def _ensure_packages():
         except Exception:
             pass  # Tool functions handle ImportError gracefully
 
-    # easyocr is large — install separately, best-effort
-    try:
-        __import__("easyocr")
-    except ImportError:
-        try:
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "--quiet", "easyocr"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except Exception:
-            pass
+    # easyocr removed — it downloads ~200MB models on first run causing tool timeouts.
+    # pytesseract is the primary OCR engine; it's fast and sufficient.
 
     # Verify core packages are now importable, then write flag
     try:
@@ -570,6 +560,81 @@ def _classify(colors, edge_label, has_text, faces, w, h, brightness):
     return tags or ["general image"]
 
 
+# ── AI vision via Claude (when ANTHROPIC_API_KEY is set) ─────────────────────
+
+def _ai_vision(img_path, question, max_dim=1568):
+    """
+    Call Claude claude-haiku-4-5 vision API for real AI image understanding.
+    Returns the description string, or None if unavailable (falls back to local).
+    Uses only stdlib (urllib) — no extra dependencies required.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+
+    try:
+        import base64
+        import io
+        import urllib.request
+        import urllib.error
+
+        # Load + downscale if needed to stay within API limits (~5 MB base64)
+        with open(img_path, "rb") as f:
+            raw = f.read()
+
+        ext = Path(img_path).suffix.lower()
+        media_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                     ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp"}
+        media_type = media_map.get(ext, "image/jpeg")
+
+        # Resize if image is large — PIL may not be available in minimal envs,
+        # but we already ensured it in _ensure_packages.
+        if len(raw) > 4 * 1024 * 1024:
+            try:
+                from PIL import Image as _PIL
+                img_obj = _PIL.open(io.BytesIO(raw))
+                img_obj.thumbnail((max_dim, max_dim), _PIL.LANCZOS if hasattr(_PIL, "LANCZOS") else _PIL.ANTIALIAS)
+                buf = io.BytesIO()
+                fmt = "JPEG" if media_type == "image/jpeg" else "PNG"
+                img_obj.save(buf, format=fmt, quality=85)
+                raw = buf.getvalue()
+                if fmt == "JPEG":
+                    media_type = "image/jpeg"
+            except Exception:
+                pass  # Use original if resize fails
+
+        b64 = base64.standard_b64encode(raw).decode("utf-8")
+
+        payload = json.dumps({
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 1200,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
+                    {"type": "text", "text": question},
+                ]
+            }]
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=payload,
+            headers={
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+                "x-api-key": api_key,
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return (data.get("content") or [{}])[0].get("text", "") or None
+
+    except Exception:
+        return None  # Silently fall back to local analysis
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def execute(
@@ -690,10 +755,7 @@ def execute(
     ocr = None
     if img_pil:
         ocr = _ocr_pytesseract(img_pil)
-    if not ocr or not ocr.get("has_text"):
-        easyocr_result = _ocr_easyocr(path)
-        if easyocr_result and easyocr_result.get("has_text"):
-            ocr = easyocr_result
+    # easyocr removed — causes timeouts (~200MB model download). pytesseract only.
 
     if ocr and not ocr.get("error"):
         report["text"] = {
@@ -853,7 +915,18 @@ def execute(
         if notable:
             lines.append("\nEXIF: " + " | ".join(f"{k}={v}" for k, v in notable.items()))
 
-    summary = "\n".join(lines)
+    local_summary = "\n".join(lines)
+
+    # ── AI vision description (Claude) — prepended when available ─────────────
+    ai_description = _ai_vision(path, question)
+    if ai_description:
+        summary = (
+            f"=== AI VISION (Claude) ===\n{ai_description.strip()}"
+            f"\n\n=== LOCAL ANALYSIS ===\n{local_summary}"
+        )
+        report["ai_vision"] = ai_description.strip()
+    else:
+        summary = local_summary
 
     duration_ms = round((time.time() - t0) * 1000)
     return {
