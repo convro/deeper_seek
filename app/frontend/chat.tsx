@@ -450,7 +450,7 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents }:
         <img
           src="https://r.convro.eu/content/Stable/realises/ds73"
           alt="DS"
-          style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           onError={e => {
             (e.currentTarget as HTMLImageElement).style.display = 'none';
             (e.currentTarget.parentNode as HTMLElement).textContent = '🧠';

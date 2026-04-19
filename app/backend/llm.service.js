@@ -135,13 +135,7 @@ async function runAgentLoop({
 
   emit(onEvent, { type: 'llm_start', model: selectedModel, agent: agentType });
 
-  // Quick ack: stream 1-2 sentences immediately for main agent only
-  let ackPrefix = '';
-  if (!agentType) {
-    const lastUserMsg = messages.filter(m => m.role === 'user').pop();
-    ackPrefix = await streamQuickAck(client, lastUserMsg?.content, onEvent);
-  }
-  let finalContent = ackPrefix;
+  let finalContent = '';
 
   while (rounds < maxRounds) {
 
@@ -479,49 +473,6 @@ function runAgentLoopStreaming(params) {
 function emit(onEvent, event) {
   if (typeof onEvent === 'function') {
     try { onEvent(event); } catch (e) { logger.error('Event emit error', e); }
-  }
-}
-
-/**
- * Fire a fast pre-loop acknowledgment using deepseek-chat.
- * Streams 1-2 natural sentences to the frontend immediately, giving the user
- * real-time feedback while the heavy R1 agent loop starts up.
- * Returns the ack text so it can be prepended to finalContent.
- */
-async function streamQuickAck(client, lastUserContent, onEvent) {
-  if (!lastUserContent || typeof lastUserContent !== 'string') return '';
-  try {
-    const stream = await client.chat.completions.create({
-      model: 'deepseek-chat',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are DeeperSeek. The user just sent a task. In 1-2 short, natural sentences acknowledge what the task is and say what you are about to do — as if you just read it and are responding immediately before getting to work. Be genuine and direct. No robotic preambles like "I will now proceed". Just natural text.',
-        },
-        { role: 'user', content: lastUserContent.slice(0, 2000) },
-      ],
-      max_tokens: 100,
-      temperature: 0.75,
-      stream: true,
-    });
-
-    let ackText = '';
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content;
-      if (delta) {
-        ackText += delta;
-        emit(onEvent, { type: 'content_delta', delta });
-      }
-    }
-    if (ackText) {
-      emit(onEvent, { type: 'content_delta', delta: '\n\n' });
-      return ackText + '\n\n';
-    }
-    return '';
-  } catch (e) {
-    logger.warn('Quick ack failed (non-fatal):', e.message);
-    return '';
   }
 }
 

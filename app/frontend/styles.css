@@ -735,8 +735,6 @@ img { max-width: 100%; }
 .msg-ai-avatar {
   width: 30px;
   height: 30px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent2), var(--purple));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -744,7 +742,6 @@ img { max-width: 100%; }
   flex-shrink: 0;
   margin-top: 2px;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(26, 111, 219, 0.3);
 }
 
 /* ── AI message body ─────────────────────────────────────────────────────── */
