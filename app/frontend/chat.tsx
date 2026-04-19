@@ -698,9 +698,6 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
         </button>
       </div>
 
-      <div className="input-hint">
-        Ctrl+Enter to send · Enter for new line · Paste or drop files to attach
-      </div>
     </div>
   );
 }

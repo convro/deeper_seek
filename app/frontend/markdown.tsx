@@ -279,16 +279,18 @@ export function Markdown({ content }: { content: string }) {
 
           case 'table':
             return (
-              <table key={i}>
-                <thead>
-                  <tr>{block.headers.map((h, j) => <th key={j}>{renderInline(h)}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {block.rows.map((row, j) => (
-                    <tr key={j}>{row.map((cell, k) => <td key={k}>{renderInline(cell)}</td>)}</tr>
-                  ))}
-                </tbody>
-              </table>
+              <div key={i} className="md-table-wrapper">
+                <table>
+                  <thead>
+                    <tr>{block.headers.map((h, j) => <th key={j}>{renderInline(h)}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {block.rows.map((row, j) => (
+                      <tr key={j}>{row.map((cell, k) => <td key={k}>{renderInline(cell)}</td>)}</tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             );
 
           case 'paragraph':

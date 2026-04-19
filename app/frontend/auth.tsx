@@ -12,6 +12,50 @@ import type { AuthUser, AuthConfig } from './api';
 
 const LOGO_URL = 'https://r.convro.eu/content/Stable/realises/ds73';
 
+// ── Snow effect (desktop only) ────────────────────────────────────────────
+const SNOW_FLAKES = (() => {
+  const count = 26;
+  return Array.from({ length: count }, (_, i) => ({
+    left:       (i / count) * 100 + (Math.sin(i * 1.73) * 50 + 50) / count,
+    size:       Math.round(4 + (Math.cos(i * 2.31) * 0.5 + 0.5) * 7),
+    fallDur:    +(10 + (Math.sin(i * 0.79) * 0.5 + 0.5) * 8).toFixed(1),
+    fallDelay:  +(-Math.abs(Math.sin(i * 3.14)) * 18).toFixed(1),
+    driftDur:   +(3.5 + (Math.cos(i * 1.27) * 0.5 + 0.5) * 3.5).toFixed(1),
+    driftDelay: +(-Math.abs(Math.sin(i * 2.61)) * 4).toFixed(1),
+    driftDir:   i % 2 === 0 ? 1 : -1,
+  }));
+})();
+
+function SnowflakeParticles() {
+  if (typeof window === 'undefined' || window.innerWidth <= 768) return null;
+  return (
+    <div className="auth-snow" aria-hidden="true">
+      {SNOW_FLAKES.map((f, i) => (
+        <div
+          key={i}
+          className="auth-snow-outer"
+          style={{
+            left: `${f.left.toFixed(1)}%`,
+            animationDuration: `${f.driftDur}s`,
+            animationDelay: `${f.driftDelay}s`,
+            animationDirection: f.driftDir === 1 ? 'alternate' : 'alternate-reverse',
+          }}
+        >
+          <div
+            className="auth-snow-inner"
+            style={{
+              width: `${f.size}px`,
+              height: `${f.size}px`,
+              animationDuration: `${f.fallDur}s`,
+              animationDelay: `${f.fallDelay}s`,
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export type AuthMode = 'open' | 'multi_user';
 
 export interface AuthState {
@@ -188,6 +232,7 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
 
   return (
     <div className="auth-screen">
+      <SnowflakeParticles />
       <div className="auth-card">
         <div className="auth-brand">
           <img src={LOGO_URL} alt="DeeperSeek" className="auth-logo" />
