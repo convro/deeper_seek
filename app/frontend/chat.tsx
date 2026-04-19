@@ -4,15 +4,33 @@ import { generateLocalId } from './state';
 import { Spinner, TypingDots, ThinkingBlock, ToolCallBadge } from './components';
 import { Markdown, PreviewModal } from './markdown';
 
-/** Extract workspace HTML file paths from AI response text. */
+/** Extract workspace HTML file paths from AI response text.
+ *
+ * Handles multiple formats the AI uses to reference workspace files:
+ *  1. Full path:  workspace/jobid/output/index.html
+ *  2. Dir path:   workspace/jobid/output/  (no .html — append index.html)
+ *  3. Short path: `jobid/output/` in backticks (prose says "workspace" before it)
+ *  4. Short path: `jobid/output/file.html` in backticks
+ */
 function extractHtmlPaths(content: string): string[] {
   const found = new Set<string>();
-  // Match patterns like: workspace/job123/output/index.html or workspace/abc/output/site/index.html
-  const re = /workspace\/[a-zA-Z0-9_-]+\/[^\s"')\]`]+\.html/g;
+
+  // 1 & 2: full workspace/jobid/... paths (with or without .html at end)
+  const re1 = /workspace\/([a-zA-Z0-9_-]+)\/((?:output|dist|build|public)\/[^\s"')\]`]*)/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(content)) !== null) {
-    found.add(m[0]);
+  while ((m = re1.exec(content)) !== null) {
+    const seg = m[2].endsWith('.html') ? m[2] : m[2].replace(/\/$/, '') + '/index.html';
+    found.add(`workspace/${m[1]}/${seg}`);
   }
+
+  // 3 & 4: short `jobid/output/...` inside backtick code spans
+  //   AI writes e.g. "do workspace `0a5727c7/output/`"
+  const re2 = /`([a-zA-Z0-9_-]{4,})\/((?:output|dist|build|public)\/[^`]*)` ?/g;
+  while ((m = re2.exec(content)) !== null) {
+    const seg = m[2].endsWith('.html') ? m[2] : m[2].replace(/\/$/, '') + '/index.html';
+    found.add(`workspace/${m[1]}/${seg}`);
+  }
+
   return Array.from(found);
 }
 

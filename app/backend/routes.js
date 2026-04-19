@@ -144,14 +144,24 @@ router.get('/preview/*', (req, res) => {
   function isFile(p) {
     try { return p && fs.existsSync(p) && fs.statSync(p).isFile(); } catch { return false; }
   }
+  function isDir(p) {
+    try { return p && fs.existsSync(p) && fs.statSync(p).isDirectory(); } catch { return false; }
+  }
+  // Try to resolve a candidate: exact file, or directory → index.html
+  function resolveCandidate(p) {
+    if (isFile(p)) return p;
+    if (isDir(p)) {
+      const idx = path.join(p, 'index.html');
+      if (isFile(idx)) return idx;
+    }
+    return null;
+  }
 
   if (!isSafe(primaryPath) && !isSafe(legacyPath)) {
     return res.status(403).send('Forbidden');
   }
 
-  const resolvedPath = isFile(primaryPath) ? primaryPath
-    : isFile(legacyPath)                   ? legacyPath
-    : null;
+  const resolvedPath = resolveCandidate(primaryPath) || resolveCandidate(legacyPath) || null;
 
   if (!resolvedPath) {
     return res.status(404).send('File not found');
