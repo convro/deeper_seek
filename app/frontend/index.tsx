@@ -5,8 +5,8 @@ import React, {
 import { createRoot } from 'react-dom/client';
 
 import { DeeperSeekWS }   from './websocket';
-import { sendMessage, regenerateMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation, fetchUserSettings, saveUserSettings } from './api';
-import type { UserSettings } from './api';
+import { sendMessage, regenerateMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation, fetchUserSettings, saveUserSettings, listGithubRepos, linkGithubRepo } from './api';
+import type { UserSettings, GithubRepo } from './api';
 import { SettingsModal } from './settings-modal';
 import { MessagesList, InputArea } from './chat';
 import { EventsDrawer, StatusDot, Spinner } from './components';
@@ -23,6 +23,159 @@ import { generateSessionId, generateId } from './state';
 const LOGO_URL = 'https://r.convro.eu/content/Stable/realises/ds73';
 
 type Tab = 'chat' | 'workspace' | 'agents';
+
+// ── GitHub repo link modal ────────────────────────────────────────────────
+interface GithubLinkModalProps {
+  sessionId: string;
+  currentRepo: string | null;
+  currentBranch: string | null;
+  onLinked: (repo: string | null, branch: string | null) => void;
+  onClose: () => void;
+}
+
+function GithubLinkModal({ sessionId, currentRepo, currentBranch, onLinked, onClose }: GithubLinkModalProps) {
+  const [repos, setRepos] = useState<GithubRepo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedRepo, setSelectedRepo] = useState(currentRepo || '');
+  const [branch, setBranch] = useState(currentBranch || '');
+  const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  useEffect(() => {
+    listGithubRepos()
+      .then(r => {
+        setRepos(r.repos || []);
+        setLoading(false);
+      })
+      .catch(e => {
+        setError(e.message || 'Failed to load repos');
+        setLoading(false);
+      });
+  }, []);
+
+  const filtered = repos.filter(r =>
+    !query || r.full_name.toLowerCase().includes(query.toLowerCase())
+  );
+
+  const handleSelect = (r: GithubRepo) => {
+    setSelectedRepo(r.full_name);
+    setBranch(r.default_branch || 'main');
+  };
+
+  const handleLink = async () => {
+    if (!selectedRepo) return;
+    setSaving(true);
+    try {
+      await linkGithubRepo(sessionId, selectedRepo, branch || 'main');
+      onLinked(selectedRepo, branch || 'main');
+      onClose();
+    } catch { setSaving(false); }
+  };
+
+  const handleUnlink = async () => {
+    setSaving(true);
+    try {
+      await linkGithubRepo(sessionId, null);
+      onLinked(null, null);
+      onClose();
+    } catch { setSaving(false); }
+  };
+
+  return (
+    <div className="settings-backdrop" onClick={onClose}>
+      <div className="gh-link-modal" onClick={e => e.stopPropagation()}>
+        <div className="settings-header">
+          <span className="settings-title">Link GitHub Repository</span>
+          <button className="settings-close-btn" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="gh-link-body">
+          {loading && <div className="gh-link-loading">Loading repositories…</div>}
+          {error && (
+            <div className="gh-link-error">
+              {error}
+              {error.includes('PAT') || error.includes('token') || repos.length === 0
+                ? ' — add your GitHub PAT in Settings first.'
+                : ''}
+            </div>
+          )}
+
+          {!loading && !error && repos.length === 0 && (
+            <div className="gh-link-error">No repositories found. Add your GitHub PAT in Settings → GitHub.</div>
+          )}
+
+          {!loading && repos.length > 0 && (
+            <>
+              <input
+                className="gh-link-search"
+                type="text"
+                placeholder="Search repos…"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                autoFocus
+              />
+              <div className="gh-repo-list">
+                {filtered.slice(0, 50).map(r => (
+                  <div
+                    key={r.full_name}
+                    className={`gh-repo-item ${selectedRepo === r.full_name ? 'selected' : ''}`}
+                    onClick={() => handleSelect(r)}
+                  >
+                    <div className="gh-repo-name">
+                      {r.private && (
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ marginRight: 4, opacity: 0.6 }}>
+                          <path d="M4 5V3.5A3.5 3.5 0 0 1 11 3.5V5h.5A1.5 1.5 0 0 1 13 6.5v7A1.5 1.5 0 0 1 11.5 15h-7A1.5 1.5 0 0 1 3 13.5v-7A1.5 1.5 0 0 1 4.5 5H4Zm1.5 0h5V3.5a2.5 2.5 0 0 0-5 0V5ZM8 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/>
+                        </svg>
+                      )}
+                      {r.full_name}
+                    </div>
+                    {r.description && <div className="gh-repo-desc">{r.description}</div>}
+                  </div>
+                ))}
+              </div>
+
+              {selectedRepo && (
+                <div className="gh-branch-row">
+                  <label className="gh-branch-label">Branch:</label>
+                  <input
+                    className="gh-branch-input"
+                    type="text"
+                    value={branch}
+                    onChange={e => setBranch(e.target.value)}
+                    placeholder="main"
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="settings-footer">
+          {currentRepo && (
+            <button className="gh-unlink-btn" onClick={handleUnlink} disabled={saving}>
+              Unlink
+            </button>
+          )}
+          <button className="settings-cancel-btn" onClick={onClose}>Cancel</button>
+          <button
+            className="settings-save-btn"
+            onClick={handleLink}
+            disabled={!selectedRepo || saving}
+          >
+            {saving ? 'Linking…' : 'Link'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Relative time helper ──────────────────────────────────────────────────
 function relTime(iso: string): string {
@@ -962,7 +1115,25 @@ function App() {
 
   // ── Settings modal ────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
-  const [userSettings, setUserSettings] = useState<UserSettings>({ extended_thinking: true });
+  const [userSettings, setUserSettings] = useState<UserSettings>({ extended_thinking: true, agent_extended_thinking: true });
+
+  // ── GitHub repo link modal ────────────────────────────────────────────
+  const [showGithubLink, setShowGithubLink] = useState(false);
+
+  // Track github_repo / github_branch for the active conversation
+  const activeConv = useMemo(() => conversations.find(c => c.id === activeConvId) ?? null, [conversations, activeConvId]);
+  const activeGithubRepo   = activeConv?.github_repo   ?? null;
+  const activeGithubBranch = activeConv?.github_branch ?? null;
+
+  const handleGithubLinked = (repo: string | null, branch: string | null) => {
+    setConversations(prev =>
+      prev.map(c =>
+        c.id === activeConvId
+          ? { ...c, github_repo: repo, github_branch: branch }
+          : c
+      )
+    );
+  };
 
   useEffect(() => {
     if (auth.mode !== 'multi_user' || !auth.user) return;
@@ -1093,8 +1264,27 @@ function App() {
             {activeConvTitle && activeConvTitle !== 'New conversation' ? activeConvTitle : ''}
           </div>
 
-          {/* Right: status */}
+          {/* Right: GitHub repo badge + status */}
           <div className="header-right">
+            {auth.mode === 'multi_user' && activeTab === 'chat' && (
+              <button
+                className={`gh-repo-badge ${activeGithubRepo ? 'linked' : ''}`}
+                onClick={() => setShowGithubLink(true)}
+                title={activeGithubRepo ? `Linked: ${activeGithubRepo} (${activeGithubBranch})` : 'Link GitHub repo'}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                </svg>
+                {activeGithubRepo ? (
+                  <span className="gh-repo-badge-name">
+                    {activeGithubRepo.split('/')[1] || activeGithubRepo}
+                    <span className="gh-repo-badge-branch"> / {activeGithubBranch}</span>
+                  </span>
+                ) : (
+                  <span className="gh-repo-badge-name">Link repo</span>
+                )}
+              </button>
+            )}
             <StatusDot connected={wsConnected} />
             <span className="header-status-label">
               {wsConnected ? 'Live' : 'Connecting…'}
@@ -1138,6 +1328,16 @@ function App() {
           settings={userSettings}
           onSave={handleSaveSettings}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {showGithubLink && (
+        <GithubLinkModal
+          sessionId={activeConvId}
+          currentRepo={activeGithubRepo}
+          currentBranch={activeGithubBranch}
+          onLinked={handleGithubLinked}
+          onClose={() => setShowGithubLink(false)}
         />
       )}
     </div>

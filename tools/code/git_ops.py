@@ -263,11 +263,15 @@ def _op_fetch(cwd, timeout, remote: str = "origin", prune: bool = True,
 def _op_clone(cwd, timeout, url: str = "", dest: str = ".", depth: int = 1,
               branch: str | None = None, **_):
     if not url: raise RuntimeError("url= required")
+    # Inject GITHUB_TOKEN for private repos via https
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if token and "github.com" in url and url.startswith("https://"):
+        # Insert token: https://TOKEN@github.com/...
+        url = url.replace("https://", f"https://{token}@", 1)
     args = ["clone"]
     if depth and depth > 0: args += ["--depth", str(depth)]
     if branch: args += ["--branch", branch, "--single-branch"]
     args += [url, dest]
-    # Clone runs with cwd = parent
     parent = str(Path(cwd))
     out = _git(parent, args, timeout=max(timeout, 120))
     return {"output": _cap(out), "dest": str(Path(parent) / dest)}
@@ -366,8 +370,18 @@ def _git(cwd: str, args: list, timeout: int) -> str:
     env = os.environ.copy()
     env.setdefault("GIT_TERMINAL_PROMPT", "0")
     env.setdefault("GIT_OPTIONAL_LOCKS", "0")
+    # Use GITHUB_TOKEN for HTTPS auth via credential helper when pushing/pulling
+    token = env.get("GITHUB_TOKEN", "")
+    cmd = ["git"]
+    if token:
+        # Configure inline credential helper that returns the token
+        helper_script = (
+            f"!f() {{ echo username=x-token; echo password={token}; }}; f"
+        )
+        cmd += ["-c", f"credential.helper={helper_script}"]
+    cmd += args
     proc = subprocess.run(
-        ["git"] + args, cwd=cwd, env=env,
+        cmd, cwd=cwd, env=env,
         capture_output=True, text=True, timeout=timeout,
     )
     if proc.returncode != 0:

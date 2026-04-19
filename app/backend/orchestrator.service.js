@@ -68,6 +68,15 @@ async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
     if (context.ownerId)    subEnv.DEEPERSEEK_CURRENT_USER_ID = String(context.ownerId);
     if (context.ownerEmail) subEnv.DEEPERSEEK_CURRENT_USER_EMAIL = String(context.ownerEmail);
 
+    // Inject GitHub PAT so git_ops / github_ops tools can authenticate
+    if (context.ownerId) {
+      try {
+        const soulSvc = require('./soul.service');
+        const ghPat = soulSvc.getUserSettings(context.ownerId).github_pat;
+        if (ghPat) subEnv.GITHUB_TOKEN = String(ghPat);
+      } catch {}
+    }
+
     const proc = spawn('python3', [TOOL_EXECUTOR], {
       cwd: PROJECT_ROOT,
       env: subEnv,

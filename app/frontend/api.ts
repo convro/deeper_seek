@@ -112,6 +112,8 @@ export async function logoutRequest(): Promise<void> {
 export interface UserSettings {
   extended_thinking: boolean;
   agent_extended_thinking: boolean;
+  github_pat?: string;
+  github_username?: string;
 }
 
 export async function fetchUserSettings(): Promise<{ settings: UserSettings }> {
@@ -249,6 +251,47 @@ export async function listAgents() {
 
 export async function killAgent(agentId: string) {
   return fetchJson(`${BASE}/agents/${agentId}`, { method: 'DELETE' });
+}
+
+// ── GitHub integration ─────────────────────────────────────────────────────
+
+export interface GithubRepo {
+  full_name: string;
+  name: string;
+  private: boolean;
+  default_branch: string;
+  description: string;
+  updated_at: string;
+}
+
+export interface GithubValidateResult {
+  ok: boolean;
+  login?: string;
+  name?: string;
+  avatar_url?: string;
+  error?: string;
+}
+
+export async function validateGithubToken(token: string): Promise<GithubValidateResult> {
+  return fetchJson(`${BASE}/github/validate`, {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function listGithubRepos(): Promise<{ repos: GithubRepo[] }> {
+  return fetchJson(`${BASE}/github/repos`);
+}
+
+export async function linkGithubRepo(
+  sessionId: string,
+  repo: string | null,
+  branch?: string,
+): Promise<{ id: string; github_repo: string | null; github_branch: string | null }> {
+  return fetchJson(`${BASE}/chat/sessions/${encodeURIComponent(sessionId)}/github`, {
+    method: 'PATCH',
+    body: JSON.stringify({ repo, branch: branch || 'main' }),
+  });
 }
 
 // ── Uploads ──────────────────────────────────────────────────────────────────

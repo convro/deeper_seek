@@ -7,6 +7,7 @@ const { runAgentLoop } = require('./llm.service');
 const { sendEvent } = require('./websocket');
 const logger = require('./logger');
 const soulService = require('./soul.service');
+const githubService = require('./github.service');
 
 const PROJECT_ROOT = path.join(__dirname, '../..');
 const UPLOADS_IMAGES_DIR = path.join(PROJECT_ROOT, 'uploads/images');
@@ -224,6 +225,18 @@ async function sendMessage(req, res) {
       const contextMessages = buildContextMessages(session.messages);
       const userSettings = soulService.getUserSettings(req.user?.id);
 
+      // Build GitHub context block if this session has a linked repo
+      let githubContext = null;
+      if (session.github_repo) {
+        const username = req.user?.id ? soulService.getUserSettings(req.user.id).github_username : '';
+        githubContext = githubService.buildContextBlock({
+          repo:          session.github_repo,
+          branch:        session.github_branch || 'main',
+          workspacePath: session.github_workspace || null,
+          username:      username || '',
+        });
+      }
+
       const result = await runAgentLoop({
         messages: contextMessages,
         agentType: null,
@@ -234,6 +247,7 @@ async function sendMessage(req, res) {
         ownerId:    req.user ? req.user.id    : null,
         ownerEmail: req.user ? req.user.email : null,
         userSettings,
+        githubContext,
       });
 
       // Only persist if we got actual content
@@ -340,6 +354,16 @@ async function regenerate(req, res) {
       }
 
       const regenUserSettings = soulService.getUserSettings(req.user?.id);
+      let regenGithubContext = null;
+      if (session.github_repo) {
+        const uname = req.user?.id ? soulService.getUserSettings(req.user.id).github_username : '';
+        regenGithubContext = githubService.buildContextBlock({
+          repo:          session.github_repo,
+          branch:        session.github_branch || 'main',
+          workspacePath: session.github_workspace || null,
+          username:      uname || '',
+        });
+      }
       const result = await runAgentLoop({
         messages: contextMessages,
         agentType: null,
@@ -350,6 +374,7 @@ async function regenerate(req, res) {
         ownerId:    req.user ? req.user.id    : null,
         ownerEmail: req.user ? req.user.email : null,
         userSettings: regenUserSettings,
+        githubContext: regenGithubContext,
       });
 
       if (result.content) {
@@ -388,6 +413,8 @@ function listSessions(req, res) {
       message_count: s.messages.length,
       pinned: !!s.pinned,
       pinned_at: s.pinned_at || null,
+      github_repo:   s.github_repo   || null,
+      github_branch: s.github_branch || null,
       last_message: s.messages.length > 0
         ? (typeof s.messages[s.messages.length - 1].content === 'string'
             ? s.messages[s.messages.length - 1].content.slice(0, 100)
@@ -397,12 +424,42 @@ function listSessions(req, res) {
   res.json({ sessions: list });
 }
 
+/**
+ * Link or unlink a GitHub repo+branch to this session.
+ * PATCH /api/chat/sessions/:sessionId/github
+ * Body: { repo: "owner/name", branch: "main" } to link
+ *       { repo: null }                          to unlink
+ */
+function linkGithubRepo(req, res) {
+  const { sessionId } = req.params;
+  const { repo, branch } = req.body || {};
+  const session = sessions.get(sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  if (!canAccessSession(session, req.user)) return res.status(403).json({ error: 'Forbidden' });
+
+  if (repo) {
+    session.github_repo   = String(repo).trim();
+    session.github_branch = String(branch || 'main').trim();
+  } else {
+    delete session.github_repo;
+    delete session.github_branch;
+    delete session.github_workspace;
+  }
+  session.updated_at = new Date().toISOString();
+  saveSession(session);
+
+  res.json({
+    id:            sessionId,
+    github_repo:   session.github_repo   || null,
+    github_branch: session.github_branch || null,
+  });
+}
+
 function getSession(req, res) {
   const { sessionId } = req.params;
   const session = sessions.get(sessionId);
   if (!session) return res.status(404).json({ error: 'Session not found' });
   if (!canAccessSession(session, req.user)) return res.status(403).json({ error: 'Forbidden' });
-  // Return session but strip large base64 attachments from messages
   const sanitized = {
     ...session,
     messages: session.messages.map(m => ({
@@ -411,6 +468,8 @@ function getSession(req, res) {
         ? m.content
         : '[multipart content]',
     })),
+    github_repo:   session.github_repo   || null,
+    github_branch: session.github_branch || null,
   };
   res.json(sanitized);
 }
@@ -465,4 +524,4 @@ function peekSessionOwner(sessionId) {
   return s.owner_id || null;
 }
 
-module.exports = { sendMessage, regenerate, listSessions, getSession, renameSession, deleteSession, peekSessionOwner };
+module.exports = { sendMessage, regenerate, listSessions, getSession, renameSession, deleteSession, peekSessionOwner, linkGithubRepo };

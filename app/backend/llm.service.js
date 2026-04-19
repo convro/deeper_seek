@@ -46,10 +46,15 @@ function createClient() {
  * "who am I being" — tone/vocabulary calibration happens up-front rather
  * than as an afterthought.
  */
-function loadSystemPrompt(agentType = null, ownerId = null) {
+function loadSystemPrompt(agentType = null, ownerId = null, githubContext = null) {
   const projectRoot = path.join(__dirname, '../..');
   const basePath = path.join(projectRoot, 'runtime/base_prompt.txt');
   let systemPrompt = fs.readFileSync(basePath, 'utf-8');
+
+  // Append GitHub workspace context when a repo is linked to the session
+  if (githubContext) {
+    systemPrompt = `${systemPrompt}\n\n---\n\n${githubContext}`;
+  }
 
   if (agentType) {
     const identityPath = path.join(projectRoot, `ai/agents/${agentType}/identity.txt`);
@@ -86,9 +91,10 @@ async function runAgentLoop({
   ownerId = null,
   ownerEmail = null,
   userSettings = {},
+  githubContext = null,
 }) {
   const client = createClient();
-  const systemPrompt = loadSystemPrompt(agentType, ownerId);
+  const systemPrompt = loadSystemPrompt(agentType, ownerId, githubContext);
   const toolDefs = buildToolDefinitions();
   const sysConfig = JSON.parse(
     fs.readFileSync(path.join(__dirname, '../../config/system.json'), 'utf-8')

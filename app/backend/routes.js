@@ -15,6 +15,8 @@ const workspaceController = require('./workspace.controller');
 const uploadController = require('./upload.controller');
 const authController = require('./auth.controller');
 const authMiddleware = require('./auth');
+const githubService = require('./github.service');
+const soulService = require('./soul.service');
 
 // Multer setup for file uploads — namespaced per user when auth is active
 const storage = multer.diskStorage({
@@ -113,6 +115,34 @@ router.patch('/chat/sessions/:sessionId', chatController.renameSession);
 
 // DELETE /api/chat/sessions/:sessionId
 router.delete('/chat/sessions/:sessionId', chatController.deleteSession);
+
+// PATCH /api/chat/sessions/:sessionId/github — link / unlink GitHub repo
+router.patch('/chat/sessions/:sessionId/github', chatController.linkGithubRepo);
+
+// ── GitHub integration ───────────────────────────────────────────────────────
+// POST /api/github/validate — validate a PAT (body: { token })
+router.post('/github/validate', async (req, res) => {
+  const { token } = req.body || {};
+  if (!token) return res.json({ ok: false, error: 'No token provided' });
+  try {
+    const result = await githubService.validateToken(token);
+    res.json(result);
+  } catch (e) {
+    res.json({ ok: false, error: e.message });
+  }
+});
+
+// GET /api/github/repos — list repos using the PAT stored in user settings
+router.get('/github/repos', async (req, res) => {
+  const settings = req.user ? soulService.getUserSettings(req.user.id) : {};
+  const pat = settings.github_pat || '';
+  try {
+    const repos = await githubService.listRepos(pat);
+    res.json({ repos });
+  } catch (e) {
+    res.json({ repos: [], error: e.message });
+  }
+});
 
 // ── Agents ──────────────────────────────────────
 // POST /api/agents/spawn
