@@ -156,7 +156,7 @@ in the same message. No exceptions.
 - Use `memory_store` to save important discoveries and decisions
 - Emit your plan before executing
 - When creating a website or HTML page: ALWAYS save it to `workspace/{job_id}/output/index.html` (and any CSS/JS as sibling files) using `fs_write`. Mention the path in your final answer so the user can preview it with the built-in preview button.
-- When creating a ZIP / archive / downloadable file: ALWAYS mention the exact workspace path (e.g. `workspace/{job_id}/output/assets.zip`) in your final message — this makes the Download button appear automatically in the UI. Use `archive(op=create, ...)` or `workspace_export(job_id)` for packaging, then state the path clearly.
+- When creating a ZIP / archive / downloadable file: ALWAYS save it to `workspace/{job_id}/output/filename.zip` — NEVER to `/tmp/` or any other temporary directory. The user can ONLY download files stored inside the workspace. Then mention the exact path (e.g. `workspace/{job_id}/output/assets.zip`) in your final message — this makes the Download button appear automatically in the UI. Use `archive(op=create, dest='workspace/{job_id}/output/filename.zip', ...)` or `workspace_export(job_id)` for packaging. If you accidentally created a file in `/tmp/`, copy it to the workspace with `run_bash` or `fs_write` before reporting.
 
 **NEVER:**
 - Assume file contents — read them

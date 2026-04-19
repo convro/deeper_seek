@@ -2,6 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { listJobs, listJobFiles, readJobFile } from './api';
 import type { WorkspaceJob } from './state';
 
+const IMAGE_EXTS = new Set(['png','jpg','jpeg','gif','webp','svg','bmp','ico','tiff','tif']);
+const BINARY_EXTS = new Set(['zip','tar','gz','bz2','xz','7z','rar','pdf','exe','bin','dmg','iso','whl','deb','rpm','mp4','mp3','wav','avi','mov','mkv','db','sqlite']);
+
+function fileExt(name: string) { return name.split('.').pop()?.toLowerCase() ?? ''; }
+function isImage(name: string) { return IMAGE_EXTS.has(fileExt(name)); }
+function isBinary(name: string) { return BINARY_EXTS.has(fileExt(name)) || IMAGE_EXTS.has(fileExt(name)); }
+
 interface FileItem { path: string; name: string; type: 'file' | 'dir'; size?: number | null; }
 
 function fmtSize(b: number) {
@@ -38,6 +45,7 @@ export function Workspace() {
   const [files,        setFiles]        = useState<FileItem[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [content,      setContent]      = useState('');
+  const [viewMode,     setViewMode]     = useState<'text' | 'image' | 'binary'>('text');
   const [loading,      setLoading]      = useState(false);
   const [copied,       setCopied]       = useState(false);
 
@@ -65,8 +73,20 @@ export function Workspace() {
   const selectFile = async (f: FileItem) => {
     if (f.type === 'dir') return;
     setSelectedFile(f);
-    setLoading(true);
+    setContent('');
     setMobilePanel('viewer');
+
+    if (isImage(f.name)) {
+      setViewMode('image');
+      return;
+    }
+    if (isBinary(f.name)) {
+      setViewMode('binary');
+      return;
+    }
+
+    setViewMode('text');
+    setLoading(true);
     try {
       const d = await readJobFile(selectedJob!.job_id, f.path);
       setContent(d.content || '');
@@ -177,18 +197,57 @@ export function Workspace() {
               {selectedFile.size != null && (
                 <span className="ws-file-size">{fmtSize(selectedFile.size)}</span>
               )}
-              <button className={`ws-copy-btn ${copied ? 'ws-copy-done' : ''}`} onClick={copyContent}>
-                {copied
-                  ? <><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg> Copied</>
-                  : <><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg> Copy</>
-                }
-              </button>
+              {viewMode === 'text' && (
+                <button className={`ws-copy-btn ${copied ? 'ws-copy-done' : ''}`} onClick={copyContent}>
+                  {copied
+                    ? <><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg> Copied</>
+                    : <><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg> Copy</>
+                  }
+                </button>
+              )}
+              {(viewMode === 'image' || viewMode === 'binary') && (
+                <a
+                  className="ws-download-btn"
+                  href={`/api/download/workspace/${selectedJob!.job_id}/${selectedFile.path}`}
+                  download={selectedFile.name}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.97a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.779a.749.749 0 1 1 1.06-1.06l1.97 1.97Z"/></svg>
+                  Download
+                </a>
+              )}
             </div>
             <div className="ws-viewer-body">
-              {loading
-                ? <div className="ws-loading">Loading…</div>
-                : <pre className="ws-code">{content}</pre>
-              }
+              {viewMode === 'image' && (
+                <div className="ws-image-preview">
+                  <img
+                    src={`/api/preview/workspace/${selectedJob!.job_id}/${selectedFile.path}`}
+                    alt={selectedFile.name}
+                    className="ws-preview-img"
+                  />
+                </div>
+              )}
+              {viewMode === 'binary' && (
+                <div className="ws-binary-info">
+                  <div className="ws-binary-icon">📦</div>
+                  <div className="ws-binary-name">{selectedFile.name}</div>
+                  {selectedFile.size != null && (
+                    <div className="ws-binary-size">{fmtSize(selectedFile.size)}</div>
+                  )}
+                  <a
+                    className="ws-binary-download-btn"
+                    href={`/api/download/workspace/${selectedJob!.job_id}/${selectedFile.path}`}
+                    download={selectedFile.name}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.97a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.779a.749.749 0 1 1 1.06-1.06l1.97 1.97Z"/></svg>
+                    Download {selectedFile.name}
+                  </a>
+                </div>
+              )}
+              {viewMode === 'text' && (
+                loading
+                  ? <div className="ws-loading">Loading…</div>
+                  : <pre className="ws-code">{content}</pre>
+              )}
             </div>
           </>
         )}
