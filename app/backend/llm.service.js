@@ -208,7 +208,6 @@ async function runAgentLoop({
 
           if (delta.content) {
             msgContent  += delta.content;
-            finalContent = ackPrefix + msgContent;
             emit(onEvent, { type: 'content_delta', delta: delta.content });
           }
 
@@ -264,6 +263,10 @@ async function runAgentLoop({
 
       if (!retryThis) break; // success — exit retry loop
     }
+
+    // Accumulate this round's text into finalContent so the done event
+    // always carries ALL text from ALL rounds, not just the last one.
+    if (msgContent) finalContent += msgContent;
 
     // ── Build tool_calls array from accumulated deltas ──────────────────
     const toolCalls = Object.keys(tcAccum).length > 0

@@ -4,31 +4,68 @@ import { generateLocalId } from './state';
 import { Spinner, TypingDots, ThinkingBlock, ToolCallBadge } from './components';
 import { Markdown, PreviewModal } from './markdown';
 
-/** Extract workspace HTML file paths from AI response text.
- *
- * Handles multiple formats the AI uses to reference workspace files:
- *  1. Full path:  workspace/jobid/output/index.html
- *  2. Dir path:   workspace/jobid/output/  (no .html — append index.html)
- *  3. Short path: `jobid/output/` in backticks (prose says "workspace" before it)
- *  4. Short path: `jobid/output/file.html` in backticks
- */
+const OUTPUT_DIRS = '(?:output|dist|build|public|www|site|src)';
+const JOB_ID      = '[a-zA-Z0-9_-]{4,}';
+
+/** Extract workspace HTML file paths from AI response text. */
 function extractHtmlPaths(content: string): string[] {
   const found = new Set<string>();
-
-  // 1 & 2: full workspace/jobid/... paths (with or without .html at end)
-  const re1 = /workspace\/([a-zA-Z0-9_-]+)\/((?:output|dist|build|public)\/[^\s"')\]`]*)/g;
   let m: RegExpExecArray | null;
+
+  // 1. Full: workspace/jobid/output/... (file or dir)
+  const re1 = new RegExp(`workspace\\/(${JOB_ID})\\/(${OUTPUT_DIRS}\\/[^\\s"')\\]\`]*)`, 'g');
   while ((m = re1.exec(content)) !== null) {
     const seg = m[2].endsWith('.html') ? m[2] : m[2].replace(/\/$/, '') + '/index.html';
     found.add(`workspace/${m[1]}/${seg}`);
   }
 
-  // 3 & 4: short `jobid/output/...` inside backtick code spans
-  //   AI writes e.g. "do workspace `0a5727c7/output/`"
-  const re2 = /`([a-zA-Z0-9_-]{4,})\/((?:output|dist|build|public)\/[^`]*)` ?/g;
+  // 2. workspace/jobid/ with no subdir — treat root as the output dir
+  const re2 = new RegExp(`workspace\\/(${JOB_ID})\\/(?=[^a-zA-Z]|$)`, 'g');
   while ((m = re2.exec(content)) !== null) {
+    found.add(`workspace/${m[1]}/output/index.html`);
+  }
+
+  // 3. Backtick: `jobid/output/...`
+  const re3 = new RegExp(`\`(${JOB_ID})\\/(${OUTPUT_DIRS}\\/[^\`]*)\``, 'g');
+  while ((m = re3.exec(content)) !== null) {
     const seg = m[2].endsWith('.html') ? m[2] : m[2].replace(/\/$/, '') + '/index.html';
     found.add(`workspace/${m[1]}/${seg}`);
+  }
+
+  // 4. Backtick: `jobid/` shorthand
+  const re4 = new RegExp(`\`(${JOB_ID})\\/\``, 'g');
+  while ((m = re4.exec(content)) !== null) {
+    found.add(`workspace/${m[1]}/output/index.html`);
+  }
+
+  return Array.from(found);
+}
+
+/**
+ * Secondary path source: scan write_file / create_file tool calls.
+ * This catches cases where the AI writes the files but doesn't mention
+ * the workspace path in its final text (narration is optional).
+ */
+function extractPathsFromToolCalls(toolCalls: ToolCallRecord[]): string[] {
+  const found = new Set<string>();
+  const outputDirs = new RegExp(`/(${OUTPUT_DIRS})/`);
+
+  for (const tc of toolCalls) {
+    if (tc.status !== 'done') continue;
+    const pathArg =
+      (typeof tc.args?.path       === 'string' ? tc.args.path       : null) ||
+      (typeof tc.args?.file_path  === 'string' ? tc.args.file_path  : null) ||
+      (typeof tc.args?.filepath   === 'string' ? tc.args.filepath   : null) ||
+      (typeof tc.args?.filename   === 'string' ? tc.args.filename   : null);
+    if (!pathArg) continue;
+
+    // Match workspace/{id}/output/... (absolute or relative)
+    const rel = pathArg.replace(/^.*?workspace\//, 'workspace/');
+    const m = rel.match(new RegExp(`workspace\\/(${JOB_ID})\\/(${OUTPUT_DIRS}\\/[\\s\\S]*)`));
+    if (m) {
+      const seg = m[2].endsWith('.html') ? m[2] : m[2].split('/').slice(0, 1).join('/') + '/index.html';
+      found.add(`workspace/${m[1]}/${seg}`);
+    }
   }
 
   return Array.from(found);
@@ -328,9 +365,16 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents }:
   const isError    = message.status === 'error';
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
 
-  // Detect workspace HTML file references in the response (for "Preview Site" buttons)
-  const htmlPaths = message.status === 'done' && message.content
-    ? extractHtmlPaths(message.content)
+  // Detect workspace HTML file references for "Preview Site" buttons.
+  // Primary source: message text. Secondary: tool call args (catches cases
+  // where the AI writes files but doesn't narrate the path in its final text).
+  const htmlPaths = message.status === 'done'
+    ? (() => {
+        const fromText  = message.content ? extractHtmlPaths(message.content) : [];
+        const fromTools = message.toolCalls ? extractPathsFromToolCalls(message.toolCalls) : [];
+        const merged = [...fromText, ...fromTools];
+        return merged.filter((p, i) => merged.indexOf(p) === i); // dedup
+      })()
     : [];
 
   // Hover actions only appear once the response has actually landed.
