@@ -153,7 +153,10 @@ def _dest_path(job_id: str, dest: str, fmt: str) -> Path:
     if dest:
         return Path(dest).expanduser().resolve()
     ext = "zip" if fmt in ("", "zip") else ("tar.gz" if fmt == "tar.gz" else "zip")
-    return Path("/tmp") / f"{job_id}_export_{int(time.time())}.{ext}"
+    # Default to workspace output dir so the UI can serve the download
+    output_dir = WORKSPACE_ROOT / job_id / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir / f"{job_id}_export_{int(time.time())}.{ext}"
 
 
 def _fmt(fmt: str, out: Path) -> str:

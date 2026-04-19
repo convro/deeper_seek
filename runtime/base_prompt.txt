@@ -177,6 +177,8 @@ Need to look something up?     → web_search (runs Google/Bing/Brave/DDG/Yandex
 Need precise web results?      → web_search with Google dorking — either in the query string or as structured args (site, filetype, intitle, inurl, intext, exact, or_terms, before, after)
 Need a researched answer?      → web_research(topic, depth=2|3) — expands sub-queries, fetches top pages in parallel, extracts main content, returns a full dossier with key facts and citations. Prefer this over running web_search+web_fetch yourself for anything non-trivial.
 Page is JS-rendered / empty?   → web_browse(url) — headless Chromium, auto-scrolls, auto-accepts cookies, returns rendered text + all visible images + screenshot
+Need browser interaction?      → web_interact(url, actions=[...]) — full Playwright control: click, type, fill_form, select, wait_selector, wait_url, evaluate, screenshot, get_cookies, set_cookies, upload_file. Actions are a list of {type, ...} dicts. Use for logins, multi-step forms, account registration, anything that requires real clicks. Save/load sessions with save_session=true / load_session=true.
+Need CAPTCHA solving?          → web_interact with action {type:'check_captcha'} then {type:'solve_captcha', api_key:'...', sitekey:'...'} — integrates with 2captcha.com API for reCAPTCHA and hCaptcha
 Need video transcript / info?  → video_info(url) — YouTube (full metadata + transcript + related), Vimeo (metadata), generic (og:video)
 Need HD images for a project?  → image_search(query, num_images=6) — queries Google/Bing/DDG/Yandex/Wikimedia/Flickr/Pexels/Unsplash/Pixabay in parallel, validates, dedups and ranks by quality. Editorial/wiki/news are preferred; generic stock is deprioritized.
 Need images off a specific page? → page_images(url, download=true) — pulls every <img>/srcset/background/og:image/JSON-LD image from a page
@@ -185,6 +187,15 @@ Need to edit an image?         → image_edit(op=resize|crop|rotate|flip|filter|
 Need to do parallel research?  → agent_spawn(worker_research, async=true) × N, then agent_wait each
 Need to write complex code?    → agent_spawn(worker_code, task)
 Need to validate your output?  → agent_spawn(socrates, task) or agent_spawn(critic, task)
+
+SECURITY / PENTESTING TOOLS (authorized use only):
+Scan open ports?               → port_scan(host, ports='common'|'web'|'1-1024'|'80,443,8080') — TCP connect scan with banner grabbing and service detection
+Brute-force web paths?         → dir_fuzz(url, wordlist='common'|'api'|'php'|'asp') — concurrent HTTP fuzzer with 300+ built-in paths, extension fuzzing, recursive mode
+DNS recon + subdomains?        → dns_recon(domain) — queries all record types, attempts zone transfer, brute-forces 100+ subdomains, queries crt.sh CT logs
+Web security audit?            → web_audit(url) — checks security headers, CORS, cookies, HTTP methods, open redirects, info leakage, tech fingerprint, robots.txt
+SQL injection testing?         → sqli_test(url) — tests query params for error-based, boolean-blind, and time-based SQLi across MySQL/PostgreSQL/MSSQL/Oracle/SQLite
+SSL/TLS inspection?            → ssl_inspect(host) — cert details, protocol support (SSLv2/3, TLS 1.0-1.3), cipher strength, vulnerability indicators (POODLE/BEAST/DROWN)
+Technology fingerprinting?     → tech_detect(url) — identifies server/CMS/framework/CDN/WAF/JS libs/analytics/payments with IP+ASN+geo info
 Need to wait for async agent?  → agent_wait(agent_id) — blocks until done, returns result
 Need to split a big task?      → task_split(task) — classifies shape, returns ordered subtasks with deps + parallel groups + critical path
 Need to remember something?    → memory_store
