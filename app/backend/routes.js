@@ -84,6 +84,56 @@ router.get('/download/*', (req, res) => {
   res.sendFile(filePath);
 });
 
+// ── GitHub OAuth callback — PUBLIC (GitHub redirects here, no auth header) ──
+// Must be registered BEFORE authMiddleware.
+router.get('/github/oauth/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+
+  const safeClose = (type, payload) => {
+    const data = JSON.stringify(payload).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+    return res.send(
+      `<!doctype html><html><body><script>
+        try { window.opener && window.opener.postMessage(${JSON.stringify({ type, ...payload })}, '*'); }
+        catch(e){}
+        window.close();
+      </script></body></html>`
+    );
+  };
+
+  if (error) return safeClose('github-oauth-error', { error: String(error) });
+  if (!code || !state) return safeClose('github-oauth-error', { error: 'Missing code or state' });
+
+  const stateEntry = githubService.consumeState(String(state));
+  if (!stateEntry) return safeClose('github-oauth-error', { error: 'Invalid or expired state' });
+
+  try {
+    const tokenData = await githubService.exchangeCode(String(code));
+    if (!tokenData.access_token) {
+      return safeClose('github-oauth-error', { error: 'Token exchange failed' });
+    }
+
+    const userInfo = await githubService.validateToken(tokenData.access_token);
+    if (!userInfo.ok) {
+      return safeClose('github-oauth-error', { error: userInfo.error || 'Token validation failed' });
+    }
+
+    // Persist token + username in soul settings
+    if (stateEntry.userId) {
+      soulService.saveUserSettings(stateEntry.userId, {
+        github_pat:      tokenData.access_token,
+        github_username: userInfo.login,
+      });
+    }
+
+    return safeClose('github-oauth-success', {
+      login:      userInfo.login,
+      avatar_url: userInfo.avatar_url || '',
+    });
+  } catch (e) {
+    return safeClose('github-oauth-error', { error: e.message || 'Unknown error' });
+  }
+});
+
 // ── Everything below requires auth (when AUTH_MODE=multi_user) ──────────
 router.use(authMiddleware);
 
@@ -120,16 +170,12 @@ router.delete('/chat/sessions/:sessionId', chatController.deleteSession);
 router.patch('/chat/sessions/:sessionId/github', chatController.linkGithubRepo);
 
 // ── GitHub integration ───────────────────────────────────────────────────────
-// POST /api/github/validate — validate a PAT (body: { token })
-router.post('/github/validate', async (req, res) => {
-  const { token } = req.body || {};
-  if (!token) return res.json({ ok: false, error: 'No token provided' });
-  try {
-    const result = await githubService.validateToken(token);
-    res.json(result);
-  } catch (e) {
-    res.json({ ok: false, error: e.message });
-  }
+
+// POST /api/github/oauth/begin — start OAuth flow, returns {url} to open in popup
+router.post('/github/oauth/begin', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  const result = githubService.beginOAuth(req.user.id);
+  res.json(result);
 });
 
 // GET /api/github/repos — list repos using the PAT stored in user settings
@@ -142,6 +188,13 @@ router.get('/github/repos', async (req, res) => {
   } catch (e) {
     res.json({ repos: [], error: e.message });
   }
+});
+
+// POST /api/github/disconnect — remove GitHub token from user settings
+router.post('/github/disconnect', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  soulService.saveUserSettings(req.user.id, { github_pat: '', github_username: '' });
+  res.json({ ok: true });
 });
 
 // ── Agents ──────────────────────────────────────

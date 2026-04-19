@@ -11,6 +11,8 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - GITHUB_OAUTH_CLIENT_ID=${GITHUB_OAUTH_CLIENT_ID}
+      - GITHUB_OAUTH_CLIENT_SECRET=${GITHUB_OAUTH_CLIENT_SECRET}
     volumes:
       - deeperseek_workspace:/app/workspace
       - deeperseek_memory:/app/memory

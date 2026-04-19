@@ -1,51 +1,155 @@
 'use strict';
 
 /**
- * github.service.js — GitHub PAT management and integration helpers.
+ * github.service.js — GitHub OAuth + API integration.
  *
- * Provides:
- *  • validateToken(token)   — hit /user, return {login, name, avatar_url}
- *  • listRepos(token)       — list repos the token has access to
- *  • buildContextBlock(repo, branch, workspacePath) — system-prompt snippet
+ * OAuth 2.0 Authorization Code flow:
+ *   1. Frontend POSTs /api/github/oauth/begin → gets {url} (GitHub authorize URL)
+ *   2. Frontend opens url in popup window
+ *   3. User authorizes → GitHub redirects to /api/github/oauth/callback?code=...&state=...
+ *   4. Backend exchanges code for token, stores in user soul settings
+ *   5. Callback page sends postMessage to opener and closes
  */
 
 const https = require('https');
+const querystring = require('querystring');
+const crypto = require('crypto');
 
-const GH_API = 'api.github.com';
-const UA = 'DeeperSeek/1.0';
+const GH_API  = 'api.github.com';
+const GH_AUTH = 'github.com';
+const UA      = 'DeeperSeek/1.0';
 
-/** Make a GET request to the GitHub API. */
-function ghGet(path, token) {
+const OAUTH_CLIENT_ID     = process.env.GITHUB_OAUTH_CLIENT_ID     || 'Ov23lidM7lfRh4bgPsUB';
+const OAUTH_CALLBACK_URL  = 'https://dslab.club/api/github/oauth/callback';
+
+// In-memory state map for CSRF protection. Entries expire after 10 min.
+const oauthStates = new Map();
+
+function pruneStates() {
+  const now = Date.now();
+  for (const [k, v] of oauthStates) {
+    if (now - v.ts > 10 * 60 * 1000) oauthStates.delete(k);
+  }
+}
+
+// ── HTTP helpers ─────────────────────────────────────────────────────────────
+
+function ghRequest(method, hostname, path, token, body) {
   return new Promise((resolve, reject) => {
+    const bodyStr = body ? JSON.stringify(body) : null;
     const opts = {
-      hostname: GH_API,
+      hostname,
       path,
-      method: 'GET',
+      method,
       headers: {
         'User-Agent': UA,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(bodyStr ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) } : {}),
       },
     };
     const req = https.request(opts, (res) => {
-      let body = '';
-      res.on('data', (c) => { body += c; });
+      let data = '';
+      res.on('data', (c) => { data += c; });
       res.on('end', () => {
-        try { resolve({ status: res.statusCode, data: JSON.parse(body) }); }
-        catch { resolve({ status: res.statusCode, data: body }); }
+        try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
+        catch { resolve({ status: res.statusCode, data }); }
       });
     });
     req.on('error', reject);
     req.setTimeout(10000, () => { req.destroy(new Error('GitHub API timeout')); });
+    if (bodyStr) req.write(bodyStr);
+    req.end();
+  });
+}
+
+function ghGet(path, token)       { return ghRequest('GET',  GH_API, path, token, null); }
+function ghPost(host, path, body) { return ghRequest('POST', host, path, null, body); }
+
+// ── OAuth ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Generate a state token, store it with the userId, return the GitHub authorize URL.
+ */
+function beginOAuth(userId) {
+  pruneStates();
+  const state = crypto.randomBytes(20).toString('hex');
+  oauthStates.set(state, { userId, ts: Date.now() });
+
+  const params = new URLSearchParams({
+    client_id:    OAUTH_CLIENT_ID,
+    redirect_uri: OAUTH_CALLBACK_URL,
+    scope:        'repo',
+    state,
+  });
+  return {
+    state,
+    url: `https://github.com/login/oauth/authorize?${params}`,
+  };
+}
+
+/**
+ * Exchange an authorization code for an access token.
+ * Returns { access_token, scope, token_type } or throws.
+ */
+async function exchangeCode(code) {
+  const clientSecret = process.env.GITHUB_OAUTH_CLIENT_SECRET;
+  if (!clientSecret) throw new Error('GITHUB_OAUTH_CLIENT_SECRET not set');
+
+  // GitHub token endpoint returns application/x-www-form-urlencoded by default,
+  // but we request JSON via Accept header.
+  const params = new URLSearchParams({
+    client_id:     OAUTH_CLIENT_ID,
+    client_secret: clientSecret,
+    code,
+    redirect_uri:  OAUTH_CALLBACK_URL,
+  });
+
+  return new Promise((resolve, reject) => {
+    const body = params.toString();
+    const opts = {
+      hostname: GH_AUTH,
+      path:     '/login/oauth/access_token',
+      method:   'POST',
+      headers: {
+        'User-Agent':     UA,
+        Accept:           'application/json',
+        'Content-Type':   'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    };
+    const req = https.request(opts, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) reject(new Error(parsed.error_description || parsed.error));
+          else resolve(parsed);
+        } catch {
+          reject(new Error(`Token exchange failed: ${data}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(10000, () => { req.destroy(new Error('GitHub token exchange timeout')); });
+    req.write(body);
     req.end();
   });
 }
 
 /**
- * Validate a GitHub PAT and return the authenticated user info.
- * Returns { ok: true, login, name, avatar_url } or { ok: false, error }.
+ * Look up the stored state entry and return it (null if missing/expired).
  */
+function consumeState(state) {
+  const entry = oauthStates.get(state);
+  if (entry) oauthStates.delete(state);
+  return entry || null;
+}
+
+// ── API helpers ───────────────────────────────────────────────────────────────
+
 async function validateToken(token) {
   if (!token || typeof token !== 'string' || !token.trim()) {
     return { ok: false, error: 'Token is empty' };
@@ -54,11 +158,10 @@ async function validateToken(token) {
     const { status, data } = await ghGet('/user', token.trim());
     if (status === 200 && data.login) {
       return {
-        ok: true,
-        login: data.login,
-        name: data.name || data.login,
+        ok:        true,
+        login:     data.login,
+        name:      data.name || data.login,
         avatar_url: data.avatar_url || '',
-        scopes_ok: true,
       };
     }
     if (status === 401) return { ok: false, error: 'Invalid token (401 Unauthorized)' };
@@ -69,53 +172,47 @@ async function validateToken(token) {
   }
 }
 
-/**
- * List repositories accessible to the token (first 100, sorted by push time).
- */
 async function listRepos(token) {
   if (!token) return [];
   try {
-    const { status, data } = await ghGet(
-      '/user/repos?sort=pushed&per_page=100&type=all',
-      token,
-    );
+    const { status, data } = await ghGet('/user/repos?sort=pushed&per_page=100&type=all', token);
     if (status !== 200 || !Array.isArray(data)) return [];
     return data.map((r) => ({
-      full_name: r.full_name,
-      name: r.name,
-      private: r.private,
+      full_name:      r.full_name,
+      name:           r.name,
+      private:        r.private,
       default_branch: r.default_branch,
-      description: r.description || '',
-      updated_at: r.pushed_at,
+      description:    r.description || '',
+      updated_at:     r.pushed_at,
     }));
   } catch {
     return [];
   }
 }
 
-/**
- * Build a system-prompt context block for a GitHub-linked session.
- */
 function buildContextBlock({ repo, branch, workspacePath, username }) {
   const lines = [
     '━━━ GITHUB WORKSPACE ━━━',
     `Repository : ${repo}`,
     `Branch     : ${branch}`,
-    `Local path : ${workspacePath || `workspace/{job_id}/`}`,
+    `Local path : ${workspacePath || 'workspace/{job_id}/'}`,
     '',
     'RULES FOR GITHUB-LINKED SESSIONS:',
-    '1. The repository is cloned (or will be cloned) into the workspace.',
-    '   Use fs_tree / fs_read to explore it. Use run_bash / git_ops to work with git.',
-    '2. Always work on the designated branch — never push directly to main/master unless asked.',
-    '3. After making changes, commit with a clear message: git_ops(op=commit, message="...")',
-    '4. Push after every commit: git_ops(op=push)',
-    '5. Use github_ops for PR creation, issue management, file browsing via API.',
-    '6. GITHUB_TOKEN is available as an env var — git push will authenticate automatically.',
-    '7. For cloning: run_bash("git clone https://github.com/' + repo + '.git .")',
-    '   Git credentials are pre-configured — no manual token injection needed.',
+    '1. Clone the repo into workspace at task start: git_ops(op=clone, url="https://github.com/' + repo + '.git", dest=".", cwd="workspace/{job_id}/")',
+    '2. Always create a feature branch — NEVER commit directly to main/master.',
+    '3. Commit after every logical unit: git_ops(op=commit, message="...")',
+    '4. Push after every commit: git_ops(op=push) — GITHUB_TOKEN handles auth automatically.',
+    '5. Use github_ops for PR creation, issue management, and file browsing via API.',
     '━━━ END GITHUB WORKSPACE ━━━',
   ];
   return lines.join('\n');
 }
 
-module.exports = { validateToken, listRepos, buildContextBlock };
+module.exports = {
+  beginOAuth,
+  exchangeCode,
+  consumeState,
+  validateToken,
+  listRepos,
+  buildContextBlock,
+};

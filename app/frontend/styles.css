@@ -3268,3 +3268,44 @@ body.keyboard-open .auth-card {
   font-family: monospace;
   color: var(--text2);
 }
+
+/* ── GitHub OAuth button (Settings modal) ─────────────────────────────────── */
+.gh-oauth-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.gh-oauth-desc {
+  font-size: 13px;
+  color: var(--text2);
+  line-height: 1.55;
+  margin: 0;
+}
+.gh-oauth-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg5);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  width: fit-content;
+}
+.gh-oauth-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg4);
+}
+.gh-oauth-btn:disabled { opacity: 0.6; cursor: default; }
+.gh-oauth-error {
+  font-size: 12px;
+  color: var(--red);
+  background: var(--red-dim);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  border-radius: 6px;
+  padding: 6px 10px;
+}

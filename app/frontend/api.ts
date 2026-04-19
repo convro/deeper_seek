@@ -264,19 +264,63 @@ export interface GithubRepo {
   updated_at: string;
 }
 
-export interface GithubValidateResult {
+export interface GithubOAuthResult {
   ok: boolean;
   login?: string;
-  name?: string;
   avatar_url?: string;
   error?: string;
 }
 
-export async function validateGithubToken(token: string): Promise<GithubValidateResult> {
-  return fetchJson(`${BASE}/github/validate`, {
-    method: 'POST',
-    body: JSON.stringify({ token }),
+/**
+ * Open a GitHub OAuth popup. Returns a promise that resolves when the user
+ * completes (or cancels) the authorization flow.
+ */
+export function connectGithubOAuth(): Promise<GithubOAuthResult> {
+  return new Promise(async (resolve) => {
+    // 1. Get the GitHub authorize URL from backend (includes state token)
+    let url: string;
+    try {
+      const data = await fetchJson(`${BASE}/github/oauth/begin`, { method: 'POST' });
+      url = data.url;
+    } catch (e: any) {
+      return resolve({ ok: false, error: e.message });
+    }
+
+    // 2. Open popup
+    const popup = window.open(url, 'github-oauth',
+      'width=600,height=700,left=200,top=100,scrollbars=yes');
+
+    if (!popup) {
+      return resolve({ ok: false, error: 'Popup blocked — please allow popups for this site.' });
+    }
+
+    // 3. Listen for postMessage from the callback page
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'github-oauth-success') {
+        window.removeEventListener('message', handler);
+        clearInterval(poll);
+        resolve({ ok: true, login: event.data.login, avatar_url: event.data.avatar_url });
+      } else if (event.data?.type === 'github-oauth-error') {
+        window.removeEventListener('message', handler);
+        clearInterval(poll);
+        resolve({ ok: false, error: event.data.error || 'Authorization failed' });
+      }
+    };
+    window.addEventListener('message', handler);
+
+    // 4. Detect if popup was manually closed
+    const poll = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(poll);
+        window.removeEventListener('message', handler);
+        resolve({ ok: false, error: 'Window closed' });
+      }
+    }, 500);
   });
+}
+
+export async function disconnectGithub(): Promise<void> {
+  await fetchJson(`${BASE}/github/disconnect`, { method: 'POST' });
 }
 
 export async function listGithubRepos(): Promise<{ repos: GithubRepo[] }> {
