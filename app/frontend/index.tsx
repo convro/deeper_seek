@@ -108,7 +108,7 @@ function GithubLinkModal({ sessionId, currentRepo, currentBranch, onLinked, onCl
           )}
 
           {!loading && !error && repos.length === 0 && (
-            <div className="gh-link-error">No repositories found. Add your GitHub PAT in Settings → GitHub.</div>
+            <div className="gh-link-error">No repositories found. Connect your GitHub account in Settings → GitHub first.</div>
           )}
 
           {!loading && repos.length > 0 && (
@@ -1142,7 +1142,9 @@ function App() {
 
   const handleSaveSettings = useCallback(async (s: UserSettings) => {
     await saveUserSettings(s);
-    setUserSettings(s);
+    // Merge instead of replace — preserve github_username/github_pat which are
+    // managed by OAuth flow and never sent through the settings save endpoint.
+    setUserSettings(prev => ({ ...prev, ...s }));
   }, []);
 
   // ── Render ────────────────────────────────────────────────────────────

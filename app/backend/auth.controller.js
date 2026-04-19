@@ -181,7 +181,11 @@ async function saveSettings(req, res) {
     return res.status(400).json({ error: 'Missing settings object' });
   }
   try {
-    const rec = soulService.saveUserSettings(req.user.id, settings);
+    // Strip github_pat and github_username — these are managed exclusively by the
+    // OAuth flow (/api/github/oauth/callback and /api/github/disconnect).
+    // Allowing them here would let a stale frontend state silently wipe the token.
+    const { github_pat, github_username, ...safe } = settings;
+    const rec = soulService.saveUserSettings(req.user.id, safe);
     res.json({ settings: rec.settings });
   } catch (err) {
     logger.error('Failed to save settings', err);

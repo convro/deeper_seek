@@ -26,7 +26,10 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
   const handleSave = async () => {
     setSaving(true);
     try {
-      await onSave(local);
+      // Strip github_pat and github_username — managed exclusively by OAuth flow.
+      // Sending them here would overwrite the real stored token with stale frontend state.
+      const { github_pat, github_username, ...modelSettings } = local;
+      await onSave(modelSettings as UserSettings);
       onClose();
     } finally {
       setSaving(false);
@@ -42,10 +45,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
     try {
       const result = await connectGithubOAuth();
       if (result.ok && result.login) {
-        // Token was stored server-side in soul settings automatically.
-        // Update local mirror so Settings modal shows the connected state
-        // without requiring a round-trip fetch.
-        setLocal(s => ({ ...s, github_username: result.login!, github_pat: '__oauth__' }));
+        // Token already stored server-side by OAuth callback.
+        // Only update github_username locally so connected state renders correctly.
+        setLocal(s => ({ ...s, github_username: result.login! }));
       } else if (!result.ok && result.error !== 'Window closed') {
         setGhError(result.error || 'Authorization failed');
       }
@@ -64,7 +66,8 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
     }
   };
 
-  const isConnected = !!(local.github_username && local.github_pat);
+  // PAT lives server-side only — use github_username as connected indicator.
+  const isConnected = !!(local.github_username);
 
   return (
     <div className="settings-backdrop" onClick={onClose}>
