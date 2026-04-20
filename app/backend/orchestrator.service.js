@@ -68,12 +68,15 @@ async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
     if (context.ownerId)    subEnv.DEEPERSEEK_CURRENT_USER_ID = String(context.ownerId);
     if (context.ownerEmail) subEnv.DEEPERSEEK_CURRENT_USER_EMAIL = String(context.ownerEmail);
 
-    // Inject GitHub PAT so git_ops / github_ops tools can authenticate
+    // Inject GitHub identity so git_ops commits are attributed to the right account
     if (context.ownerId) {
       try {
         const soulSvc = require('./soul.service');
-        const ghPat = soulSvc.getUserSettings(context.ownerId).github_pat;
-        if (ghPat) subEnv.GITHUB_TOKEN = String(ghPat);
+        const gs = soulSvc.getUserSettings(context.ownerId);
+        if (gs.github_pat)      subEnv.GITHUB_TOKEN    = String(gs.github_pat);
+        if (gs.github_username) subEnv.GITHUB_USERNAME = String(gs.github_username);
+        if (gs.github_user_id)  subEnv.GITHUB_USER_ID  = String(gs.github_user_id);
+        if (gs.github_name)     subEnv.GITHUB_NAME     = String(gs.github_name);
       } catch {}
     }
 

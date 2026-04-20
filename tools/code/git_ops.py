@@ -370,15 +370,24 @@ def _git(cwd: str, args: list, timeout: int) -> str:
     env = os.environ.copy()
     env.setdefault("GIT_TERMINAL_PROMPT", "0")
     env.setdefault("GIT_OPTIONAL_LOCKS", "0")
-    # Use GITHUB_TOKEN for HTTPS auth via credential helper when pushing/pulling
-    token = env.get("GITHUB_TOKEN", "")
+    token    = env.get("GITHUB_TOKEN", "")
+    username = env.get("GITHUB_USERNAME", "")
+    user_id  = env.get("GITHUB_USER_ID", "")
+    name     = env.get("GITHUB_NAME", username)
     cmd = ["git"]
     if token:
-        # Configure inline credential helper that returns the token
         helper_script = (
             f"!f() {{ echo username=x-token; echo password={token}; }}; f"
         )
         cmd += ["-c", f"credential.helper={helper_script}"]
+    # Set commit identity to the authenticated GitHub account so commits are
+    # attributed correctly (avatar, contributor graph, etc.). GitHub matches
+    # commits to profiles via the noreply email: {id}+{login}@users.noreply.github.com
+    if username and user_id:
+        noreply = f"{user_id}+{username}@users.noreply.github.com"
+        cmd += ["-c", f"user.name={name}", "-c", f"user.email={noreply}"]
+    elif username:
+        cmd += ["-c", f"user.name={name}", "-c", f"user.email={username}@users.noreply.github.com"]
     cmd += args
     proc = subprocess.run(
         cmd, cwd=cwd, env=env,

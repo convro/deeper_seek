@@ -158,9 +158,10 @@ async function validateToken(token) {
     const { status, data } = await ghGet('/user', token.trim());
     if (status === 200 && data.login) {
       return {
-        ok:        true,
-        login:     data.login,
-        name:      data.name || data.login,
+        ok:         true,
+        login:      data.login,
+        id:         data.id,
+        name:       data.name || data.login,
         avatar_url: data.avatar_url || '',
       };
     }

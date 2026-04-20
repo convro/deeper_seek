@@ -117,11 +117,13 @@ router.get('/github/oauth/callback', async (req, res) => {
       return safeClose('github-oauth-error', { error: userInfo.error || 'Token validation failed' });
     }
 
-    // Persist token + username in soul settings
+    // Persist token + identity in soul settings
     if (stateEntry.userId) {
       soulService.saveUserSettings(stateEntry.userId, {
         github_pat:      tokenData.access_token,
         github_username: userInfo.login,
+        github_user_id:  String(userInfo.id || ''),
+        github_name:     userInfo.name || userInfo.login,
       });
     }
 

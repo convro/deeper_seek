@@ -54,6 +54,8 @@ const DEFAULT_SETTINGS = {
   agent_extended_thinking: true,
   github_pat:              '',
   github_username:         '',
+  github_user_id:          '',
+  github_name:             '',
 };
 
 /**
