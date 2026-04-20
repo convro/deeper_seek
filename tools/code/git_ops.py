@@ -29,6 +29,8 @@ import os
 import shlex
 import subprocess
 import time
+import json
+import urllib.request
 from pathlib import Path
 
 DEFAULT_TIMEOUT = 60
@@ -366,6 +368,43 @@ _DISPATCH = {
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
+# Per-process cache so we only hit the GitHub API once per tool execution.
+_gh_identity_cache: dict = {}
+
+
+def _fetch_github_identity(token: str) -> dict | None:
+    """Fetch {login, id, name} from GitHub API using the stored OAuth token.
+
+    Called lazily when GITHUB_USER_ID is missing from the env — so commit
+    attribution works even if the soul file was created before the id field
+    was introduced, without requiring the user to reconnect OAuth.
+    """
+    if token in _gh_identity_cache:
+        return _gh_identity_cache[token]
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept":        "application/vnd.github+json",
+                "User-Agent":    "DeeperSeek/1.0",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.loads(resp.read())
+        result = {
+            "login": data.get("login", ""),
+            "id":    str(data.get("id", "")),
+            "name":  data.get("name") or data.get("login", ""),
+        }
+        _gh_identity_cache[token] = result
+        return result
+    except Exception:
+        _gh_identity_cache[token] = None
+        return None
+
+
 def _git(cwd: str, args: list, timeout: int) -> str:
     env = os.environ.copy()
     env.setdefault("GIT_TERMINAL_PROMPT", "0")
@@ -373,16 +412,29 @@ def _git(cwd: str, args: list, timeout: int) -> str:
     token    = env.get("GITHUB_TOKEN", "")
     username = env.get("GITHUB_USERNAME", "")
     user_id  = env.get("GITHUB_USER_ID", "")
-    name     = env.get("GITHUB_NAME", username)
+    name     = env.get("GITHUB_NAME", "")
+
+    # If we have a token but are missing the user ID (soul file predates the
+    # field, or server wasn't restarted after the patch), fetch identity once
+    # from the GitHub API so commits are always attributed to the right account.
+    if token and not user_id:
+        info = _fetch_github_identity(token)
+        if info:
+            username = username or info["login"]
+            user_id  = info["id"]
+            name     = name or info["name"]
+
+    name = name or username  # final fallback
+
     cmd = ["git"]
     if token:
         helper_script = (
             f"!f() {{ echo username=x-token; echo password={token}; }}; f"
         )
         cmd += ["-c", f"credential.helper={helper_script}"]
-    # Set commit identity to the authenticated GitHub account so commits are
-    # attributed correctly (avatar, contributor graph, etc.). GitHub matches
-    # commits to profiles via the noreply email: {id}+{login}@users.noreply.github.com
+    # Set commit identity so GitHub can link commits to the account.
+    # The noreply format {id}+{login}@users.noreply.github.com is what GitHub
+    # uses to map a commit email to an account, avatar, and contributor graph.
     if username and user_id:
         noreply = f"{user_id}+{username}@users.noreply.github.com"
         cmd += ["-c", f"user.name={name}", "-c", f"user.email={noreply}"]
