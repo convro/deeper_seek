@@ -46,40 +46,96 @@ function pruneAgentRegistry() {
   }
 }
 
+// Cache GitHub identity per token — API called at most once per process lifetime per user.
+const _ghIdentityCache = new Map();
+
+async function _fetchGhIdentity(token) {
+  if (_ghIdentityCache.has(token)) return _ghIdentityCache.get(token);
+  try {
+    const { validateToken } = require('./github.service');
+    const info = await validateToken(token);
+    if (info.ok && info.login) {
+      const result = { login: info.login, id: String(info.id || ''), name: info.name || info.login };
+      _ghIdentityCache.set(token, result);
+      return result;
+    }
+  } catch {}
+  _ghIdentityCache.set(token, null);
+  return null;
+}
+
 /**
  * Execute a single tool via Python subprocess.
  */
 async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
-  return new Promise((resolve) => {
-    const input = JSON.stringify({ tool: toolName, args });
-    const timeout = TOOLS_CONFIG.tool_registry[toolName]?.timeout_ms || 60000;
+  const input = JSON.stringify({ tool: toolName, args });
+  const timeout = TOOLS_CONFIG.tool_registry[toolName]?.timeout_ms || 60000;
 
-    // Propagate current-user context to Python subprocess so tools like
-    // workspace_create can stamp owner_id into job metadata, and internal
-    // token so tools like agent_spawn can call back into the authed backend.
-    const subEnv = {
-      ...process.env,
-      DEEPERSEEK_BACKEND_URL: `http://127.0.0.1:${process.env.PORT || 3000}`,
-    };
+  // Propagate current-user context to Python subprocess so tools like
+  // workspace_create can stamp owner_id into job metadata, and internal
+  // token so tools like agent_spawn can call back into the authed backend.
+  const subEnv = {
+    ...process.env,
+    DEEPERSEEK_BACKEND_URL: `http://127.0.0.1:${process.env.PORT || 3000}`,
+  };
+  try {
+    const authService = require('./auth.service');
+    subEnv.DEEPERSEEK_INTERNAL_TOKEN = authService.getInternalToken();
+  } catch {}
+  if (context.ownerId)    subEnv.DEEPERSEEK_CURRENT_USER_ID = String(context.ownerId);
+  if (context.ownerEmail) subEnv.DEEPERSEEK_CURRENT_USER_EMAIL = String(context.ownerEmail);
+
+  // Inject GitHub identity so ALL git operations (git_ops, run_bash, etc.)
+  // are attributed to the right GitHub account, not the server's global config.
+  // GIT_AUTHOR_* / GIT_COMMITTER_* env vars have the highest priority in git —
+  // they override any gitconfig, so even `git commit` called via run_bash works.
+  if (context.ownerId) {
     try {
-      const authService = require('./auth.service');
-      subEnv.DEEPERSEEK_INTERNAL_TOKEN = authService.getInternalToken();
+      const soulSvc = require('./soul.service');
+      const gs = soulSvc.getUserSettings(context.ownerId);
+      if (gs.github_pat) {
+        subEnv.GITHUB_TOKEN = String(gs.github_pat);
+
+        let username = gs.github_username || '';
+        let userId   = gs.github_user_id  || '';
+        let name     = gs.github_name     || '';
+
+        // If user_id is missing (soul file predates this field, or OAuth ran
+        // before the server was updated), fetch once from the GitHub API and
+        // persist so subsequent calls are free.
+        if (!userId) {
+          const info = await _fetchGhIdentity(gs.github_pat);
+          if (info) {
+            username = username || info.login;
+            userId   = info.id;
+            name     = name || info.name;
+            // Persist so future calls skip the API
+            soulSvc.saveUserSettings(context.ownerId, {
+              github_user_id: userId,
+              github_name:    name || username,
+            });
+          }
+        }
+
+        name = name || username;
+        if (username) subEnv.GITHUB_USERNAME = username;
+        if (userId)   subEnv.GITHUB_USER_ID  = userId;
+        if (name)     subEnv.GITHUB_NAME     = name;
+
+        // GIT_AUTHOR_* / GIT_COMMITTER_* — work for every git call in the
+        // subprocess tree, including bare `git commit` via run_bash.
+        if (username && userId) {
+          const noreply = `${userId}+${username}@users.noreply.github.com`;
+          subEnv.GIT_AUTHOR_NAME    = name;
+          subEnv.GIT_COMMITTER_NAME = name;
+          subEnv.GIT_AUTHOR_EMAIL   = noreply;
+          subEnv.GIT_COMMITTER_EMAIL = noreply;
+        }
+      }
     } catch {}
-    if (context.ownerId)    subEnv.DEEPERSEEK_CURRENT_USER_ID = String(context.ownerId);
-    if (context.ownerEmail) subEnv.DEEPERSEEK_CURRENT_USER_EMAIL = String(context.ownerEmail);
+  }
 
-    // Inject GitHub identity so git_ops commits are attributed to the right account
-    if (context.ownerId) {
-      try {
-        const soulSvc = require('./soul.service');
-        const gs = soulSvc.getUserSettings(context.ownerId);
-        if (gs.github_pat)      subEnv.GITHUB_TOKEN    = String(gs.github_pat);
-        if (gs.github_username) subEnv.GITHUB_USERNAME = String(gs.github_username);
-        if (gs.github_user_id)  subEnv.GITHUB_USER_ID  = String(gs.github_user_id);
-        if (gs.github_name)     subEnv.GITHUB_NAME     = String(gs.github_name);
-      } catch {}
-    }
-
+  return new Promise((resolve) => {
     const proc = spawn('python3', [TOOL_EXECUTOR], {
       cwd: PROJECT_ROOT,
       env: subEnv,
