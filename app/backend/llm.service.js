@@ -290,7 +290,10 @@ async function runAgentLoop({
       : null;
 
     // ── Emit full content snapshot for backward compat (sub-agents etc.) ─
-    if (msgContent)   emit(onEvent, { type: 'content',   content:  msgContent   });
+    // Must use finalContent (cumulative across all rounds) not msgContent
+    // (current round only) — the frontend handler replaces, so sending only
+    // the current round's text would erase previous rounds from the bubble.
+    if (msgContent)   emit(onEvent, { type: 'content',   content:  finalContent  });
     if (msgReasoning) emit(onEvent, { type: 'reasoning', content:  msgReasoning });
 
     // ── No tool calls → either real completion, or a "promised next step"
