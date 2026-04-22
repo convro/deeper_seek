@@ -187,7 +187,8 @@ async function runAgentLoop({
   const recentToolSignatures = [];
   // Cap on how many times we silently nudge the model to continue after a
   // text-only round. Prevents an infinite "I'll do X… ok, doing it…" loop.
-  const MAX_TEXT_ONLY_CONTINUATIONS = 2;
+  // REASONER needs fewer nudges (2), CHAT model needs more (5) because it's less disciplined
+  const MAX_TEXT_ONLY_CONTINUATIONS = selectedModel === 'deepseek-reasoner' ? 2 : 5;
   let consecutiveTextOnly = 0;
 
   emit(onEvent, { type: 'llm_start', model: selectedModel, agent: agentType });
