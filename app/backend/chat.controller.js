@@ -23,6 +23,9 @@ const sessions = new Map();
 // Per-session abort controllers — cancel previous loop when a new message arrives
 const sessionAbortControllers = new Map();
 
+// Tool usage history tracking - per session
+const MAX_TOOL_HISTORY = 20; // Keep last 20 tool uses
+
 function sessionPath(id) {
   return path.join(SESSIONS_DIR, `${id}.json`);
 }
@@ -41,7 +44,11 @@ function loadAllSessions() {
     for (const file of files) {
       try {
         const data = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, file), 'utf-8'));
-        if (data && data.id) sessions.set(data.id, data);
+        if (data && data.id) {
+          // Ensure tool_history exists for backward compatibility
+          if (!data.tool_history) data.tool_history = [];
+          sessions.set(data.id, data);
+        }
       } catch {}
     }
     logger.info(`Loaded ${sessions.size} persisted sessions`);
@@ -50,6 +57,80 @@ function loadAllSessions() {
 
 // Load on startup
 loadAllSessions();
+
+/**
+ * Add tool usage to session history
+ */
+function addToolToHistory(sessionId, toolName, args, resultSummary, status) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+  
+  if (!session.tool_history) session.tool_history = [];
+  
+  const entry = {
+    timestamp: new Date().toISOString(),
+    tool: toolName,
+    args: args || {},
+    resultSummary: resultSummary || '',
+    status: status || 'success'
+  };
+  
+  session.tool_history.push(entry);
+  
+  // Keep only last MAX_TOOL_HISTORY entries
+  if (session.tool_history.length > MAX_TOOL_HISTORY) {
+    session.tool_history = session.tool_history.slice(-MAX_TOOL_HISTORY);
+  }
+  
+  session.updated_at = new Date().toISOString();
+  saveSession(session);
+}
+
+/**
+ * Get tool usage statistics for a session
+ */
+function getToolStatistics(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session || !session.tool_history) {
+    return { total: 0, by_tool: {}, last_used: null };
+  }
+  
+  const stats = { total: 0, by_tool: {}, last_used: null };
+  const byTool = {};
+  
+  session.tool_history.forEach(entry => {
+    stats.total++;
+    byTool[entry.tool] = (byTool[entry.tool] || 0) + 1;
+    if (!stats.last_used || entry.timestamp > stats.last_used) {
+      stats.last_used = entry.timestamp;
+    }
+  });
+  
+  stats.by_tool = byTool;
+  return stats;
+}
+
+/**
+ * Format tool history for injection into system prompt
+ */
+function formatToolHistoryForPrompt(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session || !session.tool_history || session.tool_history.length === 0) {
+    return 'No tools have been used in this session yet.';
+  }
+  
+  const lines = session.tool_history.map((entry, i) => {
+    const idx = i + 1;
+    const time = new Date(entry.timestamp).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+    const argsStr = Object.keys(entry.args).length > 0 
+      ? JSON.stringify(entry.args).slice(0, 100) + (JSON.stringify(entry.args).length > 100 ? '...' : '')
+      : '{}';
+    const result = entry.resultSummary ? ` → ${entry.resultSummary.slice(0, 80)}` : '';
+    return `${idx}. ${time} ${entry.tool}(${argsStr})${result}`;
+  });
+  
+  return lines.join('\n');
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -134,6 +215,7 @@ async function sendMessage(req, res) {
       owner_id: req.user ? req.user.id : null,
       title: generateTitle(message),
       messages: [],
+      tool_history: [], // Initialize empty tool history
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
@@ -248,6 +330,7 @@ async function sendMessage(req, res) {
         ownerEmail: req.user ? req.user.email : null,
         userSettings,
         githubContext,
+        sessionId, // Pass sessionId for tool history injection
       });
 
       // Only persist if we got actual content
@@ -375,6 +458,7 @@ async function regenerate(req, res) {
         ownerEmail: req.user ? req.user.email : null,
         userSettings: regenUserSettings,
         githubContext: regenGithubContext,
+        sessionId: session_id, // Pass sessionId for tool history injection
       });
 
       if (result.content) {
@@ -443,6 +527,7 @@ function linkGithubRepo(req, res) {
       owner_id:   req.user ? req.user.id : null,
       title:      'New conversation',
       messages:   [],
+      tool_history: [], // Initialize empty tool history
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -539,4 +624,16 @@ function peekSessionOwner(sessionId) {
   return s.owner_id || null;
 }
 
-module.exports = { sendMessage, regenerate, listSessions, getSession, renameSession, deleteSession, peekSessionOwner, linkGithubRepo };
+module.exports = { 
+  sendMessage, 
+  regenerate, 
+  listSessions, 
+  getSession, 
+  renameSession, 
+  deleteSession, 
+  peekSessionOwner, 
+  linkGithubRepo,
+  addToolToHistory,
+  getToolStatistics,
+  formatToolHistoryForPrompt
+};

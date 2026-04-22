@@ -41,12 +41,14 @@ function createClient() {
  *   [agent identity, if agentType was passed]
  *   ---
  *   [runtime/base_prompt.txt — the default persona + tool rules]
+ *   ---
+ *   [tool usage history for the session]
  *
  * The soul goes first so the model reads "who am I talking to" before
  * "who am I being" — tone/vocabulary calibration happens up-front rather
  * than as an afterthought.
  */
-function loadSystemPrompt(agentType = null, ownerId = null, githubContext = null) {
+function loadSystemPrompt(agentType = null, ownerId = null, githubContext = null, toolHistoryText = null) {
   const projectRoot = path.join(__dirname, '../..');
   const basePath = path.join(projectRoot, 'runtime/base_prompt.txt');
   let systemPrompt = fs.readFileSync(basePath, 'utf-8');
@@ -68,6 +70,11 @@ function loadSystemPrompt(agentType = null, ownerId = null, githubContext = null
     if (soul) {
       systemPrompt = `${soul}\n\n---\n\n${systemPrompt}`;
     }
+  }
+
+  // Append tool usage history if provided
+  if (toolHistoryText) {
+    systemPrompt = `${systemPrompt}\n\n---\n\n## 🛠️ ACTUAL TOOL USAGE (THIS SESSION - LIVE TRACKER):\n${toolHistoryText}\n\n## 🚨 CRITICAL RULE - NEVER HALLUCINATE TOOL USAGE:\n- You can ONLY reference tools that appear in the tracker above\n- If tracker is empty for a tool, you CANNOT claim you used it\n- If user questions your tool usage, CHECK THE TRACKER - it's the source of truth\n- Your credibility depends on matching claims with actual tool records\n- When you use a tool, it will be automatically added to this tracker\n- This tracker is updated in real-time - you can trust it completely`;
   }
 
   return systemPrompt;
@@ -143,9 +150,22 @@ async function runAgentLoop({
   ownerEmail = null,
   userSettings = {},
   githubContext = null,
+  sessionId = null,
 }) {
   const client = createClient();
-  const systemPrompt = loadSystemPrompt(agentType, ownerId, githubContext);
+  
+  // Get tool history for this session if sessionId is provided
+  let toolHistoryText = null;
+  if (sessionId) {
+    try {
+      const { formatToolHistoryForPrompt } = require('./chat.controller');
+      toolHistoryText = formatToolHistoryForPrompt(sessionId);
+    } catch (err) {
+      logger.error(`Failed to get tool history for session ${sessionId}:`, err);
+    }
+  }
+  
+  const systemPrompt = loadSystemPrompt(agentType, ownerId, githubContext, toolHistoryText);
   const toolDefs = buildToolDefinitions();
   const sysConfig = JSON.parse(
     fs.readFileSync(path.join(__dirname, '../../config/system.json'), 'utf-8')
@@ -514,6 +534,21 @@ async function runAgentLoop({
         duration_ms: toolResult.metadata?.duration_ms,
       });
       logger.tool(`Tool result: ${toolName} → ${toolResult.status}`);
+
+      // Record tool usage in session history
+      if (sessionId) {
+        try {
+          const { addToolToHistory } = require('./chat.controller');
+          const resultSummary = toolResult.result 
+            ? (typeof toolResult.result === 'string' 
+                ? toolResult.result.slice(0, 200) 
+                : JSON.stringify(toolResult.result).slice(0, 200))
+            : '';
+          addToolToHistory(sessionId, toolName, toolArgs, resultSummary, toolResult.status);
+        } catch (err) {
+          logger.error(`Failed to record tool usage for session ${sessionId}:`, err);
+        }
+      }
 
       toolResults.push({
         role:         'tool',
