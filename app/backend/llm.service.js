@@ -74,6 +74,57 @@ function loadSystemPrompt(agentType = null, ownerId = null, githubContext = null
 }
 
 /**
+ * Extract final answer from reasoning content when model puts final output
+ * into reasoning stream instead of content stream.
+ * Heuristic: look for conclusion markers and take everything after the last one.
+ * If no marker found, return the whole reasoning (better than empty content).
+ */
+function extractFinalFromReasoning(reasoning) {
+  if (!reasoning || reasoning.trim() === '') return reasoning;
+  
+  const markers = [
+    // English
+    'Therefore', 'So', 'Thus', 'Hence', 'In conclusion', 'To summarize',
+    'Summary:', 'Answer:', 'Final answer:', 'The answer is', 'Here is',
+    'Here\'s', 'Here are', 'Here we have', 'As a result',
+    // Polish
+    'Zatem', 'Więc', 'Dlatego', 'Podsumowując', 'Reasumując', 'Stąd',
+    'Odpowiedź:', 'Podsumowanie:', 'Końcowa odpowiedź:', 'Wynik:',
+    'Oto', 'Oto co', 'Tak więc', 'Z tego wynika'
+  ];
+  
+  // Find last occurrence of any marker (case-insensitive)
+  let lastPos = -1;
+  let lastMarker = '';
+  const reasoningLower = reasoning.toLowerCase();
+  
+  for (const marker of markers) {
+    const pos = reasoningLower.lastIndexOf(marker.toLowerCase());
+    if (pos > lastPos) {
+      lastPos = pos;
+      lastMarker = marker;
+    }
+  }
+  
+  if (lastPos >= 0) {
+    // Take from the marker position (include marker)
+    const from = lastPos;
+    return reasoning.substring(from).trim();
+  }
+  
+  // No marker found, maybe the whole reasoning is the final answer
+  // Check if reasoning looks like a direct answer (short, no step-by-step)
+  const lines = reasoning.split('\n').filter(l => l.trim().length > 0);
+  if (lines.length <= 3) {
+    // Short reasoning likely is the answer
+    return reasoning.trim();
+  }
+  
+  // Default: return reasoning as fallback (better than empty)
+  return reasoning.trim();
+}
+
+/**
  * Main agentic loop — streaming edition.
  *
  * Each API call uses stream: true so text reaches the frontend word-by-word
@@ -293,8 +344,22 @@ async function runAgentLoop({
     // Must use finalContent (cumulative across all rounds) not msgContent
     // (current round only) — the frontend handler replaces, so sending only
     // the current round's text would erase previous rounds from the bubble.
-    if (msgContent)   emit(onEvent, { type: 'content',   content:  finalContent  });
-    if (msgReasoning) emit(onEvent, { type: 'reasoning', content:  msgReasoning });
+    
+    // BUG FIX: When msgContent is empty but msgReasoning is not empty,
+    // the model likely put the final answer into reasoning stream.
+    // Extract final answer from reasoning and emit as content.
+    let contentToEmit = finalContent;
+    if (!msgContent && msgReasoning) {
+      const extracted = extractFinalFromReasoning(msgReasoning);
+      if (extracted && extracted.trim() !== '') {
+        contentToEmit = extracted;
+        // Also update finalContent so done event has it
+        finalContent = extracted;
+      }
+    }
+    
+    if (contentToEmit) emit(onEvent, { type: 'content', content: contentToEmit });
+    if (msgReasoning) emit(onEvent, { type: 'reasoning', content: msgReasoning });
 
     // ── No tool calls → either real completion, or a "promised next step"
     //    that the model failed to actually execute. We try to detect the
@@ -338,10 +403,10 @@ async function runAgentLoop({
       const continuationMarkers = new RegExp(
         '\\b(?:' +
           // English patterns — intent + tool verb in the SAME clause
-          `(?:let me|let's|i['\u2019]?ll|i will|i'?m going to|i am going to|i need to|` +
-          `going to|now i['\u2019]?ll|now i will|next[, ]+i['\u2019]?ll|next[, ]+i will|` +
-          `then i['\u2019]?ll|then i will|first[, ]+i['\u2019]?ll|i['\u2019]?ll just|` +
-          `i['\u2019]?ll now|i['\u2019]?ll go|i['\u2019]?ll start|starting to)` +
+          `(?:let me|let's|i['\\u2019]?ll|i will|i'?m going to|i am going to|i need to|` +
+          `going to|now i['\\u2019]?ll|now i will|next[, ]+i['\\u2019]?ll|next[, ]+i will|` +
+          `then i['\\u2019]?ll|then i will|first[, ]+i['\\u2019]?ll|i['\\u2019]?ll just|` +
+          `i['\\u2019]?ll now|i['\\u2019]?ll go|i['\\u2019]?ll start|starting to)` +
           `\\s+(?:\\w+\\s+){0,3}${TOOL_VERB_EN}` +
         '|' +
           // Polish patterns — intent + tool verb
@@ -379,7 +444,7 @@ async function runAgentLoop({
           role: 'user',
           content:
             '[system / continuation-guard] Twoja poprzednia odpowiedź zapowiadała kolejny krok ' +
-            '(np. „zrobię…", „sprawdzę…", „teraz…", "next…", "let me…"), ale nie wywołałeś żadnego ' +
+            '(np. „zrobię…”, „sprawdzę…”, „teraz…”, "next…", "let me…"), ale nie wywołałeś żadnego ' +
             'tool calla. Kontynuuj NATYCHMIAST: wywołaj zapowiedziane narzędzia w TEJ odpowiedzi. ' +
             'Możesz krótko (1 linijka) powiedzieć co robisz i od razu wywołać tool. Nie kończ tury ' +
             'samym tekstem. Jeśli nie ma już nic do zrobienia — napisz krótkie podsumowanie, bez zapowiedzi.',

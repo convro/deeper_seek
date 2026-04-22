@@ -473,9 +473,9 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents }:
         )}
 
         {/* Content — rendered first so tool badges appear below streamed text */}
-        {!isThinking && message.content && (
+        {!isThinking && (message.content || (message.reasoning && !message.content)) && (
           <div className={`msg-ai-content ${isError ? 'msg-error' : ''}`}>
-            <Markdown content={message.content} />
+            <Markdown content={message.content || message.reasoning || ''} />
           </div>
         )}
 
