@@ -4,7 +4,7 @@
  * llm.service.js — DeepSeek API integration via OpenAI-compatible client.
  *
  * Uses streaming (stream: true) so text appears word-by-word in the UI.
- * Tool call chunks are accumulated across deltas and processed after the
+ * Tool-call chunks are accumulated across deltas and processed after the
  * stream ends. Reasoning (DeepSeek-R1) is also streamed in real-time.
  */
 
@@ -83,8 +83,14 @@ function loadSystemPrompt(agentType = null, ownerId = null, githubContext = null
 /**
  * Extract final answer from reasoning content when model puts final output
  * into reasoning stream instead of content stream.
- * Heuristic: look for conclusion markers and take everything after the last one.
- * If no marker found, return the whole reasoning (better than empty content).
+ * 
+ * NEW IMPROVED HEURISTIC:
+ * 1. If reasoning is short (≤ 3 lines) → use whole reasoning as final answer
+ * 2. Look for conclusion markers (Therefore, So, Podsumowując, etc.)
+ * 3. If marker found → take from marker to end
+ * 4. If no marker → check if reasoning ends with what looks like a final answer
+ *    (no step-by-step markers, ends with punctuation, looks complete)
+ * 5. Default: use whole reasoning (better than empty)
  */
 function extractFinalFromReasoning(reasoning) {
   if (!reasoning || reasoning.trim() === '') return reasoning;
@@ -125,6 +131,22 @@ function extractFinalFromReasoning(reasoning) {
   if (lines.length <= 3) {
     // Short reasoning likely is the answer
     return reasoning.trim();
+  }
+  
+  // Check if reasoning ends with what looks like a final conclusion
+  const lastParagraph = lines[lines.length - 1];
+  const looksLikeConclusion = 
+    lastParagraph.endsWith('.') || 
+    lastParagraph.endsWith('!') || 
+    lastParagraph.endsWith('?') ||
+    lastParagraph.includes('✅') ||
+    lastParagraph.includes('🚀') ||
+    lastParagraph.includes('🎯');
+  
+  if (looksLikeConclusion && lines.length <= 10) {
+    // Last few paragraphs might be the final answer
+    const fromIndex = Math.max(0, lines.length - 3);
+    return lines.slice(fromIndex).join('\n').trim();
   }
   
   // Default: return reasoning as fallback (better than empty)
