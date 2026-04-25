@@ -714,13 +714,30 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
     e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
   };
 
+  const MAX_IMAGES = 5;
+
   const processFiles = useCallback(async (files: FileList | File[]) => {
     const list = Array.from(files);
     if (!list.length) return;
+
+    // Enforce max 5 images
+    const currentImageCount = attachments.filter(a => isImage(a.type)).length;
+    const incomingImages = list.filter(f => isImage(f.type));
+    const slots = MAX_IMAGES - currentImageCount;
+    if (incomingImages.length > 0 && slots <= 0) {
+      alert(`Maximum ${MAX_IMAGES} images per message.`);
+      return;
+    }
+    const filteredList = list.filter(f => {
+      if (!isImage(f.type)) return true; // non-images always allowed
+      const used = incomingImages.indexOf(f);
+      return used < slots;
+    });
+
     setAttLoading(true);
     const results: Attachment[] = [];
 
-    for (const file of list) {
+    for (const file of filteredList) {
       const att: Attachment = {
         localId: generateLocalId(),
         name:    file.name,

@@ -1,948 +1,167 @@
 """
-image_analyze.py — Advanced local image understanding tool.
+image_analyze.py — Vision analysis via Claude Haiku (Anthropic API).
 
-Extracts maximum visual information using only local Python libraries:
-  PIL/Pillow  — metadata, color, EXIF
-  numpy       — statistics, histograms, spatial analysis
-  OpenCV      — edges, contours, circles, faces, regions, sharpness
-  pytesseract — OCR text extraction (primary)
-  easyocr     — OCR text extraction (fallback, multi-language)
+Replaces the previous local OpenCV/pytesseract tool which caused frequent
+timeouts and required heavy dependencies.
 
-No external AI API calls. All processing is local.
-The output is a rich structured description that gives the LLM
-as close to "native vision" as possible.
+Supports 1–5 images per call. All images are sent to Claude Haiku in a
+single API request for efficient, accurate multi-image analysis.
+
+Requires env var: ANTHROPIC_API_KEY
 """
 
-import sys
 import os
-import json
+import sys
 import time
-import math
+import base64
 from pathlib import Path
-from collections import Counter
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+MODEL = "claude-haiku-4-5-20251001"
+MAX_IMAGES = 5
+MAX_OUTPUT_TOKENS = 1500
 
-# Flag file: once packages are installed this file is created → skip install on next call
-_INSTALLED_FLAG = PROJECT_ROOT / "runtime" / ".vision_packages_ok"
+DEFAULT_QUESTION = (
+    "Describe this image in full detail: all visible objects, people, text, "
+    "colors, spatial layout, style, and anything else notable or interesting."
+)
+
+MIME_MAP = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp",
+}
 
 
-# ── Auto-install missing packages ─────────────────────────────────────────────
+def _read_image_b64(path: str) -> tuple:
+    """Return (base64_data, mime_type) for an image file."""
+    p = Path(path).resolve()
+    if not p.exists():
+        raise FileNotFoundError(f"Image not found: {path}")
+    mime = MIME_MAP.get(p.suffix.lower(), "image/jpeg")
+    with open(p, "rb") as f:
+        data = base64.standard_b64encode(f.read()).decode("utf-8")
+    return data, mime
 
-def _ensure_packages():
-    """
-    Install required vision packages on first run if they are missing.
-    After successful install, writes a flag file so subsequent calls skip
-    the installation check (fast path, no subprocess overhead).
-    """
-    import subprocess
 
-    # Fast path: already installed in a previous run
-    if _INSTALLED_FLAG.exists():
-        return
+def execute(
+    path: str = "",
+    paths: list = None,
+    question: str = "",
+    context: str = "",
+    **_,
+) -> dict:
+    start = time.time()
 
-    # module_name → pip package name
-    REQUIRED = [
-        ("numpy",        "numpy"),
-        ("PIL",          "Pillow"),
-        ("cv2",          "opencv-python-headless"),
-        ("pytesseract",  "pytesseract"),
-    ]
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return _err(
+            "ANTHROPIC_API_KEY not set — add ANTHROPIC_API_KEY=sk-ant-... to .env",
+            start,
+        )
 
-    missing = []
-    for mod, pkg in REQUIRED:
+    # Normalise paths: path= (single) and paths= (list) are both accepted
+    all_paths: list = []
+    if path:
+        all_paths.append(str(path))
+    if paths:
+        for p in paths:
+            sp = str(p)
+            if sp not in all_paths:
+                all_paths.append(sp)
+    all_paths = all_paths[:MAX_IMAGES]
+
+    if not all_paths:
+        return _err(
+            "Provide path= (single image) or paths= (list of up to 5 paths).",
+            start,
+        )
+
+    # Load images -> base64 content blocks
+    content: list = []
+    loaded: list = []
+    load_errors: list = []
+
+    for img_path in all_paths:
         try:
-            __import__(mod)
+            b64, mime = _read_image_b64(img_path)
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": mime, "data": b64},
+            })
+            loaded.append(img_path)
+        except Exception as exc:
+            load_errors.append(f"{img_path}: {exc}")
+
+    if not content:
+        return _err(
+            "Could not load any images. " + "; ".join(load_errors),
+            start,
+        )
+
+    # Build text prompt
+    n = len(loaded)
+    q = question.strip() or DEFAULT_QUESTION
+    text_parts: list = []
+    if context.strip():
+        text_parts.append(f"Context: {context.strip()}")
+    if n > 1:
+        text_parts.append(
+            f"There are {n} images attached. Analyze each one individually "
+            f"and note any relationships, comparisons, or patterns across them."
+        )
+    text_parts.append(q)
+    content.append({"type": "text", "text": "\n\n".join(text_parts)})
+
+    # Call Claude Haiku
+    try:
+        try:
+            import anthropic
         except ImportError:
-            missing.append(pkg)
-
-    if missing:
-        try:
+            import subprocess
             subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade"] + missing,
+                [sys.executable, "-m", "pip", "install", "--quiet", "anthropic"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-        except Exception:
-            pass  # Tool functions handle ImportError gracefully
+            import anthropic
 
-    # easyocr removed — it downloads ~200MB models on first run causing tool timeouts.
-    # pytesseract is the primary OCR engine; it's fast and sufficient.
-
-    # Verify core packages are now importable, then write flag
-    try:
-        import numpy  # noqa
-        from PIL import Image  # noqa
-        _INSTALLED_FLAG.touch()
-    except ImportError:
-        pass  # Flag not written → will retry next call
-
-
-# ── Color utilities ───────────────────────────────────────────────────────────
-
-def _name_color(r, g, b):
-    """Name a color by its HSL properties."""
-    r_n, g_n, b_n = r / 255.0, g / 255.0, b / 255.0
-    max_c = max(r_n, g_n, b_n)
-    min_c = min(r_n, g_n, b_n)
-    delta = max_c - min_c
-    l = (max_c + min_c) / 2.0
-
-    if delta < 0.04:
-        if l < 0.10: return "black"
-        if l < 0.22: return "very dark gray"
-        if l < 0.40: return "dark gray"
-        if l < 0.60: return "gray"
-        if l < 0.78: return "light gray"
-        if l < 0.92: return "very light gray"
-        return "white"
-
-    s = delta / (2 * l if l < 0.5 else 2 - 2 * l)
-
-    if max_c == r_n:
-        h = ((g_n - b_n) / delta) % 6
-    elif max_c == g_n:
-        h = (b_n - r_n) / delta + 2
-    else:
-        h = (r_n - g_n) / delta + 4
-    h = h * 60.0
-    if h < 0: h += 360
-
-    if   l < 0.18: lp = "very dark "
-    elif l < 0.35: lp = "dark "
-    elif l < 0.65: lp = ""
-    elif l < 0.82: lp = "light "
-    else:          lp = "very light "
-
-    if s < 0.18: lp = "muted " + lp
-
-    if   h < 15  or h >= 345: hue = "red"
-    elif h < 45:               hue = "orange"
-    elif h < 70:               hue = "yellow"
-    elif h < 150:              hue = "green"
-    elif h < 195:              hue = "cyan"
-    elif h < 250:              hue = "blue"
-    elif h < 290:              hue = "purple/violet"
-    else:                      hue = "pink/magenta"
-
-    return f"{lp}{hue}".strip()
-
-
-def _dominant_colors(img_rgb, n=8):
-    """K-means-like dominant color extraction via binned quantization."""
-    try:
-        import numpy as np
-        thumb = img_rgb.resize((120, 120))
-        arr = np.array(thumb).reshape(-1, 3)
-        # Bin into 24-step buckets (256/24 ≈ 11 levels per channel → ~1331 possible bins)
-        binned = (arr // 24) * 24
-        keys = [tuple(int(c) for c in p) for p in binned]
-        counter = Counter(keys)
-        total = len(keys)
-        result = []
-        for color, count in counter.most_common(n):
-            r, g, b = color
-            result.append({
-                "hex":   "#{:02x}{:02x}{:02x}".format(r, g, b),
-                "rgb":   [r, g, b],
-                "name":  _name_color(r, g, b),
-                "pct":   round(count / total * 100, 1),
-            })
-        return result
-    except Exception:
-        return []
-
-
-# ── OCR ───────────────────────────────────────────────────────────────────────
-
-def _ocr_pytesseract(img_pil):
-    try:
-        import pytesseract
-        # Run with two page-segmentation modes and merge
-        configs = [
-            "--psm 3 --oem 3",   # fully automatic
-            "--psm 6 --oem 3",   # uniform block of text
-            "--psm 11 --oem 3",  # sparse text
-        ]
-        texts = set()
-        words_data = []
-        for cfg in configs:
-            try:
-                t = pytesseract.image_to_string(img_pil, config=cfg).strip()
-                if t:
-                    texts.add(t)
-                data = pytesseract.image_to_data(img_pil, config=cfg,
-                                                 output_type=pytesseract.Output.DICT)
-                for i, w in enumerate(data["text"]):
-                    w = w.strip()
-                    conf = float(data["conf"][i])
-                    if w and conf > 35:
-                        words_data.append({
-                            "text": w,
-                            "conf": round(conf, 1),
-                            "x": data["left"][i],
-                            "y": data["top"][i],
-                        })
-            except Exception:
-                pass
-
-        full_text = "\n".join(texts)
-        # Deduplicate words by (text, approximate position)
-        seen = set()
-        unique_words = []
-        for w in sorted(words_data, key=lambda x: -x["conf"]):
-            key = (w["text"].lower(), w["x"] // 20, w["y"] // 20)
-            if key not in seen:
-                seen.add(key)
-                unique_words.append(w)
-
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model=MODEL,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            messages=[{"role": "user", "content": content}],
+        )
+        analysis = msg.content[0].text if msg.content else ""
+        usage = {
+            "input_tokens":  msg.usage.input_tokens,
+            "output_tokens": msg.usage.output_tokens,
+        }
         return {
-            "engine": "pytesseract",
-            "full_text": full_text[:3000],
-            "words": unique_words[:60],
-            "has_text": bool(full_text.strip()),
-        }
-    except ImportError:
-        return None
-    except Exception as e:
-        return {"engine": "pytesseract", "error": str(e), "has_text": False}
-
-
-def _ocr_easyocr(img_path):
-    try:
-        import easyocr
-        reader = easyocr.Reader(["en", "pl"], gpu=False, verbose=False)
-        results = reader.readtext(str(img_path))
-        detections = []
-        for (bbox, text, conf) in results:
-            if conf > 0.25:
-                detections.append({
-                    "text":       text,
-                    "confidence": round(conf, 3),
-                    "bbox":       [[int(p[0]), int(p[1])] for p in bbox],
-                })
-        full = " ".join(d["text"] for d in detections)
-        return {
-            "engine":     "easyocr",
-            "full_text":  full[:3000],
-            "detections": detections[:50],
-            "has_text":   bool(detections),
-        }
-    except ImportError:
-        return None
-    except Exception as e:
-        return {"engine": "easyocr", "error": str(e), "has_text": False}
-
-
-# ── OpenCV analysis ───────────────────────────────────────────────────────────
-
-def _cv_analysis(img_path):
-    try:
-        import cv2
-        import numpy as np
-
-        img = cv2.imread(str(img_path))
-        if img is None:
-            return {"error": "cv2.imread returned None"}
-
-        H, W = img.shape[:2]
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        out = {"width": W, "height": H}
-
-        # ── Sharpness (Laplacian variance) ──
-        lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-        out["sharpness_score"] = round(lap_var, 2)
-        out["sharpness_label"] = (
-            "very blurry" if lap_var < 50
-            else "blurry" if lap_var < 150
-            else "slightly soft" if lap_var < 500
-            else "sharp" if lap_var < 2000
-            else "very sharp / high detail"
-        )
-
-        # ── Brightness & contrast ──
-        out["brightness_mean"] = round(float(np.mean(gray)), 2)
-        out["contrast_std"]    = round(float(np.std(gray)), 2)
-
-        # ── Canny edges ──
-        edges = cv2.Canny(gray, 50, 150)
-        edge_density = float(np.sum(edges > 0)) / (H * W)
-        out["edge_density"] = round(edge_density, 5)
-        out["edge_label"] = (
-            "minimal / very clean" if edge_density < 0.02
-            else "clean / simple"  if edge_density < 0.05
-            else "moderate detail" if edge_density < 0.10
-            else "detailed"        if edge_density < 0.18
-            else "highly complex / photo-like"
-        )
-
-        # ── Contours ──
-        cnts, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if cnts:
-            areas = sorted([cv2.contourArea(c) for c in cnts], reverse=True)
-            total_area = H * W
-            # Classify top contours by shape
-            shape_tags = []
-            for c in cnts[:10]:
-                area = cv2.contourArea(c)
-                if area < 50:
-                    continue
-                peri = cv2.arcLength(c, True)
-                approx = cv2.approxPolyDP(c, 0.04 * peri, True)
-                sides = len(approx)
-                circularity = 4 * math.pi * area / (peri * peri + 1e-6)
-                if circularity > 0.78:
-                    shape_tags.append("circle/ellipse")
-                elif sides == 3:
-                    shape_tags.append("triangle")
-                elif sides == 4:
-                    shape_tags.append("rectangle/square")
-                elif sides <= 6:
-                    shape_tags.append("polygon")
-                else:
-                    shape_tags.append("irregular shape")
-
-            shape_counter = Counter(shape_tags)
-            out["contours"] = {
-                "count": len(cnts),
-                "top3_area_pct": [round(a / total_area * 100, 1) for a in areas[:3]],
-                "dominant_largest_pct": round(areas[0] / total_area * 100, 1),
-                "shape_summary": dict(shape_counter),
-            }
-        else:
-            out["contours"] = {"count": 0}
-
-        # ── Circles (Hough) ──
-        circles = cv2.HoughCircles(
-            gray, cv2.HOUGH_GRADIENT, 1, 20,
-            param1=50, param2=30,
-            minRadius=max(5, min(W, H) // 40),
-            maxRadius=min(W, H) // 2,
-        )
-        out["hough_circles"] = int(len(circles[0])) if circles is not None else 0
-
-        # ── Face detection ──
-        try:
-            fc_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-            fc = cv2.CascadeClassifier(fc_path)
-            faces = fc.detectMultiScale(gray, 1.1, 5, minSize=(30, 30))
-            n_faces = int(len(faces)) if not isinstance(faces, tuple) else 0
-            out["faces"] = {
-                "count": n_faces,
-                "bboxes": [
-                    {"x": int(x), "y": int(y), "w": int(w), "h": int(h),
-                     "center_pct": [round((x + w/2) / W * 100, 1), round((y + h/2) / H * 100, 1)]}
-                    for (x, y, w, h) in (faces if n_faces > 0 else [])
-                ][:6],
-            }
-        except Exception:
-            out["faces"] = {"count": 0}
-
-        # ── Per-region analysis (4×4 grid) ──
-        G = 4
-        gh, gw = H // G, W // G
-        regions = {}
-        for row in range(G):
-            for col in range(G):
-                y1, y2 = row * gh, (row + 1) * gh
-                x1, x2 = col * gw, (col + 1) * gw
-                patch_gray  = gray[y1:y2, x1:x2]
-                patch_edges = edges[y1:y2, x1:x2]
-                patch_color = img[y1:y2, x1:x2]
-                label = f"r{row+1}c{col+1}"
-                b_mean = float(np.mean(patch_color[:,:,0]))
-                g_mean = float(np.mean(patch_color[:,:,1]))
-                r_mean = float(np.mean(patch_color[:,:,2]))
-                dom_hex = "#{:02x}{:02x}{:02x}".format(
-                    int(r_mean), int(g_mean), int(b_mean)
-                )
-                e_density = float(np.sum(patch_edges > 0)) / (gh * gw + 1)
-                regions[label] = {
-                    "brightness": round(float(np.mean(patch_gray)), 1),
-                    "edge_density": round(e_density, 4),
-                    "dominant_hex": dom_hex,
-                    "dominant_color_name": _name_color(int(r_mean), int(g_mean), int(b_mean)),
-                }
-        out["regions_4x4"] = regions
-
-        # ── Channel histograms (8 buckets each) ──
-        total_px = H * W
-        hists = {}
-        for ch_idx, ch_name in [(2, "red"), (1, "green"), (0, "blue")]:
-            h = cv2.calcHist([img], [ch_idx], None, [8], [0, 256]).flatten()
-            hists[ch_name] = [round(float(v) / total_px * 100, 2) for v in h]
-        out["channel_histograms_pct"] = hists
-
-        # ── Dominant quadrant content ──
-        quad_labels = {
-            (0, 0): "top-left",    (0, 1): "top-right",
-            (1, 0): "bottom-left", (1, 1): "bottom-right",
-        }
-        quads = {}
-        for (row, col), name in quad_labels.items():
-            y1, y2 = row * (H // 2), (row + 1) * (H // 2)
-            x1, x2 = col * (W // 2), (col + 1) * (W // 2)
-            q_edges = edges[y1:y2, x1:x2]
-            q_gray  = gray[y1:y2, x1:x2]
-            quads[name] = {
-                "brightness":    round(float(np.mean(q_gray)), 1),
-                "edge_activity": round(float(np.sum(q_edges > 0)) / ((H // 2) * (W // 2)), 4),
-            }
-        out["quadrant_analysis"] = quads
-
-        return out
-
-    except ImportError:
-        return {"error": "OpenCV (cv2) not installed"}
-    except Exception as e:
-        import traceback
-        return {"error": str(e), "traceback": traceback.format_exc()[-400:]}
-
-
-# ── Scene & texture analysis ─────────────────────────────────────────────────
-
-def _scene_analysis(img_path):
-    """Analyze scene characteristics — indoor/outdoor, natural/artificial, etc."""
-    try:
-        import cv2
-        import numpy as np
-
-        img = cv2.imread(str(img_path))
-        if img is None:
-            return {}
-
-        H, W = img.shape[:2]
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-        out = {}
-
-        # ── Color distribution in HSV ──
-        h_hist = cv2.calcHist([hsv], [0], None, [18], [0, 180]).flatten()
-        s_hist = cv2.calcHist([hsv], [1], None, [8], [0, 256]).flatten()
-        v_hist = cv2.calcHist([hsv], [2], None, [8], [0, 256]).flatten()
-        total = H * W
-        out["hsv_hue_distribution"] = {
-            f"{i*10}-{(i+1)*10}deg": round(float(h_hist[i]) / total * 100, 1)
-            for i in range(18) if h_hist[i] / total > 0.02
-        }
-
-        # ── Sky detection (top 20% of image, blue/white hues) ──
-        top_strip = hsv[:H // 5, :, :]
-        blue_mask = cv2.inRange(top_strip, (90, 30, 80), (130, 255, 255))
-        white_mask = cv2.inRange(top_strip, (0, 0, 200), (180, 30, 255))
-        sky_pct = float(np.sum(blue_mask > 0) + np.sum(white_mask > 0)) / (H // 5 * W) * 100
-        out["sky_detected"] = sky_pct > 30
-        out["sky_coverage_pct"] = round(sky_pct, 1)
-
-        # ── Green/vegetation detection ──
-        green_lower = np.array([30, 30, 30])
-        green_upper = np.array([85, 255, 255])
-        green_mask = cv2.inRange(hsv, green_lower, green_upper)
-        green_pct = float(np.sum(green_mask > 0)) / total * 100
-        out["vegetation_pct"] = round(green_pct, 1)
-        out["has_vegetation"] = green_pct > 10
-
-        # ── Skin tone detection ──
-        skin_lower = np.array([0, 20, 70])
-        skin_upper = np.array([20, 180, 255])
-        skin_mask = cv2.inRange(hsv, skin_lower, skin_upper)
-        skin_pct = float(np.sum(skin_mask > 0)) / total * 100
-        out["skin_tone_pct"] = round(skin_pct, 1)
-        out["likely_has_people"] = skin_pct > 8
-
-        # ── Indoor/outdoor heuristic ──
-        outdoor_score = 0
-        if sky_pct > 20: outdoor_score += 3
-        if green_pct > 15: outdoor_score += 2
-        if float(np.mean(gray)) > 130: outdoor_score += 1  # brighter = likely outdoor
-        out["scene_type"] = "likely outdoor" if outdoor_score >= 3 else "likely indoor" if outdoor_score <= 1 else "ambiguous"
-
-        # ── Texture analysis via LBP-like variance ──
-        # High local variance = complex textures, low = smooth surfaces
-        kernel = np.ones((5, 5), np.float32) / 25
-        local_mean = cv2.filter2D(gray.astype(np.float32), -1, kernel)
-        local_var = cv2.filter2D((gray.astype(np.float32) - local_mean) ** 2, -1, kernel)
-        avg_texture = float(np.mean(local_var))
-        out["texture_complexity"] = round(avg_texture, 1)
-        out["texture_label"] = (
-            "very smooth (flat colors, gradients)" if avg_texture < 100
-            else "smooth (illustrations, clean design)" if avg_texture < 400
-            else "moderate (mixed content)" if avg_texture < 1200
-            else "rough (natural textures, foliage)" if avg_texture < 3000
-            else "very complex (detailed photo, noise)"
-        )
-
-        # ── Line detection (straight lines = architecture/man-made) ──
-        edges = cv2.Canny(gray, 50, 150)
-        lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, minLineLength=50, maxLineGap=10)
-        n_lines = len(lines) if lines is not None else 0
-        out["straight_lines"] = n_lines
-        out["geometric_score"] = (
-            "high (architecture/man-made)" if n_lines > 40
-            else "moderate" if n_lines > 15
-            else "low (organic/natural)"
-        )
-
-        # ── Dominant object estimation via largest contours ──
-        cnts, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if cnts:
-            sorted_cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
-            objects = []
-            for c in sorted_cnts[:5]:
-                area = cv2.contourArea(c)
-                area_pct = area / total * 100
-                if area_pct < 0.5:
-                    break
-                x, y, w, h = cv2.boundingRect(c)
-                cx, cy = (x + w // 2) / W * 100, (y + h // 2) / H * 100
-                aspect = w / (h + 1)
-                objects.append({
-                    "area_pct": round(area_pct, 1),
-                    "center": f"{cx:.0f}%,{cy:.0f}%",
-                    "aspect": round(aspect, 2),
-                    "position": _position_label(cx, cy),
-                })
-            out["dominant_objects"] = objects
-
-        # ── Scene description (summary heuristic) ──
-        descriptors = []
-        if sky_pct > 40: descriptors.append("open sky visible")
-        if green_pct > 25: descriptors.append("lots of vegetation/greenery")
-        if skin_pct > 15: descriptors.append("prominent skin tones (person/people)")
-        if n_lines > 40: descriptors.append("strong geometric/architectural elements")
-        if avg_texture > 2000: descriptors.append("highly textured/detailed")
-        if avg_texture < 200: descriptors.append("smooth/minimal design")
-        out["scene_descriptors"] = descriptors if descriptors else ["no strong scene indicators"]
-
-        return out
-
-    except Exception as e:
-        return {"error": str(e)}
-
-
-def _position_label(cx_pct, cy_pct):
-    """Human-readable position from percentage coordinates."""
-    v = "top" if cy_pct < 33 else "middle" if cy_pct < 66 else "bottom"
-    h = "left" if cx_pct < 33 else "center" if cx_pct < 66 else "right"
-    return f"{v}-{h}"
-
-
-# ── Image type classifier ─────────────────────────────────────────────────────
-
-def _classify(colors, edge_label, has_text, faces, w, h, brightness):
-    tags = []
-
-    if faces and faces > 0:
-        tags.append(f"{'portrait' if faces == 1 else 'group photo'} — {faces} face(s) detected")
-
-    if edge_label:
-        if "minimal" in edge_label or "clean" in edge_label:
-            tags.append("flat design / logo / icon / solid background")
-        elif "complex" in edge_label or "photo" in edge_label:
-            tags.append("photograph or complex illustration")
-        else:
-            tags.append("graphic design / illustration")
-
-    if has_text:
-        tags.append("contains readable text")
-
-    if w and h:
-        r = w / h
-        if 0.9 < r < 1.1:    tags.append("square format (icon/avatar/logo)")
-        elif r > 1.7:         tags.append("wide/landscape (banner/screenshot/wallpaper)")
-        elif r < 0.65:        tags.append("tall/portrait format")
-
-    if brightness is not None:
-        if brightness < 60:   tags.append("dark-themed")
-        elif brightness > 190: tags.append("light/white-themed")
-
-    return tags or ["general image"]
-
-
-# ── AI vision via Claude (when ANTHROPIC_API_KEY is set) ─────────────────────
-
-def _ai_vision(img_path, question, max_dim=1568):
-    """
-    Call Claude claude-haiku-4-5 vision API for real AI image understanding.
-    Returns the description string, or None if unavailable (falls back to local).
-    Uses only stdlib (urllib) — no extra dependencies required.
-    """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return None
-
-    try:
-        import base64
-        import io
-        import urllib.request
-        import urllib.error
-
-        # Load + downscale if needed to stay within API limits (~5 MB base64)
-        with open(img_path, "rb") as f:
-            raw = f.read()
-
-        ext = Path(img_path).suffix.lower()
-        media_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                     ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp"}
-        media_type = media_map.get(ext, "image/jpeg")
-
-        # Resize if image is large — PIL may not be available in minimal envs,
-        # but we already ensured it in _ensure_packages.
-        if len(raw) > 4 * 1024 * 1024:
-            try:
-                from PIL import Image as _PIL
-                img_obj = _PIL.open(io.BytesIO(raw))
-                img_obj.thumbnail((max_dim, max_dim), _PIL.LANCZOS if hasattr(_PIL, "LANCZOS") else _PIL.ANTIALIAS)
-                buf = io.BytesIO()
-                fmt = "JPEG" if media_type == "image/jpeg" else "PNG"
-                img_obj.save(buf, format=fmt, quality=85)
-                raw = buf.getvalue()
-                if fmt == "JPEG":
-                    media_type = "image/jpeg"
-            except Exception:
-                pass  # Use original if resize fails
-
-        b64 = base64.standard_b64encode(raw).decode("utf-8")
-
-        payload = json.dumps({
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 1200,
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-                    {"type": "text", "text": question},
-                ]
-            }]
-        }).encode("utf-8")
-
-        req = urllib.request.Request(
-            "https://api.anthropic.com/v1/messages",
-            data=payload,
-            headers={
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-                "x-api-key": api_key,
+            "status": "ok",
+            "result": {
+                "analysis":        analysis,
+                "images_analyzed": loaded,
+                "image_count":     n,
+                "model":           MODEL,
+                "usage":           usage,
             },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        return (data.get("content") or [{}])[0].get("text", "") or None
-
-    except Exception:
-        return None  # Silently fall back to local analysis
-
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-
-def execute(
-    path: str,
-    question: str = "Describe this image in full detail — content, style, colors, text, composition.",
-):
-    t0 = time.time()
-
-    # Ensure required packages are installed (installs on first run if missing)
-    _ensure_packages()
-
-    if not os.path.exists(path):
-        return {
-            "status": "error", "result": None,
-            "error": f"File not found: {path}",
-            "metadata": {"tool": "image_analyze", "duration_ms": 0},
-        }
-
-    report = {"question": question, "path": path}
-
-    # ── 1. PIL metadata + color ───────────────────────────────────────────
-    img_pil = None
-    try:
-        from PIL import Image, ExifTags
-        import numpy as np
-
-        img_pil = Image.open(path)
-        W, H = img_pil.size
-
-        report["file"] = {
-            "name":         Path(path).name,
-            "format":       str(img_pil.format or Path(path).suffix.lstrip(".").upper()),
-            "width":        W,
-            "height":       H,
-            "megapixels":   round(W * H / 1_000_000, 3),
-            "aspect_ratio": round(W / H, 3),
-            "mode":         img_pil.mode,
-            "size_kb":      round(os.path.getsize(path) / 1024, 1),
-        }
-
-        # EXIF
-        try:
-            exif_raw = img_pil._getexif()
-            if exif_raw:
-                skip = {"MakerNote", "UserComment", "PrintImageMatching"}
-                exif = {}
-                for tid, val in exif_raw.items():
-                    tag = ExifTags.TAGS.get(tid, str(tid))
-                    if tag not in skip and isinstance(val, (str, int, float)):
-                        exif[tag] = str(val)[:120]
-                if exif:
-                    report["exif"] = exif
-        except Exception:
-            pass
-
-        img_rgb = img_pil.convert("RGB")
-        arr = np.array(img_rgb, dtype=np.float32)
-
-        # Color statistics
-        brightness = float(np.mean(arr))
-        r_mean = float(np.mean(arr[:, :, 0]))
-        g_mean = float(np.mean(arr[:, :, 1]))
-        b_mean = float(np.mean(arr[:, :, 2]))
-        max_c  = max(r_mean, g_mean, b_mean)
-        min_c  = min(r_mean, g_mean, b_mean)
-        saturation = (max_c - min_c) / (max_c + 1.0)
-        gray_arr = np.mean(arr, axis=2)
-        contrast = float(np.std(gray_arr))
-
-        if r_mean > b_mean * 1.15:
-            temp = "warm (red/yellow dominant)"
-        elif b_mean > r_mean * 1.15:
-            temp = "cool (blue dominant)"
-        else:
-            temp = "neutral/balanced"
-
-        report["color_analysis"] = {
-            "dominant_colors": _dominant_colors(img_rgb, n=8),
-            "brightness":      round(brightness, 1),
-            "brightness_label": (
-                "very dark" if brightness < 50
-                else "dark" if brightness < 100
-                else "medium-dark" if brightness < 128
-                else "medium-light" if brightness < 165
-                else "light" if brightness < 200
-                else "very bright/white-heavy"
-            ),
-            "contrast":        round(contrast, 1),
-            "contrast_label":  (
-                "very low (flat/washed)" if contrast < 20
-                else "low"          if contrast < 40
-                else "medium"       if contrast < 70
-                else "high"         if contrast < 95
-                else "very high"
-            ),
-            "saturation":       round(saturation, 3),
-            "saturation_label": (
-                "grayscale/desaturated" if saturation < 0.08
-                else "low/muted"   if saturation < 0.25
-                else "moderate"    if saturation < 0.50
-                else "vivid/high"  if saturation < 0.75
-                else "intense/neon"
-            ),
-            "color_temperature": temp,
-            "channel_means": {
-                "red":   round(r_mean, 1),
-                "green": round(g_mean, 1),
-                "blue":  round(b_mean, 1),
+            "error": None,
+            "metadata": {
+                "tool":        "image_analyze",
+                "duration_ms": int((time.time() - start) * 1000),
+                "load_errors": load_errors,
             },
         }
+    except Exception as exc:
+        return _err(f"Claude API error: {exc}", start)
 
-    except Exception as e:
-        report["pil_error"] = str(e)
-        img_pil = None
-        W, H, brightness = None, None, None
 
-    # ── 2. OCR text ───────────────────────────────────────────────────────
-    ocr = None
-    if img_pil:
-        ocr = _ocr_pytesseract(img_pil)
-    # easyocr removed — causes timeouts (~200MB model download). pytesseract only.
-
-    if ocr and not ocr.get("error"):
-        report["text"] = {
-            "has_text":      ocr.get("has_text", False),
-            "engine":        ocr.get("engine"),
-            "extracted":     (ocr.get("full_text") or "").strip()[:2500],
-        }
-        if ocr.get("detections"):
-            report["text"]["detections"] = [
-                {"text": d["text"], "confidence": d["confidence"]}
-                for d in ocr["detections"][:30]
-            ]
-        if ocr.get("words"):
-            report["text"]["top_words"] = [
-                w["text"]
-                for w in sorted(ocr["words"], key=lambda x: -x.get("conf", 0))[:25]
-            ]
-    else:
-        report["text"] = {
-            "has_text": False,
-            "note": "No text detected (or pytesseract/easyocr not installed)",
-        }
-
-    # ── 3. OpenCV structural analysis ────────────────────────────────────
-    cv = _cv_analysis(path)
-    report["structure"] = cv
-
-    edge_label  = cv.get("edge_label")  if cv and not cv.get("error") else None
-    faces_count = cv.get("faces", {}).get("count", 0) if cv and not cv.get("error") else 0
-
-    # ── 4. Scene & texture analysis ─────────────────────────────────────
-    scene = _scene_analysis(path)
-    if scene and not scene.get("error"):
-        report["scene"] = scene
-
-    # ── 5. Image type classification ─────────────────────────────────────
-    dom_colors = report.get("color_analysis", {}).get("dominant_colors", [])
-    report["image_type"] = _classify(
-        dom_colors, edge_label,
-        report.get("text", {}).get("has_text", False),
-        faces_count, W, H, brightness,
-    )
-
-    # ── 5. Human-readable summary string ─────────────────────────────────
-    lines = []
-
-    # Header
-    f = report.get("file", {})
-    if f:
-        lines.append(
-            f"=== IMAGE ANALYSIS: {f.get('name','?')} ==="
-            f"\nFormat: {f.get('format','?')} | "
-            f"Size: {f.get('width','?')}×{f.get('height','?')}px | "
-            f"Aspect: {f.get('aspect_ratio','?')}:1 | "
-            f"Weight: {f.get('size_kb','?')}KB | "
-            f"Color mode: {f.get('mode','?')}"
-        )
-
-    # Type hints
-    if report.get("image_type"):
-        lines.append("TYPE HINTS: " + ", ".join(report["image_type"]))
-
-    # Colors
-    ca = report.get("color_analysis", {})
-    if ca:
-        pal = " | ".join(
-            f"{c['hex']} {c['name']} ({c['pct']}%)"
-            for c in ca.get("dominant_colors", [])[:6]
-        )
-        lines.append(
-            f"\nCOLOR PALETTE:\n  {pal}"
-            f"\n  Brightness: {ca.get('brightness_label','?')} ({ca.get('brightness','?')}/255)"
-            f"  |  Contrast: {ca.get('contrast_label','?')}"
-            f"  |  Saturation: {ca.get('saturation_label','?')}"
-            f"  |  Temperature: {ca.get('color_temperature','?')}"
-        )
-
-    # Text
-    tx = report.get("text", {})
-    if tx.get("has_text") and tx.get("extracted"):
-        lines.append(f"\nEXTRACTED TEXT (via {tx.get('engine','?')}):\n  {tx['extracted'][:800]}")
-        if tx.get("detections"):
-            det_str = " | ".join(
-                f'"{d["text"]}" ({int(d["confidence"]*100)}%)'
-                for d in tx["detections"][:15]
-            )
-            lines.append(f"  Text detections: {det_str}")
-    else:
-        lines.append("\nTEXT: No readable text detected")
-
-    # Structure
-    if cv and not cv.get("error"):
-        lines.append(
-            f"\nSTRUCTURE & COMPOSITION:"
-            f"\n  Edges: {cv.get('edge_label','?')} (density={cv.get('edge_density','?')})"
-            f"\n  Sharpness: {cv.get('sharpness_label','?')} (score={cv.get('sharpness_score','?')})"
-            f"\n  Circles detected: {cv.get('hough_circles', 0)}"
-            f"\n  Faces detected: {cv.get('faces',{}).get('count', 0)}"
-        )
-
-        cnts = cv.get("contours", {})
-        if cnts.get("count", 0) > 0:
-            shapes = cnts.get("shape_summary", {})
-            shapes_str = ", ".join(f"{v}× {k}" for k, v in sorted(shapes.items(), key=lambda x: -x[1]))
-            lines.append(
-                f"  Contours: {cnts['count']} total | "
-                f"Largest covers {cnts.get('dominant_largest_pct', 0):.1f}% of image | "
-                f"Shapes: {shapes_str or 'mixed'}"
-            )
-
-        # Quadrant map
-        quads = cv.get("quadrant_analysis", {})
-        if quads:
-            quad_str = "  | ".join(
-                f"{name}: bright={v['brightness']:.0f}, activity={v['edge_activity']:.3f}"
-                for name, v in quads.items()
-            )
-            lines.append(f"  QUADRANT MAP: {quad_str}")
-
-        # 4×4 region color map (condensed)
-        regions = cv.get("regions_4x4", {})
-        if regions:
-            region_lines = []
-            for label, v in sorted(regions.items()):
-                region_lines.append(
-                    f"{label}→{v.get('dominant_color_name','?')} "
-                    f"(bright={v['brightness']:.0f}, edges={v['edge_density']:.3f})"
-                )
-            lines.append("  4×4 REGION MAP:\n  " + " | ".join(region_lines))
-
-    # Scene analysis
-    sc = report.get("scene", {})
-    if sc and not sc.get("error"):
-        scene_parts = [f"\nSCENE ANALYSIS:"]
-        scene_parts.append(f"  Scene type: {sc.get('scene_type', '?')}")
-        scene_parts.append(f"  Sky: {'yes' if sc.get('sky_detected') else 'no'} ({sc.get('sky_coverage_pct', 0):.0f}%)")
-        scene_parts.append(f"  Vegetation: {'yes' if sc.get('has_vegetation') else 'no'} ({sc.get('vegetation_pct', 0):.0f}%)")
-        scene_parts.append(f"  People/skin: {'likely' if sc.get('likely_has_people') else 'no'} ({sc.get('skin_tone_pct', 0):.0f}%)")
-        scene_parts.append(f"  Texture: {sc.get('texture_label', '?')}")
-        scene_parts.append(f"  Geometry: {sc.get('geometric_score', '?')} ({sc.get('straight_lines', 0)} straight lines)")
-        if sc.get("scene_descriptors"):
-            scene_parts.append(f"  Key features: {', '.join(sc['scene_descriptors'])}")
-        if sc.get("dominant_objects"):
-            obj_str = " | ".join(
-                f"obj@{o['position']} ({o['area_pct']}% of image, aspect={o['aspect']})"
-                for o in sc["dominant_objects"][:4]
-            )
-            scene_parts.append(f"  Dominant objects: {obj_str}")
-        lines.extend(scene_parts)
-
-    # EXIF notable
-    exif = report.get("exif", {})
-    if exif:
-        notable = {k: v for k, v in exif.items()
-                   if k in ("DateTime", "Make", "Model", "Software", "ImageDescription",
-                            "Artist", "Copyright", "GPSLatitude", "GPSLongitude")}
-        if notable:
-            lines.append("\nEXIF: " + " | ".join(f"{k}={v}" for k, v in notable.items()))
-
-    local_summary = "\n".join(lines)
-
-    # ── AI vision description (Claude) — prepended when available ─────────────
-    ai_description = _ai_vision(path, question)
-    if ai_description:
-        summary = (
-            f"=== AI VISION (Claude) ===\n{ai_description.strip()}"
-            f"\n\n=== LOCAL ANALYSIS ===\n{local_summary}"
-        )
-        report["ai_vision"] = ai_description.strip()
-    else:
-        summary = local_summary
-
-    duration_ms = round((time.time() - t0) * 1000)
+def _err(msg: str, start: float) -> dict:
     return {
-        "status": "ok",
-        "result": {
-            "summary":     summary,
-            "full_report": report,
-            "question":    question,
-            "path":        path,
+        "status": "error",
+        "result": None,
+        "error":  msg,
+        "metadata": {
+            "tool":        "image_analyze",
+            "duration_ms": int((time.time() - start) * 1000),
         },
-        "error": None,
-        "metadata": {"tool": "image_analyze", "duration_ms": duration_ms},
     }
-
-
-if __name__ == "__main__":
-    data = json.loads(sys.stdin.read())
-    args = data.get("args", data)
-    print(json.dumps(execute(**args), ensure_ascii=False, default=str))

@@ -535,13 +535,15 @@
     },
     "image_analyze": {
       "module": "tools/vision/image_analyze.py",
-      "description": "Advanced local image analysis tool. ALWAYS call this when the user sends an image or asks about image content. Uses PIL, numpy, OpenCV, and OCR to extract: dominant color palette with names and percentages, brightness/contrast/saturation metrics, full OCR text extraction (pytesseract + easyocr), edge density and sharpness, circle/shape/face detection, per-region 4x4 color and activity map, quadrant analysis, channel histograms, EXIF metadata, and image type classification. Returns a rich structured report that enables the AI to describe and reason about the image.",
+      "description": "ALWAYS call this when the user sends an image or asks about image content. Uses Claude Haiku vision API — accurate, fast, handles complex scenes, OCR, charts, screenshots, photos. Supports 1–5 images per call: when multiple images are attached pass ALL paths at once via paths=[...] (single API call, cheaper). Returns rich natural-language analysis: objects, people, text/OCR, colors, layout, style, comparisons across images. Use context= to pass the user's question or task so Haiku knows what to focus on. Requires ANTHROPIC_API_KEY env var.",
       "parameters": {
-        "path": {"type": "string", "description": "Absolute path to the saved image file"},
-        "question": {"type": "string", "description": "What to focus on or specific question about the image", "default": "Describe this image in full detail — content, style, colors, text, composition."}
+        "path": {"type": "string", "description": "Path to a single image file"},
+        "paths": {"type": "array", "items": {"type": "string"}, "description": "List of up to 5 image paths — use when multiple images are attached (one call, not N calls)"},
+        "question": {"type": "string", "description": "Specific question or analysis task. If omitted, returns full description.", "default": "Describe this image in full detail."},
+        "context": {"type": "string", "description": "User's original question or extra context so Haiku understands the goal"}
       },
-      "required": ["path"],
-      "timeout_ms": 300000
+      "required": [],
+      "timeout_ms": 30000
     },
     "image_edit": {
       "module": "tools/vision/image_edit.py",

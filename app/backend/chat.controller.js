@@ -269,11 +269,13 @@ async function sendMessage(req, res) {
   // Stamp owner if it was missing (legacy session + authed user)
   if (req.user && !session.owner_id) session.owner_id = req.user.id;
 
-  // Build user message — attachments are saved to disk and referenced by path
-  // (DeepSeek models do not support image_url content type; vision is handled
-  //  via the image_analyze Python tool which calls Anthropic/OpenAI APIs)
+  // Build user message — attachments are saved to disk and referenced by path.
+  // Images are analysed via image_analyze (Claude Haiku vision API).
+  // Multiple images are batched into one image_analyze call (paths=[...]).
   let userContent = message || '';
   const attachmentNotes = [];
+  const imagePaths = [];   // collect all saved image paths for batched hint
+  const imageNames = [];   // parallel list of original file names
 
   if (attachments && attachments.length > 0) {
     for (const att of attachments) {
@@ -282,15 +284,12 @@ async function sendMessage(req, res) {
         try {
           const ext = att.name.split('.').pop() || 'jpg';
           const filename = `${Date.now()}-${uuidv4().slice(0, 8)}.${ext}`;
-          // Store in session-specific subdirectory to prevent cross-session discovery
           const sessionImagesDir = path.join(UPLOADS_IMAGES_DIR, sessionId.slice(0, 12));
           fs.mkdirSync(sessionImagesDir, { recursive: true });
           const imgPath = path.join(sessionImagesDir, filename);
           fs.writeFileSync(imgPath, Buffer.from(att.data, 'base64'));
-          attachmentNotes.push(
-            `[Image attached: "${att.name}" → saved at ${imgPath}]\n` +
-            `Use the image_analyze tool with path="${imgPath}" to see and describe this image.`
-          );
+          imagePaths.push(imgPath);
+          imageNames.push(att.name);
           logger.info(`Saved image attachment: ${imgPath}`);
         } catch (saveErr) {
           logger.error('Failed to save image attachment', saveErr);
@@ -306,6 +305,22 @@ async function sendMessage(req, res) {
         attachmentNotes.push(`[File available at: ${att.path}]`);
       }
     }
+  }
+
+  // Emit a single image_analyze hint covering all images at once
+  if (imagePaths.length === 1) {
+    attachmentNotes.unshift(
+      `[Image attached: "${imageNames[0]}" → ${imagePaths[0]}]\n` +
+      `Call image_analyze(path="${imagePaths[0]}", context="<user question>") to analyse it.`
+    );
+  } else if (imagePaths.length > 1) {
+    const namesStr  = imageNames.map(n => `"${n}"`).join(', ');
+    const pathsStr  = JSON.stringify(imagePaths);
+    attachmentNotes.unshift(
+      `[${imagePaths.length} images attached: ${namesStr}]\n` +
+      `Call image_analyze(paths=${pathsStr}, context="<user question>") to analyse all images in one call. ` +
+      `Do NOT call image_analyze separately for each image — pass all paths at once.`
+    );
   }
 
   if (attachmentNotes.length > 0) {
