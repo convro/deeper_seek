@@ -159,6 +159,45 @@ function generateTitle(message) {
 }
 
 /**
+ * Generate a short descriptive title for a conversation using DeepSeek.
+ * Called in background after the 2nd exchange; returns null on any error.
+ */
+async function autoGenerateTitle(session) {
+  try {
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    if (!apiKey) return null;
+
+    const OpenAI = require('openai');
+    const client = new OpenAI({ apiKey, baseURL: 'https://api.deepseek.com' });
+
+    const msgs = (session.messages || []).slice(0, 4).map(m => {
+      const role = m.role === 'user' ? 'User' : 'Assistant';
+      const text = (typeof m.content === 'string' ? m.content : '').slice(0, 200);
+      return `${role}: ${text}`;
+    }).join('\n');
+
+    const resp = await client.chat.completions.create({
+      model: 'deepseek-chat',
+      max_tokens: 20,
+      temperature: 0,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a conversation title generator. Return ONLY a short title (2-6 words, no quotes, no punctuation at end) that describes what this conversation is about. Match the language of the conversation.',
+        },
+        { role: 'user', content: msgs },
+      ],
+    });
+
+    const raw = resp.choices?.[0]?.message?.content || '';
+    const title = raw.trim().replace(/^["']|["']$/g, '').slice(0, 60);
+    return title || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Smart context window management.
  * For long conversations, injects a compact summary of older turns so we
  * don't waste tokens while preserving recent context fully.
@@ -213,7 +252,7 @@ async function sendMessage(req, res) {
     sessions.set(sessionId, {
       id: sessionId,
       owner_id: req.user ? req.user.id : null,
-      title: generateTitle(message),
+      title: 'conv-' + sessionId.slice(-6),
       messages: [],
       tool_history: [], // Initialize empty tool history
       created_at: new Date().toISOString(),
@@ -229,11 +268,6 @@ async function sendMessage(req, res) {
   }
   // Stamp owner if it was missing (legacy session + authed user)
   if (req.user && !session.owner_id) session.owner_id = req.user.id;
-
-  // Auto-title from first user message
-  if (session.messages.filter(m => m.role === 'user').length === 0 && message) {
-    session.title = generateTitle(message);
-  }
 
   // Build user message — attachments are saved to disk and referenced by path
   // (DeepSeek models do not support image_url content type; vision is handled
@@ -338,6 +372,22 @@ async function sendMessage(req, res) {
         session.messages.push({ role: 'assistant', content: result.content });
         session.updated_at = new Date().toISOString();
         saveSession(session);
+
+        // After the 2nd exchange, auto-generate a descriptive title in background
+        const userTurns = session.messages.filter(m => m.role === 'user').length;
+        if (userTurns === 2) {
+          setImmediate(async () => {
+            try {
+              const newTitle = await autoGenerateTitle(session);
+              if (newTitle) {
+                session.title = newTitle;
+                session.updated_at = new Date().toISOString();
+                saveSession(session);
+                sendEvent(sessionId, { type: 'title_updated', title: newTitle, session_id: sessionId });
+              }
+            } catch {}
+          });
+        }
       }
 
       sendEvent(sessionId, {
@@ -624,16 +674,36 @@ function peekSessionOwner(sessionId) {
   return s.owner_id || null;
 }
 
-module.exports = { 
-  sendMessage, 
-  regenerate, 
-  listSessions, 
-  getSession, 
-  renameSession, 
-  deleteSession, 
-  peekSessionOwner, 
+async function triggerAutoTitle(req, res) {
+  const { sessionId } = req.params;
+  const session = sessions.get(sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  if (!canAccessSession(session, req.user)) return res.status(403).json({ error: 'Forbidden' });
+  res.json({ ok: true });
+  setImmediate(async () => {
+    try {
+      const newTitle = await autoGenerateTitle(session);
+      if (newTitle) {
+        session.title = newTitle;
+        session.updated_at = new Date().toISOString();
+        saveSession(session);
+        sendEvent(sessionId, { type: 'title_updated', title: newTitle, session_id: sessionId });
+      }
+    } catch {}
+  });
+}
+
+module.exports = {
+  sendMessage,
+  regenerate,
+  listSessions,
+  getSession,
+  renameSession,
+  deleteSession,
+  peekSessionOwner,
   linkGithubRepo,
   addToolToHistory,
   getToolStatistics,
-  formatToolHistoryForPrompt
+  formatToolHistoryForPrompt,
+  triggerAutoTitle,
 };

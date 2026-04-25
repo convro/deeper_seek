@@ -171,6 +171,9 @@ router.delete('/chat/sessions/:sessionId', chatController.deleteSession);
 // PATCH /api/chat/sessions/:sessionId/github — link / unlink GitHub repo
 router.patch('/chat/sessions/:sessionId/github', chatController.linkGithubRepo);
 
+// POST /api/chat/sessions/:sessionId/auto-title — trigger background AI title generation
+router.post('/chat/sessions/:sessionId/auto-title', chatController.triggerAutoTitle);
+
 // ── GitHub integration ───────────────────────────────────────────────────────
 
 // POST /api/github/oauth/begin — start OAuth flow, returns {url} to open in popup

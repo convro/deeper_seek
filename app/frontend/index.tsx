@@ -5,7 +5,7 @@ import React, {
 import { createRoot } from 'react-dom/client';
 
 import { DeeperSeekWS }   from './websocket';
-import { sendMessage, regenerateMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation, fetchUserSettings, saveUserSettings, listGithubRepos, linkGithubRepo } from './api';
+import { sendMessage, regenerateMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation, fetchUserSettings, saveUserSettings, listGithubRepos, linkGithubRepo, autoTitleConversation } from './api';
 import type { UserSettings, GithubRepo } from './api';
 import { SettingsModal } from './settings-modal';
 import { MessagesList, InputArea } from './chat';
@@ -506,6 +506,14 @@ function App() {
     ws.on('connected',    () => setWsConnected(true));
     ws.on('disconnected', () => setWsConnected(false));
 
+    ws.on('title_updated', (event) => {
+      if (event.title && event.session_id) {
+        setConversations(prev =>
+          prev.map(c => c.id === event.session_id ? { ...c, title: event.title } : c)
+        );
+      }
+    });
+
     ws.on('*', (event) => {
       // Don't pollute Tool Activity with heartbeat / streaming deltas /
       // reasoning snapshots (reasoning is already shown in the chain-of-thought)
@@ -867,7 +875,7 @@ function App() {
     setEvents([]);
     setConversations(prev => [{
       id,
-      title: 'New conversation',
+      title: id.slice(-7),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       message_count: 0,
@@ -1263,7 +1271,7 @@ function App() {
 
           {/* Center: current conversation name */}
           <div className="header-conv-name">
-            {activeConvTitle && activeConvTitle !== 'New conversation' ? activeConvTitle : ''}
+            {activeConvTitle && activeConvTitle.length > 7 ? activeConvTitle : ''}
           </div>
 
           {/* Right: GitHub repo badge + status */}

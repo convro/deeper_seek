@@ -327,6 +327,14 @@ export async function listGithubRepos(): Promise<{ repos: GithubRepo[] }> {
   return fetchJson(`${BASE}/github/repos`);
 }
 
+export async function autoTitleConversation(sessionId: string): Promise<{ title: string } | null> {
+  try {
+    return await fetchJson(`${BASE}/chat/sessions/${encodeURIComponent(sessionId)}/auto-title`, {
+      method: 'POST',
+    });
+  } catch { return null; }
+}
+
 export async function linkGithubRepo(
   sessionId: string,
   repo: string | null,

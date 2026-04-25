@@ -1,0 +1,114 @@
+# HARD RULES FOR FILE EDITING AND TOOL USAGE
+# Violation of these rules will result in broken code and broken trust.
+# These are non-negotiable. Follow them on every single operation.
+
+---
+
+## RULE 1: READ BEFORE YOU TOUCH — ALWAYS
+Before modifying ANY file, read it completely. Do not assume its contents.
+If the file is large, read it in sections. Never edit what you haven't seen.
+- BAD: "I'll add the function to chat.controller.js" (without reading it first)
+- GOOD: Read the file → understand its structure → then make a targeted edit
+
+## RULE 2: SURGICAL EDITS ONLY — NEVER OVERWRITE WHOLE FILES
+When editing a file, change ONLY what needs to change. Replace the specific
+string or section. Do not rewrite the entire file unless absolutely unavoidable.
+If you MUST rewrite a whole file: (a) read it completely first, (b) list every
+exported function/component/type, (c) verify ALL of them exist in the new version.
+- BAD: Rewriting chat.tsx and silently deleting InputArea, UserMessage, etc.
+- GOOD: Edit the 3 specific lines that need changing using patch/find-replace
+
+## RULE 3: VERIFY EXPORTS AFTER EVERY EDIT
+After editing any file that exports things, check:
+- Every export that existed before the edit still exists after
+- Named exports `export function X` are different from `export default X`
+- If other files import `{ X }` from this file, it MUST be a named export
+- Run `grep -n "export" <file>` before and after to compare
+
+## RULE 4: TYPESCRIPT FIELD NAMES — ALWAYS CHECK THE TYPE DEFINITION
+Before using any field on an object (e.g. `message.agent`, `att.url`),
+read the TypeScript interface/type definition file to verify the field exists.
+- The type `Attachment` has `localId`, NOT `id`. It has `previewUrl`, NOT `url`.
+- The type `ChatMessage` has `timestamp`, NOT `createdAt`. It has NO `agent` field.
+- When in doubt: read `state.ts` or wherever the type is defined.
+
+## RULE 5: REGEX LITERAL vs RegExp STRING — DIFFERENT ESCAPING RULES
+In a regex LITERAL `/pattern/`: one backslash escapes `\.` = matches literal dot.
+In `new RegExp("string")`: double backslash `\\.` = matches literal dot.
+NEVER put double backslashes `\\.` inside a regex literal — it will match `\` + any char.
+- WRONG: `const RE = /\\.(zip|pdf)$/i;`   ← double backslash in literal = bug
+- CORRECT: `const RE = /\.(zip|pdf)$/i;`  ← single backslash in literal
+
+## RULE 6: TYPESCRIPT INTERFACE BEFORE FIRST USE
+In TypeScript, an `interface` or `type` must be defined BEFORE the first place it is used.
+If a function signature references `interface Foo`, that interface must appear earlier in the file.
+Always check: if you use `AssistantActionsProps` in a function signature,
+does `interface AssistantActionsProps` appear above that function in the file?
+
+## RULE 7: GITHUB INTEGRATION — YOU DO NOT NEED TOKENS OR URLS
+When a GitHub repository and branch are already linked to a session via the UI,
+the MCP GitHub tools (`mcp__github__*`) work automatically within that repository scope.
+DO NOT:
+- Ask for GitHub tokens or PATs
+- Search for repository URLs
+- Wonder about raw GitHub API access
+- Ask the user to provide the repo path manually
+DO:
+- Use `mcp__github__get_file_contents`, `mcp__github__list_commits`, etc. directly
+- Trust that the repo context is already set up
+
+## RULE 8: UNDERSTAND EACH TOOL BEFORE USING IT
+Before calling any tool, know exactly: what it does, what parameters it requires,
+what it returns, and what it CANNOT do. Do not assume capabilities.
+- `mcp__github__get_file_contents` needs `owner`, `repo`, and optionally `sha` or `ref` — NOT a URL
+- `mcp__github__get_commit` with `include_diff: true` returns file diffs
+- `fs_write` with `mode: "patch"` does surgical replace — prefer this over full `"write"`
+Read the tool description before calling it. Incorrect tool usage wastes rounds.
+
+## RULE 9: NEVER HALLUCINATE TOOL CALLS OR RESULTS
+If the tool tracker shows a tool was NOT called, you did NOT call it.
+Do not narrate "I used web_search to find..." if the tracker is empty for web_search.
+Do not claim file operations succeeded without the tool result confirming it.
+The tracker is ground truth. Your memory is not.
+
+## RULE 10: ONE LOGICAL CHANGE PER COMMIT
+A commit must represent one coherent logical change. Do not mix:
+- A bug fix with a refactor
+- A feature with an unrelated cleanup
+- Working code with broken code
+Never commit code that fails TypeScript compilation or obviously breaks imports.
+Run `tsc --noEmit` before committing TypeScript files.
+
+## RULE 11: BRANCH DISCIPLINE — ALWAYS VERIFY BEFORE PUSH
+Before any `git push`, run `git branch` to confirm you are on the correct branch.
+Never push to `main` or `master` without explicit written permission from the user.
+When the task specifies a branch, develop on THAT branch exclusively.
+
+## RULE 12: CHECK ALL IMPORTS AFTER CHANGING EXPORTS
+When you rename, remove, or change the export style of a symbol, find every
+file that imports it and update those imports too. Use:
+`grep -rn "from './chat'" app/frontend/` to find all consumers.
+Changing `export function MessagesList` to `export default MessagesList`
+breaks every file that does `import { MessagesList } from './chat'`.
+
+## RULE 13: LARGE FILE STRATEGY — SECTION BY SECTION
+For files > 200 lines, never read them once and assume you have full context.
+When editing, re-read the specific section you're about to change, not just
+your memory of it. Files change between reads in multi-step operations.
+
+## RULE 14: SESSION AWARENESS — UNDERSTAND WHAT YOU HAVE ACCESS TO
+At the start of each task, identify:
+- Which repository and branch you're working on
+- Which tools are available (read the tool registry if unsure)
+- What files you're allowed to modify
+- Whether the GitHub repo is already linked (check session context)
+Do not re-discover these facts mid-task; establish them upfront.
+
+## RULE 15: SUB-AGENT CONTEXT ISOLATION
+Sub-agents start with ZERO knowledge of the parent session.
+When spawning a sub-agent, you MUST pass all necessary context:
+- Current job_id and workspace path
+- Relevant file paths and their current state
+- Specific task description and expected output format
+- Which tools are available to it
+A sub-agent cannot read your mind. Treat it like a new employee starting fresh.
