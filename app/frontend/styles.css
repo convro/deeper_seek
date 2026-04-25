@@ -1,26 +1,26 @@
 /* ── Design tokens ───────────────────────────────────────────────────────── */
 :root {
-  /* Backgrounds */
-  --bg:       #0a0c10;
-  --bg2:      #0f1117;
-  --bg3:      #161b22;
-  --bg4:      #1c2128;
-  --bg5:      #21262d;
+  /* Backgrounds — deep navy */
+  --bg:       #070b18;
+  --bg2:      #0b1020;
+  --bg3:      #111827;
+  --bg4:      #172035;
+  --bg5:      #1d2840;
 
   /* Borders */
-  --border:   #2d333b;
-  --border2:  #1c2128;
+  --border:   #1e2d45;
+  --border2:  #141e30;
 
   /* Text */
-  --text:     #e6edf3;
-  --text2:    #8b949e;
-  --text3:    #484f58;
-  --text4:    #30363d;
+  --text:     #e2eaf4;
+  --text2:    #8494a8;
+  --text3:    #435060;
+  --text4:    #2a3848;
 
-  /* Accent — vivid blue */
-  --accent:   #4d9ef5;
-  --accent2:  #1a6fdb;
-  --accent-glow: rgba(77, 158, 245, 0.18);
+  /* Accent — indigo */
+  --accent:   #6366f1;
+  --accent2:  #4f46e5;
+  --accent-glow: rgba(99, 102, 241, 0.18);
 
   /* Status */
   --green:    #2ea043;
@@ -34,7 +34,7 @@
 
   /* Sizes */
   --sidebar-width: 260px;
-  --header-h:      50px;
+  --header-h:      60px;
   --radius:        10px;
   --radius-sm:     6px;
   --radius-lg:     14px;
@@ -112,7 +112,7 @@ img { max-width: 100%; }
 }
 @keyframes letterColorCycle {
   0%   { color: #a78bfa; }  /* purple */
-  25%  { color: #4d9ef5; }  /* blue */
+  25%  { color: #6366f1; }  /* indigo */
   50%  { color: #ef4444; }  /* red */
   75%  { color: #f59e0b; }  /* gold */
   100% { color: #a78bfa; }  /* purple */
@@ -528,8 +528,8 @@ img { max-width: 100%; }
   content: '';
   position: absolute;
   bottom: 0; left: 0; right: 0;
-  height: 56px;
-  background: linear-gradient(to top, var(--bg), transparent);
+  height: 64px;
+  background: linear-gradient(to top, var(--bg) 30%, transparent);
   pointer-events: none;
   z-index: 1;
 }
@@ -621,7 +621,10 @@ img { max-width: 100%; }
 .msg-row {
   display: flex;
   padding: 4px 0;
-  max-width: 100%;
+  max-width: 780px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .msg-row-user {
@@ -636,18 +639,18 @@ img { max-width: 100%; }
 
 /* ── User bubble ─────────────────────────────────────────────────────────── */
 .msg-user-bubble {
-  max-width: min(80%, 680px);
-  /* Soft dark-toned bubble — no more electric blue */
-  background: linear-gradient(145deg, #1e2535, #1a2040);
-  border: 1px solid rgba(77, 158, 245, 0.18);
+  max-width: min(80%, 640px);
+  background: linear-gradient(145deg, #1a2240, #141c38);
+  border: 1px solid rgba(99, 102, 241, 0.22);
   color: var(--text);
   padding: 10px 16px;
-  border-radius: 18px;
+  border-radius: 16px 16px 4px 16px;
   font-size: 15px;
   line-height: 1.6;
-  box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
   user-select: text;
   -webkit-user-select: text;
+  -webkit-touch-callout: none;
 }
 .msg-user-text {
   white-space: pre-wrap;
@@ -749,6 +752,7 @@ img { max-width: 100%; }
   flex: 1;
   min-width: 0;
   max-width: 760px;
+  -webkit-touch-callout: none;
 }
 
 .msg-thinking-row {
@@ -929,6 +933,12 @@ img { max-width: 100%; }
   flex-shrink: 0;
   position: relative;
   z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Force GPU layer so iOS doesn't repaint/jump when keyboard opens */
+  transform: translateZ(0);
+  will-change: padding;
 }
 
 /* When iOS keyboard is open the home-indicator safe area is behind the
@@ -946,6 +956,8 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   gap: 8px;
   margin-bottom: 8px;
   padding: 0 2px;
+  max-width: 780px;
+  width: 100%;
 }
 
 .input-att-chip {
@@ -999,6 +1011,8 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   border-radius: 22px;
   padding: 6px 8px 6px 6px;
   transition: border-color 0.15s, box-shadow 0.15s;
+  max-width: 780px;
+  width: 100%;
 }
 .input-row:focus-within {
   border-color: var(--accent);
@@ -1307,7 +1321,7 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   gap: 6px;
   background: var(--bg3);
   color: var(--accent);
-  border: 1px solid rgba(77, 158, 245, 0.22);
+  border: 1px solid rgba(99, 102, 241, 0.22);
   border-radius: 8px;
   padding: 5px 12px;
   font-size: 12px;
@@ -1826,7 +1840,7 @@ body.keyboard-open .messages-wrapper::after { display: none; }
 
   /* ── Header — clean & airy ── */
   .app-header {
-    height: 56px;
+    height: 52px;
     padding: 0 10px;
     gap: 6px;
   }
@@ -2223,7 +2237,7 @@ body.keyboard-open .auth-card {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #4d9ef5 0%, #a371f7 100%);
+  background: linear-gradient(135deg, #6366f1 0%, #a371f7 100%);
   color: #fff;
   font-size: 13px;
   font-weight: 700;
@@ -2231,7 +2245,7 @@ body.keyboard-open .auth-card {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 2px 6px rgba(77, 158, 245, 0.3);
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
 }
 .user-trigger-text {
   flex: 1;
@@ -3099,7 +3113,7 @@ body.keyboard-open .auth-card {
 }
 .gh-repo-item:hover { background: var(--bg4); }
 .gh-repo-item.selected {
-  background: rgba(77, 158, 245, 0.1);
+  background: rgba(99, 102, 241, 0.1);
   border-color: var(--accent);
 }
 .gh-repo-name {
