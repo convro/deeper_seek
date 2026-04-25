@@ -3323,3 +3323,110 @@ body.keyboard-open .auth-card {
   border-radius: 6px;
   padding: 6px 10px;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PWA INSTALL GATE  (shown on mobile browsers when not in standalone mode)
+══════════════════════════════════════════════════════════════════════════ */
+.pwa-install-screen {
+  min-height: 100dvh;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.pwa-install-card {
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+.pwa-install-logo {
+  font-size: 72px;
+  line-height: 1;
+  margin-bottom: 16px;
+}
+.pwa-install-title {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0 0 8px;
+  letter-spacing: -0.5px;
+}
+.pwa-install-sub {
+  font-size: 15px;
+  color: var(--text3);
+  margin: 0 0 32px;
+  line-height: 1.5;
+}
+.pwa-install-steps {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+.pwa-install-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 14px;
+  color: var(--text2);
+  line-height: 1.45;
+}
+.pwa-install-step strong { color: var(--text); }
+.pwa-step-num {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+.pwa-icon {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 6px;
+  padding: 0 4px;
+  font-size: 12px;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+.pwa-install-hint {
+  font-size: 12px;
+  color: var(--text3);
+  margin: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PWA STANDALONE — fix input bar safe area (home indicator only, no extra)
+══════════════════════════════════════════════════════════════════════════ */
+@media (display-mode: standalone) {
+  .input-area {
+    padding-bottom: env(safe-area-inset-bottom, 8px);
+  }
+  body.keyboard-open .input-area {
+    padding-bottom: 4px;
+  }
+  /* Also suppress :focus-within override on mobile */
+  .input-area:focus-within {
+    padding-bottom: env(safe-area-inset-bottom, 4px);
+  }
+}

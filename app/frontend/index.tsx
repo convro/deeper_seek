@@ -1316,12 +1316,6 @@ function App() {
                   liveAgents={liveAgents}
                 />
               </div>
-              <EventsDrawer
-                events={events}
-                open={eventsOpen}
-                onToggle={() => setEventsOpen(o => !o)}
-                processing={processing}
-              />
               <InputArea
                 onSend={handleSend}
                 disabled={processing}
@@ -1354,5 +1348,70 @@ function App() {
   );
 }
 
+// ── PWA gate — mobile browsers only ──────────────────────────────────────
+function isMobileDevice(): boolean {
+  return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+function isPWAStandalone(): boolean {
+  return window.matchMedia('(display-mode: standalone)').matches
+    || (window.navigator as any).standalone === true;
+}
+
+function PWAInstallScreen() {
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  return (
+    <div className="pwa-install-screen">
+      <div className="pwa-install-card">
+        <div className="pwa-install-logo">🧠</div>
+        <h1 className="pwa-install-title">DeeperSeek</h1>
+        <p className="pwa-install-sub">
+          Add the app to your home screen to continue.
+        </p>
+        <div className="pwa-install-steps">
+          {isIOS ? (
+            <>
+              <div className="pwa-install-step">
+                <span className="pwa-step-num">1</span>
+                <span>Tap the <strong>Share</strong> button <span className="pwa-icon">⬆</span> at the bottom of Safari</span>
+              </div>
+              <div className="pwa-install-step">
+                <span className="pwa-step-num">2</span>
+                <span>Scroll down and tap <strong>"Add to Home Screen"</strong></span>
+              </div>
+              <div className="pwa-install-step">
+                <span className="pwa-step-num">3</span>
+                <span>Tap <strong>"Add"</strong> — then open DeeperSeek from your home screen</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="pwa-install-step">
+                <span className="pwa-step-num">1</span>
+                <span>Tap <strong>⋮ Menu</strong> in your browser</span>
+              </div>
+              <div className="pwa-install-step">
+                <span className="pwa-step-num">2</span>
+                <span>Tap <strong>"Add to Home screen"</strong> or <strong>"Install app"</strong></span>
+              </div>
+              <div className="pwa-install-step">
+                <span className="pwa-step-num">3</span>
+                <span>Open DeeperSeek from your home screen</span>
+              </div>
+            </>
+          )}
+        </div>
+        <p className="pwa-install-hint">
+          The app runs faster and feels native when installed.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Mount ─────────────────────────────────────────────────────────────────
-createRoot(document.getElementById('root')!).render(<App />);
+const rootEl = document.getElementById('root')!;
+const isMobile  = isMobileDevice();
+const isStandalone = isPWAStandalone();
+createRoot(rootEl).render(
+  isMobile && !isStandalone ? <PWAInstallScreen /> : <App />
+);
