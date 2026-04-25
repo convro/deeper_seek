@@ -89,48 +89,35 @@ async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
   // are attributed to the right GitHub account, not the server's global config.
   // GIT_AUTHOR_* / GIT_COMMITTER_* env vars have the highest priority in git —
   // they override any gitconfig, so even `git commit` called via run_bash works.
+  //
+  // IDENTITY SPLIT:
+  //   • GITHUB_TOKEN     → user's own PAT (authentication for push/pull to their repos)
+  //   • GIT_AUTHOR_*     → always the DeeperSeek bot account (deeperseeklabs / ID 202067617)
+  //                        set via DEEPERSEEK_BOT_GITHUB_USERNAME / _USER_ID / _NAME in .env
+  //
+  // This means every AI-generated commit appears under the deeperseeklabs GitHub
+  // profile (with its avatar + contributor graph) regardless of which user is active.
+  const BOT_USERNAME = process.env.DEEPERSEEK_BOT_GITHUB_USERNAME || 'deeperseeklabs';
+  const BOT_USER_ID  = process.env.DEEPERSEEK_BOT_GITHUB_USER_ID  || '202067617';
+  const BOT_NAME     = process.env.DEEPERSEEK_BOT_GITHUB_NAME     || 'DeeperSeek-v73.5';
+  const botNoreply   = `${BOT_USER_ID}+${BOT_USERNAME}@users.noreply.github.com`;
+
+  // Always set bot commit identity (highest git priority, overrides any gitconfig).
+  subEnv.GITHUB_USERNAME      = BOT_USERNAME;
+  subEnv.GITHUB_USER_ID       = BOT_USER_ID;
+  subEnv.GITHUB_NAME          = BOT_NAME;
+  subEnv.GIT_AUTHOR_NAME      = BOT_NAME;
+  subEnv.GIT_COMMITTER_NAME   = BOT_NAME;
+  subEnv.GIT_AUTHOR_EMAIL     = botNoreply;
+  subEnv.GIT_COMMITTER_EMAIL  = botNoreply;
+
   if (context.ownerId) {
     try {
       const soulSvc = require('./soul.service');
       const gs = soulSvc.getUserSettings(context.ownerId);
       if (gs.github_pat) {
+        // User token — used only for authentication (push/pull), NOT for commit identity.
         subEnv.GITHUB_TOKEN = String(gs.github_pat);
-
-        let username = gs.github_username || '';
-        let userId   = gs.github_user_id  || '';
-        let name     = gs.github_name     || '';
-
-        // If user_id is missing (soul file predates this field, or OAuth ran
-        // before the server was updated), fetch once from the GitHub API and
-        // persist so subsequent calls are free.
-        if (!userId) {
-          const info = await _fetchGhIdentity(gs.github_pat);
-          if (info) {
-            username = username || info.login;
-            userId   = info.id;
-            name     = name || info.name;
-            // Persist so future calls skip the API
-            soulSvc.saveUserSettings(context.ownerId, {
-              github_user_id: userId,
-              github_name:    name || username,
-            });
-          }
-        }
-
-        name = name || username;
-        if (username) subEnv.GITHUB_USERNAME = username;
-        if (userId)   subEnv.GITHUB_USER_ID  = userId;
-        if (name)     subEnv.GITHUB_NAME     = name;
-
-        // GIT_AUTHOR_* / GIT_COMMITTER_* — work for every git call in the
-        // subprocess tree, including bare `git commit` via run_bash.
-        if (username && userId) {
-          const noreply = `${userId}+${username}@users.noreply.github.com`;
-          subEnv.GIT_AUTHOR_NAME    = name;
-          subEnv.GIT_COMMITTER_NAME = name;
-          subEnv.GIT_AUTHOR_EMAIL   = noreply;
-          subEnv.GIT_COMMITTER_EMAIL = noreply;
-        }
       }
     } catch {}
   }
