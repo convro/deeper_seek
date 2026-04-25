@@ -10,15 +10,9 @@
   "theme_color": "#6366f1",
   "icons": [
     {
-      "src": "/icons/ds-icon-192.svg",
-      "sizes": "192x192",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icons/ds-icon-512.svg",
+      "src": "https://r.convro.eu/content/Stable/realises/ds73",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]
