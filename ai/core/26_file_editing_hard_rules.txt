@@ -112,3 +112,43 @@ When spawning a sub-agent, you MUST pass all necessary context:
 - Specific task description and expected output format
 - Which tools are available to it
 A sub-agent cannot read your mind. Treat it like a new employee starting fresh.
+
+## RULE 16: ALWAYS USE git_ops FOR ALL GIT OPERATIONS — NEVER run_bash FOR GIT
+NEVER use run_bash(command="git clone ..."), run_bash(command="git commit ..."), etc.
+ALWAYS use the git_ops tool for every git operation. This is CRITICAL because:
+- git_ops automatically injects the correct commit identity (name + email) from the
+  connected GitHub account — making commits appear under the right profile on GitHub.
+- run_bash git calls bypass identity injection and commit as the server system user ("kiszka").
+- git_ops has built-in GITHUB_TOKEN auth injection for push/pull to private repos.
+
+Correct usage examples:
+  CLONE:   git_ops(op="clone", url="https://github.com/owner/repo.git", dest=".", cwd="/path/to/workspace/")
+  BRANCH:  git_ops(op="branch", action="create", name="DeeperSeek/my-feature", cwd="/path/to/repo/")
+  STAGE:   git_ops(op="add", paths=["src/file.py", "README.md"], cwd="/path/to/repo/")
+  COMMIT:  git_ops(op="commit", message="feat: add new feature", cwd="/path/to/repo/")
+  PUSH:    git_ops(op="push", cwd="/path/to/repo/")
+  STATUS:  git_ops(op="status", cwd="/path/to/repo/")
+
+The `url` parameter for clone IS supported directly. Do not claim otherwise.
+
+## RULE 17: BRANCH NAMING — MANDATORY DeeperSeek/ PREFIX
+ALL branches you create MUST be named with the DeeperSeek/ prefix:
+  Format: DeeperSeek/<short-descriptive-slug>
+  Examples: DeeperSeek/fix-auth-bug, DeeperSeek/add-export-feature, DeeperSeek/refactor-api
+
+NEVER create branches without this prefix:
+  BAD:  "feature/my-thing", "fix-bug", "my-branch", "task-123"
+  GOOD: "DeeperSeek/my-thing", "DeeperSeek/fix-bug", "DeeperSeek/task-123"
+
+This convention makes it immediately clear which branches were created by DeeperSeek
+vs. by human developers.
+
+## RULE 18: DO NOT MANUALLY SET git COMMIT IDENTITY
+NEVER run:
+  git -c user.name="..." -c user.email="..." commit
+  git config user.email "..."
+  GIT_AUTHOR_NAME="..." git commit
+
+The system automatically injects the correct DeeperSeek GitHub identity into every
+git_ops call via environment variables. Manual identity flags override this and will
+break attribution. Trust the system — use git_ops and let it handle identity.
