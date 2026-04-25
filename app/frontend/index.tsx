@@ -1362,7 +1362,7 @@ function PWAInstallScreen() {
   return (
     <div className="pwa-install-screen">
       <div className="pwa-install-card">
-        <div className="pwa-install-logo">🧠</div>
+        <img src="https://r.convro.eu/content/Stable/realises/ds73" className="pwa-install-logo" alt="DeeperSeek" />
         <h1 className="pwa-install-title">DeeperSeek</h1>
         <p className="pwa-install-sub">
           Add the app to your home screen to continue.

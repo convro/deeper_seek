@@ -3347,8 +3347,10 @@ body.keyboard-open .auth-card {
   gap: 0;
 }
 .pwa-install-logo {
-  font-size: 72px;
-  line-height: 1;
+  width: 96px;
+  height: 96px;
+  border-radius: 22px;
+  object-fit: contain;
   margin-bottom: 16px;
 }
 .pwa-install-title {
@@ -3416,17 +3418,21 @@ body.keyboard-open .auth-card {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   PWA STANDALONE — fix input bar safe area (home indicator only, no extra)
+   PWA STANDALONE — tighten layout to phone chrome
+   status-bar-style=black means content starts below status bar, so no
+   safe-area-inset-top hacks are needed — only bottom needs tuning.
 ══════════════════════════════════════════════════════════════════════════ */
 @media (display-mode: standalone) {
+  /* Input bar: small 4px base + home indicator inset (was 20px base — too much) */
   .input-area {
-    padding-bottom: env(safe-area-inset-bottom, 8px);
+    padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
   }
-  body.keyboard-open .input-area {
+  body.keyboard-open .input-area,
+  .input-area:focus-within {
     padding-bottom: 4px;
   }
-  /* Also suppress :focus-within override on mobile */
-  .input-area:focus-within {
-    padding-bottom: env(safe-area-inset-bottom, 4px);
+  /* Sidebar bottom tab strip: clear home indicator */
+  .sidebar-tabs {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   }
 }
