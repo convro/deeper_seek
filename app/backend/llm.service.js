@@ -227,7 +227,7 @@ async function runAgentLoop({
     ...messages,
   ];
 
-  let totalUsage = { prompt_tokens: 0, completion_tokens: 0 };
+  let totalUsage = { prompt_tokens: 0, completion_tokens: 0, cache_hit_tokens: 0, model: selectedModel };
   let rounds = 0;
   const loopDeadline = Date.now() + LOOP_TIMEOUT_MS;
   const recentToolSignatures = [];
@@ -307,6 +307,7 @@ async function runAgentLoop({
           if (chunk.usage) {
             totalUsage.prompt_tokens     += chunk.usage.prompt_tokens     || 0;
             totalUsage.completion_tokens += chunk.usage.completion_tokens || 0;
+            totalUsage.cache_hit_tokens  += chunk.usage.prompt_cache_hit_tokens || 0;
           }
 
           const choice = chunk.choices?.[0];

@@ -8,7 +8,7 @@ import { DeeperSeekWS }   from './websocket';
 import { sendMessage, regenerateMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation, fetchUserSettings, saveUserSettings, listGithubRepos, linkGithubRepo, autoTitleConversation } from './api';
 import type { UserSettings, GithubRepo } from './api';
 import { SettingsModal } from './settings-modal';
-import { MessagesList, InputArea } from './chat';
+import { MessagesList, InputArea, calcMsgCost } from './chat';
 import { StatusDot, Spinner } from './components';
 import { Workspace } from './workspace';
 import { useAuth, AuthScreen, UserMenu } from './auth';
@@ -196,6 +196,7 @@ interface SidebarProps {
   onRename: (id: string, title: string) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
   onTabChange: (tab: Tab) => void;
+  onLogoClick?: () => void;
   loading: boolean;
   userMenu?: React.ReactNode;
 }
@@ -220,7 +221,7 @@ const TAB_DEFS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 ];
 
 function Sidebar({
-  conversations, activeId, activeTab, onSelect, onNew, onDelete, onRename, onTogglePin, onTabChange, loading, userMenu,
+  conversations, activeId, activeTab, onSelect, onNew, onDelete, onRename, onTogglePin, onTabChange, onLogoClick, loading, userMenu,
 }: SidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle,  setEditTitle]  = useState('');
@@ -291,7 +292,7 @@ function Sidebar({
     <div className="sidebar">
       {/* Header */}
       <div className="sidebar-header">
-        <div className="sidebar-logo">
+        <div className="sidebar-logo" onClick={onLogoClick} style={{ cursor: onLogoClick ? 'pointer' : 'default' }}>
           <img src={LOGO_URL} alt="DeeperSeek" className="sidebar-logo-img" />
           <span className="sidebar-logo-text">DeeperSeek</span>
         </div>
@@ -429,6 +430,173 @@ function ConvItem({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Session Info Panel ────────────────────────────────────────────────────
+const DIRTY_JOKES = [
+  'Dlaczego programiści lubią pozycję 69? Bo w 96 też działa. 🔄',
+  'Co robi kelner po seksie? Pyta: czy dodam coś jeszcze? 😏',
+  'Jaką wspólną cechę ma seks i IT? Im dłużej ładuje, tym większe oczekiwania. 💻',
+  'Co mają wspólnego penis i dobry kod? Większość ludzi udaje, że nie zależy im na rozmiarze. 📏',
+  'Dlaczego seks jest jak pull request? Zawsze czekasz na review, a na koniec i tak coś się merguje. 🔀',
+  'Co powiedział programista do dziewczyny? Masz piękne… interfejsy. 👾',
+  'Dlaczego AI jest jak dobry kochanek? Im więcej parametrów, tym lepsze wyniki. 🤖',
+];
+
+const PRICING_SESSION: Record<string, { input: number; cached: number; output: number }> = {
+  'deepseek-v4-flash': { input: 0.14,  cached: 0.028, output: 0.28  },
+  'deepseek-v4-pro':   { input: 1.74,  cached: 0.145, output: 3.48  },
+  default:             { input: 0.14,  cached: 0.028, output: 0.28  },
+};
+
+function rawMsgCost(u: NonNullable<ChatMessage['usage']>): number {
+  const p = PRICING_SESSION[u.model ?? ''] ?? PRICING_SESSION.default;
+  const hit  = u.cache_hit_tokens ?? 0;
+  const miss = Math.max(0, u.prompt_tokens - hit);
+  return (miss * p.input + hit * p.cached + u.completion_tokens * p.output) / 1_000_000;
+}
+
+function fmtUsd(v: number): string {
+  if (v < 0.0001) return '<$0.0001';
+  return '$' + v.toFixed(4);
+}
+
+interface SessionInfoPanelProps {
+  open: boolean;
+  onClose: () => void;
+  convTitle: string;
+  messages: ChatMessage[];
+  tokenReduction: boolean;
+  onToggleTokenReduction: (v: boolean) => void;
+}
+
+function SessionInfoPanel({
+  open, onClose, convTitle, messages, tokenReduction, onToggleTokenReduction,
+}: SessionInfoPanelProps) {
+  const [eggClicks, setEggClicks] = useState(0);
+  const [wobbling,  setWobbling]  = useState(false);
+  const [broken,    setBroken]    = useState(false);
+  const [joke,      setJoke]      = useState('');
+  const wobbleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open) {
+      setEggClicks(0);
+      setBroken(false);
+      setWobbling(false);
+    }
+  }, [open]);
+
+  const usageMsgs    = messages.filter(m => m.usage);
+  const totalCost    = usageMsgs.reduce((acc, m) => acc + rawMsgCost(m.usage!), 0);
+  const lastUsageMsg = usageMsgs[usageMsgs.length - 1];
+  const lastCost     = lastUsageMsg ? rawMsgCost(lastUsageMsg.usage!) : null;
+  const totalPrompt  = usageMsgs.reduce((a, m) => a + (m.usage?.prompt_tokens ?? 0), 0);
+  const totalOutput  = usageMsgs.reduce((a, m) => a + (m.usage?.completion_tokens ?? 0), 0);
+  const totalCached  = usageMsgs.reduce((a, m) => a + (m.usage?.cache_hit_tokens ?? 0), 0);
+
+  const handleEggClick = () => {
+    const next = eggClicks + 1;
+    setEggClicks(next);
+    if (wobbleTimer.current) clearTimeout(wobbleTimer.current);
+    setWobbling(true);
+    wobbleTimer.current = setTimeout(() => setWobbling(false), 450);
+    if (next >= 7 && !broken) {
+      setBroken(true);
+      setJoke(DIRTY_JOKES[Math.floor(Math.random() * DIRTY_JOKES.length)]);
+    }
+  };
+
+  if (!open) return null;
+
+  const eggLabel = broken ? '💥' : eggClicks === 0 ? 'click me' : eggClicks < 5 ? `${7 - eggClicks}×` : '🔨';
+
+  return (
+    <div className="session-panel-backdrop" onClick={onClose}>
+      <div className="session-panel" onClick={e => e.stopPropagation()}>
+        <div className="session-panel-handle" />
+        <button className="session-panel-close" onClick={onClose}>✕</button>
+
+        <div className="session-panel-body">
+
+          {/* Conversation title */}
+          <div className="session-panel-section">
+            <div className="session-panel-label">Rozmowa</div>
+            <div className="session-panel-title">{convTitle || '—'}</div>
+          </div>
+
+          {/* Token Reduction Mode toggle */}
+          <div className="session-panel-section session-panel-row">
+            <div className="session-panel-row-text">
+              <div className="session-panel-label">Token Reduction Mode</div>
+              <div className="session-panel-sub">Skraca historię żeby zmieścić więcej w jednym wywołaniu</div>
+            </div>
+            <button
+              className={`session-toggle ${tokenReduction ? 'on' : ''}`}
+              onClick={() => onToggleTokenReduction(!tokenReduction)}
+              aria-label="Toggle token reduction"
+            >
+              <span className="session-toggle-knob" />
+            </button>
+          </div>
+
+          {/* Cost cards */}
+          <div className="session-panel-section session-cost-grid">
+            <div className="session-cost-card">
+              <div className="session-cost-label">Koszt rozmowy</div>
+              <div className="session-cost-val">{fmtUsd(totalCost)}</div>
+            </div>
+            <div className="session-cost-card">
+              <div className="session-cost-label">Ostatnia wiadomość</div>
+              <div className="session-cost-val">{lastCost !== null ? fmtUsd(lastCost) : '—'}</div>
+            </div>
+          </div>
+
+          {/* Token breakdown */}
+          <div className="session-panel-section session-tok-row">
+            <span className="session-tok-item">↑ {totalPrompt.toLocaleString()} in</span>
+            {totalCached > 0 && (
+              <span className="session-tok-item tok-cached-badge">✦ {totalCached.toLocaleString()} cache</span>
+            )}
+            <span className="session-tok-item">↓ {totalOutput.toLocaleString()} out</span>
+          </div>
+
+          {/* Easter egg */}
+          <div className="session-egg-wrap">
+            {!broken ? (
+              <div
+                className={`session-egg${wobbling ? ' session-egg-wobble' : ''}`}
+                onClick={handleEggClick}
+                role="button"
+                tabIndex={0}
+              >
+                <span className="session-egg-label">{eggLabel}</span>
+                {eggClicks > 0 && (
+                  <div className="session-egg-cracks">
+                    {Array.from({ length: Math.min(eggClicks, 6) }).map((_, i) => (
+                      <div key={i} className={`crack crack-${i}`} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="session-egg-broken">
+                <div className="session-egg-joke">{joke}</div>
+              </div>
+            )}
+          </div>
+
+        </div>
+      </div>
     </div>
   );
 }
@@ -1112,6 +1280,10 @@ function App() {
     }
   }, [authActions]);
 
+  // ── Session info panel ────────────────────────────────────────────────
+  const [showSessionPanel, setShowSessionPanel] = useState(false);
+  const [tokenReduction,   setTokenReduction]   = useState(false);
+
   // ── Settings modal ────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
   const [userSettings, setUserSettings] = useState<UserSettings>({ extended_thinking: true, agent_extended_thinking: true, use_pro_model: false });
@@ -1201,6 +1373,7 @@ function App() {
           onRename={handleRename}
           onTogglePin={handleTogglePin}
           onTabChange={handleTabChange}
+          onLogoClick={activeTab === 'chat' ? () => setShowSessionPanel(true) : undefined}
           loading={convsLoading}
           userMenu={userMenu}
         />
@@ -1218,6 +1391,7 @@ function App() {
           onRename={handleRename}
           onTogglePin={handleTogglePin}
           onTabChange={handleTabChange}
+          onLogoClick={activeTab === 'chat' ? () => setShowSessionPanel(true) : undefined}
           loading={convsLoading}
           userMenu={userMenu}
         />
@@ -1250,7 +1424,7 @@ function App() {
             </button>
 
             {/* Logo (visible on mobile when sidebar is closed) */}
-            <div className="header-logo-mobile">
+            <div className="header-logo-mobile" onClick={() => activeTab === 'chat' && setShowSessionPanel(true)} style={{ cursor: activeTab === 'chat' ? 'pointer' : 'default' }}>
               <img src={LOGO_URL} alt="DeeperSeek" className="header-logo-img" />
               <span className="header-logo-text">
                 {'DeeperSeek'.split('').map((ch, i) => (
@@ -1316,6 +1490,17 @@ function App() {
           {activeTab === 'workspace' && <Workspace />}
         </main>
       </div>
+
+      {showSessionPanel && (
+        <SessionInfoPanel
+          open={showSessionPanel}
+          onClose={() => setShowSessionPanel(false)}
+          convTitle={activeConvTitle}
+          messages={messages}
+          tokenReduction={tokenReduction}
+          onToggleTokenReduction={setTokenReduction}
+        />
+      )}
 
       {showSettings && (
         <SettingsModal

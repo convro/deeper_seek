@@ -3434,3 +3434,340 @@ body.keyboard-open .auth-card {
     padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SESSION INFO PANEL
+══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Backdrop ─────────────────────────────────────────────────────────── */
+.session-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: rgba(5, 8, 18, 0.45);
+  backdrop-filter: blur(6px) brightness(0.5);
+  -webkit-backdrop-filter: blur(6px) brightness(0.5);
+  display: flex;
+  align-items: flex-end;
+  animation: sessionBackdropIn 0.22s ease;
+}
+
+@keyframes sessionBackdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Panel sheet ─────────────────────────────────────────────────────── */
+.session-panel {
+  position: relative;
+  width: 100%;
+  max-width: 700px;
+  margin: 0 auto;
+  height: 75vh;
+  max-height: 75vh;
+  background: var(--bg2);
+  border-radius: 22px 22px 0 0;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  box-shadow: 0 -6px 48px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: sessionPanelIn 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@keyframes sessionPanelIn {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0);    }
+}
+
+/* drag handle */
+.session-panel-handle {
+  width: 44px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 12px auto 0;
+  flex-shrink: 0;
+}
+
+/* close button */
+.session-panel-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg4);
+  border: 1px solid var(--border);
+  color: var(--red);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  z-index: 2;
+}
+.session-panel-close:hover {
+  background: var(--red-dim);
+}
+
+/* ── Scrollable body ─────────────────────────────────────────────────── */
+.session-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── Section blocks ──────────────────────────────────────────────────── */
+.session-panel-section {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border2);
+}
+.session-panel-section:last-child {
+  border-bottom: none;
+}
+
+.session-panel-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-bottom: 6px;
+}
+
+.session-panel-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.session-panel-sub {
+  font-size: 12px;
+  color: var(--text3);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+/* ── Toggle row ──────────────────────────────────────────────────────── */
+.session-panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.session-panel-row-text { flex: 1; }
+
+.session-toggle {
+  width: 50px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--bg4);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  position: relative;
+  flex-shrink: 0;
+  padding: 0;
+}
+.session-toggle.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.session-toggle-knob {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  transition: left 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+}
+.session-toggle.on .session-toggle-knob {
+  left: 25px;
+}
+
+/* ── Cost cards ──────────────────────────────────────────────────────── */
+.session-cost-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.session-cost-card {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+.session-cost-label {
+  font-size: 11px;
+  color: var(--text3);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.session-cost-val {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  font-family: var(--mono);
+  letter-spacing: -0.5px;
+}
+
+/* ── Token breakdown row ─────────────────────────────────────────────── */
+.session-tok-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border2);
+}
+.session-tok-item {
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--text2);
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 3px 8px;
+}
+.tok-cached-badge {
+  color: var(--purple);
+  border-color: var(--purple-dim);
+  background: var(--purple-dim);
+}
+
+/* msg-meta token/cost styles */
+.tok-cached { color: var(--purple); font-size: 11px; }
+.tok-cost   { color: var(--text3);  font-size: 11px; }
+
+/* ── Easter egg ──────────────────────────────────────────────────────── */
+.session-egg-wrap {
+  margin-top: auto;
+  padding-top: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.session-egg {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: var(--bg3);
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+  animation: eggPulse 2s ease-in-out infinite;
+  transition: border-color 0.2s;
+}
+.session-egg:hover {
+  border-color: var(--accent);
+}
+
+.session-egg-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2);
+  text-align: center;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes eggPulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow);  opacity: 1;    transform: scale(1);    }
+  50%       { box-shadow: 0 0 16px 6px var(--accent-glow); opacity: 0.8; transform: scale(0.96); }
+}
+
+@keyframes eggWobble {
+  0%   { transform: rotate(0deg)  scale(1.08); }
+  18%  { transform: rotate(-6deg) scale(1.1);  }
+  36%  { transform: rotate(6deg)  scale(1.07); }
+  54%  { transform: rotate(-4deg) scale(1.04); }
+  72%  { transform: rotate(3deg)  scale(1.02); }
+  90%  { transform: rotate(-1deg) scale(1.01); }
+  100% { transform: rotate(0deg)  scale(1);    }
+}
+
+.session-egg-wobble {
+  animation: eggWobble 0.45s ease-out, eggPulse 2s ease-in-out 0.45s infinite;
+}
+
+/* crack lines — purely CSS pseudo-elements */
+.session-egg-cracks { position: absolute; inset: 0; pointer-events: none; }
+.crack {
+  position: absolute;
+  background: var(--border);
+  border-radius: 2px;
+  transform-origin: center;
+}
+.crack-0 { width: 2px; height: 28px; top: 14px; left: 46px; transform: rotate(12deg); }
+.crack-1 { width: 2px; height: 20px; top: 28px; left: 28px; transform: rotate(-22deg); }
+.crack-2 { width: 2px; height: 22px; top: 30px; left: 62px; transform: rotate(30deg); }
+.crack-3 { width: 2px; height: 18px; top: 50px; left: 38px; transform: rotate(-8deg); }
+.crack-4 { width: 2px; height: 24px; top: 44px; left: 56px; transform: rotate(18deg); }
+.crack-5 { width: 2px; height: 16px; top: 58px; left: 44px; transform: rotate(-35deg); }
+
+.session-egg-broken {
+  width: 100%;
+  max-width: 340px;
+  background: linear-gradient(135deg, var(--bg3), var(--bg4));
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  animation: eggBreakIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes eggBreakIn {
+  from { transform: scale(0.6) rotate(-8deg); opacity: 0; }
+  to   { transform: scale(1)   rotate(0deg);  opacity: 1; }
+}
+
+.session-egg-joke {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.6;
+  text-align: center;
+  font-style: italic;
+}
+
+/* ── Responsive overrides ─────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .session-panel {
+    border-radius: 18px 18px 0 0;
+    height: 80vh;
+    max-height: 80vh;
+  }
+  .session-cost-val {
+    font-size: 17px;
+  }
+  .session-panel-body {
+    padding: 10px 16px 20px;
+  }
+}
+
+@media (min-width: 769px) {
+  /* Desktop: panel floats as a centered sheet, not full-width */
+  .session-panel {
+    border-radius: 22px 22px 0 0;
+    height: 70vh;
+    max-height: 70vh;
+  }
+}

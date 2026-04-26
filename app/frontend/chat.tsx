@@ -215,6 +215,23 @@ function AttachmentChip({ att }: { att: Attachment }) {
   );
 }
 
+// V4 pricing per 1M tokens (USD)
+const PRICING: Record<string, { input: number; cached: number; output: number }> = {
+  'deepseek-v4-flash': { input: 0.14,  cached: 0.028, output: 0.28  },
+  'deepseek-v4-pro':   { input: 1.74,  cached: 0.145, output: 3.48  },
+  default:             { input: 0.14,  cached: 0.028, output: 0.28  },
+};
+
+export function calcMsgCost(usage: { prompt_tokens: number; completion_tokens: number; cache_hit_tokens?: number; model?: string }): string {
+  const p = PRICING[usage.model ?? ''] ?? PRICING.default;
+  const cacheHit  = usage.cache_hit_tokens ?? 0;
+  const cacheMiss = Math.max(0, usage.prompt_tokens - cacheHit);
+  const cost = (cacheMiss * p.input + cacheHit * p.cached + usage.completion_tokens * p.output) / 1_000_000;
+  if (cost < 0.0001) return '<0.01¢';
+  if (cost < 0.01)   return (cost * 100).toFixed(2) + '¢';
+  return '$' + cost.toFixed(4);
+}
+
 function fmtBytes(b: number): string {
   if (b < 1024) return `${b}B`;
   if (b < 1_048_576) return `${Math.round(b / 1024)}KB`;
@@ -559,7 +576,14 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents }:
             {message.rounds != null && (
               <span>{message.rounds} round{message.rounds !== 1 ? 's' : ''}</span>
             )}
-            <span>↑{message.usage.prompt_tokens} ↓{message.usage.completion_tokens} tok</span>
+            <span title={message.usage.cache_hit_tokens ? `${message.usage.cache_hit_tokens.toLocaleString()} cached (80% off)` : undefined}>
+              ↑{message.usage.prompt_tokens.toLocaleString()}
+              {message.usage.cache_hit_tokens && message.usage.cache_hit_tokens > 0
+                ? <span className="tok-cached"> ✦{message.usage.cache_hit_tokens.toLocaleString()}</span>
+                : null}
+              {' '}↓{message.usage.completion_tokens.toLocaleString()} tok
+              {' · '}<span className="tok-cost">${calcMsgCost(message.usage)}</span>
+            </span>
           </div>
         )}
       </div>

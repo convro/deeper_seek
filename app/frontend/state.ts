@@ -63,7 +63,7 @@ export interface ChatMessage {
   reasoning?: string;
   toolCalls?: ToolCallRecord[];
   rounds?: number;
-  usage?: { prompt_tokens: number; completion_tokens: number };
+  usage?: { prompt_tokens: number; completion_tokens: number; cache_hit_tokens?: number; model?: string };
   /** Attachments displayed inline — only on user messages */
   attachments?: Attachment[];
 }
