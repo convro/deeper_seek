@@ -646,20 +646,20 @@
     },
     "web_interact": {
       "module": "tools/web/web_interact.py",
-      "description": "Full interactive Playwright browser control for multi-step automation: click elements, type text, fill forms, select dropdowns, wait for selectors/URLs/text, evaluate JavaScript, upload files, manage cookies/sessions, take screenshots, detect and bypass CAPTCHAs via 2captcha API. Supports session persistence across calls. Perfect for login flows, account registration, complex form submission, and multi-page workflows. Actions are passed as a list of dicts, each with a 'type' field.",
+      "description": "Full interactive Playwright browser control for multi-step automation. Drives real Chromium. RECOMMENDED WORKFLOW for unknown pages: (1) navigate, (2) wait_load for JS-heavy/SPA sites, (3) dismiss_overlays to clear cookie banners/popups/age-gates, (4) get_interactive to see ALL inputs/buttons/links on page with selectors, (5) smart_fill/smart_click using visible text — no CSS selector knowledge required. Also supports: classic click/fill/select with CSS selectors, session persistence, screenshot, evaluate JS, CAPTCHA solving via 2captcha. Call in multiple rounds: navigate+inspect first, then act on what you found.",
       "parameters": {
-        "url": {"type": "string", "description": "Initial URL to navigate to (optional if load_session=true)"},
-        "actions": {"type": "array", "description": "List of action dicts. Types: navigate, click, type, fill, fill_form, select, hover, focus, press, wait_selector, wait_url, wait_text, wait_ms, scroll_to, scroll_page, screenshot, evaluate, get_text, get_html, get_url, get_cookies, set_cookies, clear_cookies, upload_file, check_captcha, solve_captcha, go_back, go_forward, reload"},
-        "session_id": {"type": "string", "default": "default", "description": "Session ID for cookie persistence"},
+        "url": {"type": "string", "description": "Initial URL to navigate to"},
+        "actions": {"type": "array", "description": "List of action dicts, each with 'type' field. Navigation: navigate(url, wait?), go_back, go_forward, reload. Waiting: wait_selector(selector), wait_url(url_contains), wait_text(text), wait_ms(ms), wait_load() — waits for networkidle, use on JS/React/Next pages. Overlays: dismiss_overlays() — clears cookie banners, GDPR walls, age gates, notification popups (30+ CMP patterns). Introspection: get_interactive([selector]) — returns all inputs/buttons/links with text, type, name, placeholder, selector — USE THIS to understand page structure before acting. Classic: click(selector), type(selector,text), fill(selector,value), fill_form(fields:{}), select(selector,value/label), hover, focus, press(key). Smart: smart_click(text,[role],[exact]) — click by visible text, smart_fill(label,value) — fill input by label/placeholder text, smart_find(text,[role]) — locate element by text. Info: get_text(selector), get_html([selector]), get_url, get_cookies, screenshot([path],[full_page]), evaluate(expression). Cookies: set_cookies, clear_cookies. CAPTCHA: check_captcha, solve_captcha(api_key,[sitekey],[page_url])."},
+        "session_id": {"type": "string", "default": "default", "description": "Session ID for cookie persistence across calls"},
         "save_session": {"type": "boolean", "default": false, "description": "Save cookies after actions complete"},
         "load_session": {"type": "boolean", "default": false, "description": "Restore previously saved session cookies"},
-        "timeout_ms": {"type": "integer", "default": 30000},
-        "user_agent": {"type": "string"},
+        "timeout_ms": {"type": "integer", "default": 30000, "description": "Default timeout per action in ms"},
+        "user_agent": {"type": "string", "description": "Override browser user agent string"},
         "viewport_width": {"type": "integer", "default": 1440},
         "viewport_height": {"type": "integer", "default": 900},
         "captcha_api_key": {"type": "string", "description": "2captcha.com API key for automatic CAPTCHA solving"},
-        "click_cookie": {"type": "boolean", "default": true, "description": "Auto-click cookie consent banners"},
-        "proxy": {"type": "string", "description": "HTTP/SOCKS proxy URL (e.g. http://user:pass@host:port)"}
+        "click_cookie": {"type": "boolean", "default": true, "description": "Auto-dismiss cookie consent on page load (30+ CMP patterns)"},
+        "proxy": {"type": "string", "description": "HTTP/SOCKS proxy URL"}
       },
       "required": [],
       "timeout_ms": 120000

@@ -3,7 +3,10 @@ web_interact.py — Full interactive Playwright browser control.
 
 Drives a real Chromium browser for multi-step automation:
   • form filling, clicking, typing, selecting options
-  • waiting for elements / URL changes / text to appear
+  • smart element finding by text/role/label (no CSS selector needed)
+  • automatic overlay / cookie-consent dismissal (30+ CMP patterns)
+  • page introspection: get_interactive lists all inputs/buttons/links
+  • waiting for elements / URL changes / text to appear / network idle
   • session persistence (save/restore cookies across calls)
   • CAPTCHA detection + optional 2captcha/anticaptcha API bypass
   • JavaScript evaluation, file upload, key presses
@@ -65,36 +68,66 @@ def execute(
     Execute a sequence of browser actions.
 
     actions: list of action dicts, each with a "type" field:
-      navigate      url
-      click         selector [, button, count, force]
-      type          selector, text [, delay_ms]
-      fill          selector, value  (clears first)
-      fill_form     fields: {selector: value, ...}
-      select        selector, value OR label
-      hover         selector
-      focus         selector
-      press         key  (e.g. "Enter", "Tab", "Escape")
-      wait_selector selector [, state: visible|hidden|attached|detached, timeout_ms]
-      wait_url      url_contains [, timeout_ms]
-      wait_text     text [, selector, timeout_ms]
-      wait_ms       ms
-      scroll_to     selector OR {x, y}
-      scroll_page   direction: up|down|top|bottom
-      screenshot    [path] [, full_page]
-      evaluate      expression  -> returns result
-      get_text      selector -> returns text
-      get_html      [selector] -> returns html
-      get_url       -> returns current url
-      get_cookies   -> returns cookie list
-      set_cookies   cookies: list of {name, value, domain, ...}
-      clear_cookies
-      upload_file   selector, file_path
+
+      ── Navigation ───────────────────────────────────────────────────────
+      navigate        url [, wait: load|domcontentloaded|networkidle]
+      go_back / go_forward / reload
+      new_tab         [url]
+
+      ── Waiting ──────────────────────────────────────────────────────────
+      wait_selector   selector [, state: visible|hidden|attached|detached, timeout_ms]
+      wait_url        url_contains [, timeout_ms]
+      wait_text       text [, selector, timeout_ms]
+      wait_ms         ms
+      wait_load       [timeout_ms]   ← waits for network idle — use on JS-heavy/SPA pages
+
+      ── Standard interactions ─────────────────────────────────────────────
+      click           selector [, button, count, force]
+      type            selector, text [, delay_ms]
+      fill            selector, value  (clears first)
+      fill_form       fields: {selector: value, ...}
+      select          selector, value OR label OR index
+      hover / focus   selector
+      press           key [, selector]  (e.g. "Enter", "Tab", "Escape")
+      scroll_to       selector OR {x, y}
+      scroll_page     direction: up|down|top|bottom
+      upload_file     selector, file_path
+
+      ── Smart interactions (no CSS selector needed) ───────────────────────
+      smart_click     text [, role, exact]   ← finds button/link/element by visible text
+      smart_fill      label, value           ← finds input by label text or placeholder
+      smart_find      text [, role]          ← returns selector + info for visible element
+      dismiss_overlays                       ← aggressively dismiss all modals/overlays/banners
+
+      ── Page introspection ────────────────────────────────────────────────
+      get_interactive [selector]  ← FIRST STEP when you don't know the page structure.
+                                    Returns all inputs, buttons, links, selects with their
+                                    text, type, name, placeholder, and a working CSS selector.
+                                    Use this after navigating to a new page before planning actions.
+      get_text        selector -> returns text
+      get_html        [selector] -> returns html
+      get_url         -> returns current url
+
+      ── Screenshot ────────────────────────────────────────────────────────
+      screenshot      [path] [, full_page]
+
+      ── JavaScript ────────────────────────────────────────────────────────
+      evaluate        expression  -> returns result
+
+      ── Cookies / session ─────────────────────────────────────────────────
+      get_cookies / set_cookies / clear_cookies
+      save_session / load_session  (or use save_session= / load_session= params)
+
+      ── CAPTCHA ───────────────────────────────────────────────────────────
       check_captcha -> returns captcha info if detected
       solve_captcha api_key [, sitekey, page_url]  -> 2captcha integration
-      go_back
-      go_forward
-      reload
-      new_tab       [url]
+
+    WORKFLOW TIP for unknown pages:
+      1. navigate to URL
+      2. wait_load (for JS-heavy pages)
+      3. dismiss_overlays (cookie banners, popups)
+      4. get_interactive → inspect what fields/buttons exist
+      5. smart_fill / smart_click using visible text, no CSS needed
     """
     start = time.time()
     actions = actions or []
@@ -192,6 +225,11 @@ async def _run_session(
         if url:
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                # Extra wait for JS-heavy pages to settle
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=5000)
+                except Exception:
+                    pass
                 final_url = page.url
                 page_title = await page.title()
                 if click_cookie:
@@ -205,11 +243,55 @@ async def _run_session(
             try:
                 if atype == "navigate":
                     nav_url = action["url"]
-                    await page.goto(nav_url, wait_until="domcontentloaded", timeout=timeout_ms)
+                    wait_until = action.get("wait", "domcontentloaded")
+                    await page.goto(nav_url, wait_until=wait_until, timeout=timeout_ms)
+                    if wait_until != "networkidle":
+                        try:
+                            await page.wait_for_load_state("networkidle", timeout=4000)
+                        except Exception:
+                            pass
                     if click_cookie:
                         await _accept_cookies(page)
                     final_url = page.url
                     result_entry["url"] = final_url
+
+                elif atype == "wait_load":
+                    t = action.get("timeout_ms", 10000)
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=t)
+                        result_entry["state"] = "networkidle"
+                    except Exception:
+                        result_entry["state"] = "timeout_but_continuing"
+                    result_entry["url"] = page.url
+
+                elif atype == "dismiss_overlays":
+                    dismissed = await _accept_cookies(page)
+                    result_entry["dismissed"] = dismissed
+
+                elif atype == "get_interactive":
+                    sel_root = action.get("selector", "body")
+                    result_entry["elements"] = await _get_interactive_elements(page, sel_root)
+                    result_entry["url"] = page.url
+                    result_entry["title"] = await page.title()
+
+                elif atype == "smart_click":
+                    text = action["text"]
+                    role = action.get("role")
+                    exact = action.get("exact", False)
+                    clicked = await _smart_click(page, text, role, exact)
+                    result_entry.update(clicked)
+
+                elif atype == "smart_fill":
+                    label = action["label"]
+                    value = action["value"]
+                    filled = await _smart_fill(page, label, value)
+                    result_entry.update(filled)
+
+                elif atype == "smart_find":
+                    text = action["text"]
+                    role = action.get("role")
+                    found = await _smart_find(page, text, role)
+                    result_entry.update(found)
 
                 elif atype == "click":
                     sel = action["selector"]
@@ -530,30 +612,226 @@ async def _solve_captcha_2captcha(api_key: str, sitekey: str, page_url: str, cap
         return ""
 
 
-async def _accept_cookies(page):
-    selectors = [
+async def _accept_cookies(page) -> list:
+    """
+    Aggressively dismiss cookie banners, GDPR consent walls, age gates,
+    newsletter popups, and notification prompts.
+    Covers 30+ major CMPs and common custom patterns.
+    Returns list of what was dismissed.
+    """
+    dismissed = []
+
+    OVERLAY_SELECTORS = [
+        # ── Cookiebot ───────────────────────────────────────────────────
+        "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+        "#CybotCookiebotDialogBodyButtonAccept",
+        # ── OneTrust ────────────────────────────────────────────────────
+        "#onetrust-accept-btn-handler",
+        ".onetrust-accept-btn-handler",
+        "#accept-recommended-btn-handler",
+        # ── TrustArc / TRUSTe ───────────────────────────────────────────
+        "#truste-consent-button",
+        ".truste-button-group button:first-child",
+        "[data-testid='truste-consent-button']",
+        # ── Quantcast ───────────────────────────────────────────────────
+        "[data-testid='accept-all-button']",
+        ".qc-cmp2-summary-buttons button:last-child",
+        # ── Didomi ──────────────────────────────────────────────────────
+        "#didomi-notice-agree-button",
+        "[data-didomi-action='agree']",
+        # ── Usercentrics ────────────────────────────────────────────────
+        "[data-testid='uc-accept-all-button']",
+        "#usercentrics-root",
+        # ── Osano ───────────────────────────────────────────────────────
+        ".osano-cm-accept-all",
+        ".osano-cm-button--type_accept",
+        # ── Axeptio ─────────────────────────────────────────────────────
+        ".axeptio_btn_acceptAll",
+        # ── Sourcepoint ─────────────────────────────────────────────────
+        "[title='Accept all']",
+        ".sp_choice_type_ACCEPT_ALL",
+        # ── Age verification ────────────────────────────────────────────
+        'button:has-text("I am 18")',
+        'button:has-text("I\'m 18")',
+        'button:has-text("Enter")',
+        '[id*="age"][id*="gate"] button',
+        '[class*="age-gate"] button',
+        '[class*="age_gate"] button',
+        # ── Generic consent patterns ────────────────────────────────────
         'button:has-text("Accept all")',
         'button:has-text("Accept All")',
-        'button:has-text("Accept")',
-        'button:has-text("I agree")',
-        'button:has-text("Agree")',
+        'button:has-text("Accept cookies")',
+        'button:has-text("Accept & continue")',
         'button:has-text("Allow all")',
+        'button:has-text("Allow All")',
+        'button:has-text("Allow all cookies")',
+        'button:has-text("I agree")',
+        'button:has-text("I Accept")',
+        'button:has-text("Agree")',
+        'button:has-text("Agree and proceed")',
+        'button:has-text("Agree to all")',
+        'button:has-text("Zaakceptuj wszystko")',
         'button:has-text("Zaakceptuj")',
         'button:has-text("Akceptuj")',
-        'button:has-text("OK")',
-        '[id*="accept"][id*="cookie"]',
-        '[class*="accept"][class*="cookie"]',
-        '[data-testid*="accept"]',
+        'button:has-text("Zgadzam się")',
+        'button:has-text("Zezwól na wszystkie")',
+        'button:has-text("OK, I understand")',
+        'button:has-text("Got it")',
+        '[id*="cookie"][id*="accept"]',
+        '[class*="cookie"][class*="accept"]',
+        '[class*="consent"][class*="accept"]',
+        # ── Notification / newsletter popups ────────────────────────────
+        'button:has-text("No thanks")',
+        'button:has-text("No, thanks")',
+        'button:has-text("Not now")',
+        '[aria-label="Close"]',
+        '[aria-label="close"]',
+        '[aria-label="Dismiss"]',
+        '.modal-close',
+        '.popup-close',
+        '[data-dismiss="modal"]',
     ]
-    for sel in selectors:
+
+    for sel in OVERLAY_SELECTORS:
         try:
             el = await page.query_selector(sel)
-            if el:
-                await el.click(timeout=1500)
-                await page.wait_for_timeout(300)
-                return
+            if el and await el.is_visible():
+                await el.click(timeout=1500, force=True)
+                await page.wait_for_timeout(400)
+                dismissed.append(sel)
+                # Give page time to animate out before checking next
+                break
         except Exception:
             continue
+
+    # Second pass — shadow DOM consent managers (e.g. Usercentrics)
+    try:
+        await page.evaluate("""
+            const roots = document.querySelectorAll('[id*="usercentrics"], [id*="sp_message"]');
+            roots.forEach(r => {
+                if (r.shadowRoot) {
+                    const btn = r.shadowRoot.querySelector('button[data-testid*="accept"], button[class*="accept"]');
+                    if (btn) btn.click();
+                }
+            });
+        """)
+    except Exception:
+        pass
+
+    return dismissed
+
+
+async def _get_interactive_elements(page, root_selector: str = "body") -> list:
+    """
+    Return all interactive elements on the page: inputs, buttons, links, selects.
+    Each entry has: tag, type, text, name, id, placeholder, class, css_selector.
+    Use this to understand a page before planning click/fill actions.
+    """
+    return await page.evaluate("""(rootSel) => {
+        const root = document.querySelector(rootSel) || document.body;
+        const els = root.querySelectorAll(
+            'input:not([type="hidden"]), textarea, select, button, a[href], [role="button"], [tabindex]:not([tabindex="-1"])'
+        );
+        const results = [];
+        let idx = 0;
+        for (const el of els) {
+            if (!el.offsetParent && el.tagName !== 'BODY') continue; // skip hidden
+            const rect = el.getBoundingClientRect();
+            if (rect.width === 0 && rect.height === 0) continue;
+            const tag = el.tagName.toLowerCase();
+            const text = (el.innerText || el.value || el.placeholder || el.getAttribute('aria-label') || '').trim().slice(0, 120);
+            const entry = {
+                idx: idx++,
+                tag,
+                type: el.type || el.getAttribute('role') || tag,
+                text,
+                name: el.name || '',
+                id: el.id || '',
+                placeholder: el.placeholder || '',
+                class: (el.className || '').slice(0, 80),
+                href: el.href || '',
+            };
+            // Build a working selector (id preferred, else name, else nth-of-type)
+            if (el.id) {
+                entry.selector = '#' + CSS.escape(el.id);
+            } else if (el.name) {
+                entry.selector = tag + '[name="' + el.name + '"]';
+            } else {
+                entry.selector = tag;
+            }
+            results.push(entry);
+            if (results.length >= 60) break;
+        }
+        return results;
+    }""", root_selector)
+
+
+async def _smart_click(page, text: str, role: str = None, exact: bool = False) -> dict:
+    """Find and click an element by its visible text, optionally filtered by role."""
+    try:
+        if role:
+            loc = page.get_by_role(role, name=text, exact=exact)
+        else:
+            loc = page.get_by_text(text, exact=exact)
+        # If multiple, take first visible
+        count = await loc.count()
+        for i in range(min(count, 5)):
+            el = loc.nth(i)
+            if await el.is_visible():
+                await el.click(timeout=8000)
+                return {"clicked_text": text, "index": i, "ok": True}
+        return {"error": f"No visible element with text '{text}'", "ok": False}
+    except Exception as e:
+        return {"error": str(e), "ok": False}
+
+
+async def _smart_fill(page, label: str, value: str) -> dict:
+    """Find an input field by its label text or placeholder and fill it."""
+    try:
+        # Try by label first
+        try:
+            loc = page.get_by_label(label, exact=False)
+            if await loc.count() > 0 and await loc.first.is_visible():
+                await loc.first.fill(value, timeout=6000)
+                return {"filled_label": label, "ok": True}
+        except Exception:
+            pass
+        # Try by placeholder
+        try:
+            loc = page.get_by_placeholder(label, exact=False)
+            if await loc.count() > 0 and await loc.first.is_visible():
+                await loc.first.fill(value, timeout=6000)
+                return {"filled_placeholder": label, "ok": True}
+        except Exception:
+            pass
+        # Try by name attribute
+        loc = page.locator(f'input[name*="{label.lower()}"], input[id*="{label.lower()}"], textarea[name*="{label.lower()}"]')
+        if await loc.count() > 0:
+            await loc.first.fill(value, timeout=6000)
+            return {"filled_attr": label, "ok": True}
+        return {"error": f"No input found for label '{label}'", "ok": False}
+    except Exception as e:
+        return {"error": str(e), "ok": False}
+
+
+async def _smart_find(page, text: str, role: str = None) -> dict:
+    """Find an element by text and return its selector and info."""
+    try:
+        if role:
+            loc = page.get_by_role(role, name=text, exact=False)
+        else:
+            loc = page.get_by_text(text, exact=False)
+        count = await loc.count()
+        if count == 0:
+            return {"found": False, "error": f"No element with text '{text}'"}
+        el = loc.first
+        tag = await el.evaluate("e => e.tagName.toLowerCase()")
+        el_id = await el.evaluate("e => e.id || ''")
+        el_name = await el.evaluate("e => e.name || ''")
+        selector = f"#{el_id}" if el_id else (f"{tag}[name='{el_name}']" if el_name else tag)
+        return {"found": True, "tag": tag, "selector": selector, "count": count, "visible": await el.is_visible()}
+    except Exception as e:
+        return {"found": False, "error": str(e)}
 
 
 def _ensure_playwright():
