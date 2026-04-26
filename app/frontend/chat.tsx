@@ -576,14 +576,7 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents }:
             {message.rounds != null && (
               <span>{message.rounds} round{message.rounds !== 1 ? 's' : ''}</span>
             )}
-            <span title={message.usage.cache_hit_tokens ? `${message.usage.cache_hit_tokens.toLocaleString()} cached (80% off)` : undefined}>
-              ↑{message.usage.prompt_tokens.toLocaleString()}
-              {message.usage.cache_hit_tokens && message.usage.cache_hit_tokens > 0
-                ? <span className="tok-cached"> ✦{message.usage.cache_hit_tokens.toLocaleString()}</span>
-                : null}
-              {' '}↓{message.usage.completion_tokens.toLocaleString()} tok
-              {' · '}<span className="tok-cost">${calcMsgCost(message.usage)}</span>
-            </span>
+            <span>↑{message.usage.prompt_tokens.toLocaleString()} ↓{message.usage.completion_tokens.toLocaleString()} tok</span>
           </div>
         )}
       </div>

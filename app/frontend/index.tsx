@@ -8,7 +8,7 @@ import { DeeperSeekWS }   from './websocket';
 import { sendMessage, regenerateMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation, fetchUserSettings, saveUserSettings, listGithubRepos, linkGithubRepo, autoTitleConversation } from './api';
 import type { UserSettings, GithubRepo } from './api';
 import { SettingsModal } from './settings-modal';
-import { MessagesList, InputArea, calcMsgCost } from './chat';
+import { MessagesList, InputArea } from './chat';
 import { StatusDot, Spinner } from './components';
 import { Workspace } from './workspace';
 import { useAuth, AuthScreen, UserMenu } from './auth';
@@ -435,15 +435,33 @@ function ConvItem({
 }
 
 // ── Session Info Panel ────────────────────────────────────────────────────
-const DIRTY_JOKES = [
-  'Dlaczego programiści lubią pozycję 69? Bo w 96 też działa. 🔄',
-  'Co robi kelner po seksie? Pyta: czy dodam coś jeszcze? 😏',
-  'Jaką wspólną cechę ma seks i IT? Im dłużej ładuje, tym większe oczekiwania. 💻',
-  'Co mają wspólnego penis i dobry kod? Większość ludzi udaje, że nie zależy im na rozmiarze. 📏',
-  'Dlaczego seks jest jak pull request? Zawsze czekasz na review, a na koniec i tak coś się merguje. 🔀',
-  'Co powiedział programista do dziewczyny? Masz piękne… interfejsy. 👾',
-  'Dlaczego AI jest jak dobry kochanek? Im więcej parametrów, tym lepsze wyniki. 🤖',
+const JOKES_PL = [
+  'Czemu kobiety nie umieją czytać map? Bo tylko mężczyźni wmawiali im że centymetr to 30 km. 🍆',
+  'Mama pyta syna: „Skąd masz prezerwatywę?" — „Od taty." — „A tata skąd wiedział że potrzebujesz?" — „Bo złapał mnie jak ćwiczyłem na banana." 🍌',
+  'Lekarz do pacjentki: „Musi pani zdjąć majtki." — „Ale ja przyszłam na receptę na katar." — „Wiem, ale mam zimne ręce i długa przerwa." 🥶',
+  'Jak się nazywa kobieta bez łechtaczki? Nie ma znaczenia — i tak nigdy nie słucha. 😑',
+  'Dlaczego kobieta po seksie płacze? Bo mężczyzna odchodzi, a wibrator nie. 😢',
+  'Co mówi chłopak po seksie analnym? „Przepraszam, myślałem że śpisz." 💀',
+  'Dlaczego penis ma dziurkę na końcu? Żeby mężczyźni mogli być otwarci na nowe pomysły. 🧠',
 ];
+
+const JOKES_EN = [
+  'What do you call a lesbian dinosaur? Lickalotapuss. 🦕',
+  'Why does the Easter Bunny hide eggs? Because he doesn\'t want anyone knowing he\'s been fucking chickens. 🐰',
+  'What\'s the difference between a G-spot and a golf ball? A man will actually search for a golf ball. 🏌️',
+  'Doctor: "You need to stop masturbating." Patient: "Why?" Doctor: "Because I\'m trying to examine you." 😐',
+  'Why doesn\'t Santa have kids? He only comes once a year, and it\'s down a chimney. 🎅',
+  'What\'s 6 inches long, 2 inches wide and makes women go wild? A $100 bill. What did you think? 💵',
+  'Sex is like math: add a bed, subtract clothes, divide legs, multiply. 🧮',
+];
+
+function detectLang(msgs: ChatMessage[]): 'pl' | 'en' {
+  const lastUser = [...msgs].reverse().find(m => m.role === 'user');
+  if (!lastUser?.content) return 'pl';
+  if (/[ąęóśźżćńłĄĘÓŚŹŻĆŃŁ]/.test(lastUser.content)) return 'pl';
+  if (/\b(jest|nie|jak|tak|ale|czy|się|tego|przez|przy|mam|są|może|więcej)\b/i.test(lastUser.content)) return 'pl';
+  return 'en';
+}
 
 const PRICING_SESSION: Record<string, { input: number; cached: number; output: number }> = {
   'deepseek-v4-flash': { input: 0.14,  cached: 0.028, output: 0.28  },
@@ -463,6 +481,8 @@ function fmtUsd(v: number): string {
   return '$' + v.toFixed(4);
 }
 
+interface EggParticle { id: number; dx: number; dy: number; size: number; color: string; }
+
 interface SessionInfoPanelProps {
   open: boolean;
   onClose: () => void;
@@ -475,11 +495,17 @@ interface SessionInfoPanelProps {
 function SessionInfoPanel({
   open, onClose, convTitle, messages, tokenReduction, onToggleTokenReduction,
 }: SessionInfoPanelProps) {
-  const [eggClicks, setEggClicks] = useState(0);
-  const [wobbling,  setWobbling]  = useState(false);
-  const [broken,    setBroken]    = useState(false);
-  const [joke,      setJoke]      = useState('');
-  const wobbleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [eggClicks,  setEggClicks]  = useState(0);
+  const [broken,     setBroken]     = useState(false);
+  const [joke,       setJoke]       = useState('');
+  const [particles,  setParticles]  = useState<EggParticle[]>([]);
+  const [shaking,    setShaking]    = useState(false);
+  const particleId  = useRef(0);
+  const shakeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Swipe-down-to-close on drag handle
+  const dragStartY = useRef<number | null>(null);
+  const [dragY, setDragY] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -489,11 +515,7 @@ function SessionInfoPanel({
   }, [open, onClose]);
 
   useEffect(() => {
-    if (!open) {
-      setEggClicks(0);
-      setBroken(false);
-      setWobbling(false);
-    }
+    if (!open) { setEggClicks(0); setBroken(false); setShaking(false); setDragY(0); }
   }, [open]);
 
   const usageMsgs    = messages.filter(m => m.usage);
@@ -504,26 +526,83 @@ function SessionInfoPanel({
   const totalOutput  = usageMsgs.reduce((a, m) => a + (m.usage?.completion_tokens ?? 0), 0);
   const totalCached  = usageMsgs.reduce((a, m) => a + (m.usage?.cache_hit_tokens ?? 0), 0);
 
+  const spawnParticles = (count: number, big: boolean) => {
+    const colors = ['#6366f1', '#a371f7', '#f85149', '#d29922', '#2ea043', '#38bdf8', '#fb7185'];
+    const spawned: EggParticle[] = Array.from({ length: count }, (_, i) => {
+      const angle  = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 1.4;
+      const speed  = big ? (70 + Math.random() * 90) : (30 + Math.random() * 50);
+      return {
+        id:    ++particleId.current,
+        dx:    Math.cos(angle) * speed,
+        dy:    Math.sin(angle) * speed,
+        size:  big ? (5 + Math.random() * 7) : (3 + Math.random() * 4),
+        color: colors[Math.floor(Math.random() * colors.length)],
+      };
+    });
+    setParticles(prev => [...prev, ...spawned]);
+    setTimeout(() => {
+      const ids = new Set(spawned.map(p => p.id));
+      setParticles(prev => prev.filter(p => !ids.has(p.id)));
+    }, 700);
+  };
+
   const handleEggClick = () => {
+    if (broken) return;
     const next = eggClicks + 1;
     setEggClicks(next);
-    if (wobbleTimer.current) clearTimeout(wobbleTimer.current);
-    setWobbling(true);
-    wobbleTimer.current = setTimeout(() => setWobbling(false), 450);
-    if (next >= 7 && !broken) {
+
+    // shake feedback
+    if (shakeTimer.current) clearTimeout(shakeTimer.current);
+    setShaking(true);
+    shakeTimer.current = setTimeout(() => setShaking(false), 380);
+
+    // spawn particles — more as we get closer to break
+    const intensity = next >= 6;
+    spawnParticles(intensity ? 10 : 6, false);
+
+    if (next >= 7) {
       setBroken(true);
-      setJoke(DIRTY_JOKES[Math.floor(Math.random() * DIRTY_JOKES.length)]);
+      spawnParticles(22, true);
+      const lang = detectLang(messages);
+      const pool = lang === 'en' ? JOKES_EN : JOKES_PL;
+      setJoke(pool[Math.floor(Math.random() * pool.length)]);
     }
+  };
+
+  const onHandleTouchStart = (e: React.TouchEvent) => {
+    dragStartY.current = e.touches[0].clientY;
+  };
+  const onHandleTouchMove = (e: React.TouchEvent) => {
+    if (dragStartY.current === null) return;
+    const dy = Math.max(0, e.touches[0].clientY - dragStartY.current);
+    setDragY(dy);
+  };
+  const onHandleTouchEnd = () => {
+    if (dragY > 110) { onClose(); } else { setDragY(0); }
+    dragStartY.current = null;
   };
 
   if (!open) return null;
 
-  const eggLabel = broken ? '💥' : eggClicks === 0 ? 'click me' : eggClicks < 5 ? `${7 - eggClicks}×` : '🔨';
+  const eggLabel = eggClicks === 0 ? 'click me' : `${7 - eggClicks}×`;
+  const panelStyle: React.CSSProperties = dragY > 0
+    ? { transform: `translateY(${dragY}px)`, transition: 'none' }
+    : {};
 
   return (
     <div className="session-panel-backdrop" onClick={onClose}>
-      <div className="session-panel" onClick={e => e.stopPropagation()}>
-        <div className="session-panel-handle" />
+      <div className="session-panel" style={panelStyle} onClick={e => e.stopPropagation()}>
+
+        {/* Drag handle — touch target for swipe-down-to-close */}
+        <div
+          className="session-panel-handle-area"
+          onTouchStart={onHandleTouchStart}
+          onTouchMove={onHandleTouchMove}
+          onTouchEnd={onHandleTouchEnd}
+        >
+          <div className="session-panel-handle" />
+        </div>
+
         <button className="session-panel-close" onClick={onClose}>✕</button>
 
         <div className="session-panel-body">
@@ -572,22 +651,29 @@ function SessionInfoPanel({
 
           {/* Easter egg */}
           <div className="session-egg-wrap">
+            <div className="session-egg-particle-root">
+              {particles.map(p => (
+                <div
+                  key={p.id}
+                  className="session-particle"
+                  style={{
+                    width:  p.size,
+                    height: p.size,
+                    background: p.color,
+                    '--pdx': p.dx + 'px',
+                    '--pdy': p.dy + 'px',
+                  } as React.CSSProperties}
+                />
+              ))}
+            </div>
+
             {!broken ? (
-              <div
-                className={`session-egg${wobbling ? ' session-egg-wobble' : ''}`}
+              <button
+                className={`session-egg-btn${shaking ? ' session-egg-shake' : ''}${eggClicks > 0 ? ` egg-dmg-${Math.min(eggClicks, 6)}` : ''}`}
                 onClick={handleEggClick}
-                role="button"
-                tabIndex={0}
               >
                 <span className="session-egg-label">{eggLabel}</span>
-                {eggClicks > 0 && (
-                  <div className="session-egg-cracks">
-                    {Array.from({ length: Math.min(eggClicks, 6) }).map((_, i) => (
-                      <div key={i} className={`crack crack-${i}`} />
-                    ))}
-                  </div>
-                )}
-              </div>
+              </button>
             ) : (
               <div className="session-egg-broken">
                 <div className="session-egg-joke">{joke}</div>
