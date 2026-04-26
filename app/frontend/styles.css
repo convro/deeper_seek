@@ -228,9 +228,7 @@ img { max-width: 100%; }
 .sidebar-logo-img {
   width: 28px;
   height: 28px;
-  border-radius: 6px;
   object-fit: contain;
-  background: var(--bg4);
 }
 .sidebar-logo-text {
   font-size: 15px;
