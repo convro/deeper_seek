@@ -88,8 +88,8 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
                 <div className="settings-row-name">Extended Thinking</div>
                 <div className="settings-row-desc">
                   {local.extended_thinking
-                    ? 'Chain-of-thought reasoning enabled — AI thinks step-by-step before responding. Best for complex tasks.'
-                    : 'Direct responses — no reasoning chain. Fastest mode, great for simple tasks.'}
+                    ? 'Thinking mode ON — AI reasons step-by-step before responding. Best for complex multi-step tasks.'
+                    : 'Thinking mode OFF — direct responses, no chain-of-thought. Fastest mode.'}
                 </div>
               </div>
               <button
@@ -103,11 +103,11 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
 
             <div className="settings-row">
               <div className="settings-row-info">
-                <div className="settings-row-name">Pro Model (R1)</div>
+                <div className="settings-row-name">Pro Model (V4 Pro)</div>
                 <div className="settings-row-desc">
                   {local.use_pro_model
-                    ? 'DeepSeek-R1 — maximum reasoning depth. Slower, limited tool calls. Best for analysis & research.'
-                    : 'DeepSeek-V3 — fast, full tool support. Recommended for all coding and file tasks.'}
+                    ? 'DeepSeek V4 Pro — 1.6T params, frontier-grade intelligence. Higher cost, best for hardest tasks.'
+                    : 'DeepSeek V4 Flash — fast, cheap, powerful. Best for most tasks including coding.'}
                 </div>
               </div>
               <button

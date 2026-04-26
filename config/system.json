@@ -7,9 +7,10 @@
     "provider": "deepseek",
     "base_url": "https://api.deepseek.com",
     "models": {
-      "orchestrator": "deepseek-chat",
-      "worker": "deepseek-chat",
-      "fast": "deepseek-chat"
+      "orchestrator": "deepseek-v4-flash",
+      "worker": "deepseek-v4-flash",
+      "fast": "deepseek-v4-flash",
+      "pro": "deepseek-v4-pro"
     },
     "defaults": {
       "temperature": 0.6,

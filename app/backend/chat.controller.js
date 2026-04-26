@@ -177,9 +177,10 @@ async function autoGenerateTitle(session) {
     }).join('\n');
 
     const resp = await client.chat.completions.create({
-      model: 'deepseek-chat',
+      model: 'deepseek-v4-flash',
       max_tokens: 20,
       temperature: 0,
+      thinking: { type: 'disabled' },
       messages: [
         {
           role: 'system',

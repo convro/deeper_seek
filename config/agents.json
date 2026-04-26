@@ -1,7 +1,7 @@
 {
   "agents": {
     "orchestrator": {
-      "model": "deepseek-reasoner",
+      "model": "deepseek-v4-flash",
       "temperature": 0.3,
       "max_tokens": 8192,
       "identity_file": "ai/agents/orchestrator/identity.txt",
@@ -10,7 +10,7 @@
       "description": "Master orchestrator — decomposes tasks, routes to agents, synthesizes results"
     },
     "planner": {
-      "model": "deepseek-reasoner",
+      "model": "deepseek-v4-flash",
       "temperature": 0.2,
       "max_tokens": 4096,
       "identity_file": "ai/agents/planner/identity.txt",
@@ -19,7 +19,7 @@
       "description": "Deep planning agent — produces structured execution plans"
     },
     "worker_general": {
-      "model": "deepseek-chat",
+      "model": "deepseek-v4-flash",
       "temperature": 0.6,
       "max_tokens": 4096,
       "identity_file": "ai/agents/worker_general/identity.txt",
@@ -28,7 +28,7 @@
       "description": "General purpose worker for most tasks"
     },
     "worker_code": {
-      "model": "deepseek-chat",
+      "model": "deepseek-v4-flash",
       "temperature": 0.4,
       "max_tokens": 8192,
       "identity_file": "ai/agents/worker_code/identity.txt",
@@ -37,7 +37,7 @@
       "description": "Specialized code agent — reads, writes, debugs, tests code"
     },
     "worker_research": {
-      "model": "deepseek-chat",
+      "model": "deepseek-v4-flash",
       "temperature": 0.7,
       "max_tokens": 4096,
       "identity_file": "ai/agents/worker_research/identity.txt",
@@ -46,7 +46,7 @@
       "description": "Research agent — searches, reads, summarizes information"
     },
     "worker_fileops": {
-      "model": "deepseek-chat",
+      "model": "deepseek-v4-flash",
       "temperature": 0.2,
       "max_tokens": 2048,
       "identity_file": "ai/agents/worker_fileops/identity.txt",
@@ -55,7 +55,7 @@
       "description": "File operations specialist"
     },
     "worker_image": {
-      "model": "deepseek-chat",
+      "model": "deepseek-v4-flash",
       "temperature": 0.5,
       "max_tokens": 2048,
       "identity_file": "ai/agents/worker_image/identity.txt",
@@ -64,7 +64,7 @@
       "description": "Image and visual analysis agent"
     },
     "critic": {
-      "model": "deepseek-chat",
+      "model": "deepseek-v4-flash",
       "temperature": 0.3,
       "max_tokens": 2048,
       "identity_file": "ai/agents/critic/identity.txt",
@@ -73,7 +73,7 @@
       "description": "Quality evaluator — scores outputs and finds issues"
     },
     "socrates": {
-      "model": "deepseek-reasoner",
+      "model": "deepseek-v4-flash",
       "temperature": 0.2,
       "max_tokens": 4096,
       "identity_file": "ai/agents/socrates/identity.txt",
@@ -82,7 +82,7 @@
       "description": "Validation agent — finds contradictions, verifies logic and correctness"
     },
     "synthesizer": {
-      "model": "deepseek-chat",
+      "model": "deepseek-v4-flash",
       "temperature": 0.5,
       "max_tokens": 8192,
       "identity_file": "ai/agents/synthesizer/identity.txt",

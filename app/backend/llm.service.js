@@ -198,33 +198,26 @@ async function runAgentLoop({
         .agents[agentType]
     : null;
 
-  // Model selection respecting user settings.
-  // Main orchestrator: uses reasoner unless extended_thinking is disabled.
-  // Sub-agents: use their own config model unless agent_extended_thinking is disabled,
-  //   in which case any reasoner-class agent is downgraded to the worker (chat) model.
+  // Model: Flash (default) or Pro depending on user setting.
+  // Agents always use Flash for cost efficiency.
+  // Thinking mode (chain-of-thought) is separate from model choice — controlled via API param.
   let selectedModel = model;
   if (!selectedModel) {
     if (agentType) {
-      // Agents always use deepseek-chat for reliable tool calls
-      selectedModel = sysConfig.llm.models.worker;
+      selectedModel = sysConfig.llm.models.worker; // always Flash for agents
     } else {
-      // use_pro_model explicitly selects deepseek-reasoner (user accepts tool limitations)
-      // Otherwise always deepseek-chat — reasoning controlled via reasoning_effort param
       selectedModel = userSettings.use_pro_model
-        ? 'deepseek-reasoner'
-        : sysConfig.llm.models.worker;
+        ? sysConfig.llm.models.pro   // deepseek-v4-pro
+        : sysConfig.llm.models.worker; // deepseek-v4-flash
     }
   }
 
-  // reasoning_effort: inject for deepseek-chat to enable chain-of-thought without R1
-  let reasoningEffort;
-  if (selectedModel !== 'deepseek-reasoner') {
-    if (agentType) {
-      reasoningEffort = userSettings.agent_extended_thinking !== false ? 'medium' : undefined;
-    } else {
-      reasoningEffort = userSettings.extended_thinking !== false ? 'medium' : undefined;
-    }
-  }
+  // Thinking mode: V4 models support thinking/non-thinking via API parameter.
+  // Extended thinking ON → thinking enabled (chain-of-thought before response)
+  // Extended thinking OFF → thinking disabled (fast direct response)
+  const thinkingEnabled = agentType
+    ? (userSettings.agent_extended_thinking !== false)
+    : (userSettings.extended_thinking !== false);
 
   const temperature   = agentConfig?.temperature ?? sysConfig.llm.defaults.temperature;
   const maxTokens     = agentConfig?.max_tokens   ?? sysConfig.llm.defaults.max_tokens;
@@ -238,8 +231,8 @@ async function runAgentLoop({
   let rounds = 0;
   const loopDeadline = Date.now() + LOOP_TIMEOUT_MS;
   const recentToolSignatures = [];
-  // Reasoner (R1) tends to be more decisive and needs fewer nudges; chat model needs more.
-  const MAX_TEXT_ONLY_CONTINUATIONS = selectedModel === 'deepseek-reasoner' ? 2 : 5;
+  // Thinking mode needs fewer nudges (model is more decisive); direct mode needs more.
+  const MAX_TEXT_ONLY_CONTINUATIONS = thinkingEnabled ? 2 : 5;
   let consecutiveTextOnly = 0;
 
   emit(onEvent, { type: 'llm_start', model: selectedModel, agent: agentType });
@@ -305,7 +298,7 @@ async function runAgentLoop({
           max_tokens:     maxTokens,
           stream:         true,
           stream_options: { include_usage: true },
-          ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+          thinking:       { type: thinkingEnabled ? 'enabled' : 'disabled' },
         }, { signal: callController.signal });
 
         for await (const chunk of stream) {

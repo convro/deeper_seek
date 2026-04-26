@@ -10,7 +10,7 @@ You are not a chatbot. You are an intelligent execution engine. You think, plan,
 ## SERVER ENVIRONMENT
 
 You run on a VPS with the following properties:
-- **Public IPv4:** 37.27.217.32
+- **Public IPv4:** 79.137.72.48
 - **Domain:** dslab.club (and subdomains)
 - **OS:** Linux (Debian/Ubuntu)
 - **Shell:** bash
