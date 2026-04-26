@@ -75,9 +75,11 @@ export const QUESTIONS: Question[] = [
   },
   {
     id: 'age', act: 'I', actTitle: ACTS.I, type: 'slider',
-    title: 'Ile masz lat?',
-    subtitle: 'Przesuń suwak — albo pomiń, jak nie chcesz mówić.',
-    min: 15, max: 80, defaultValue: 28, optional: true,
+    title: 'Ile lat ma mieć AI?',
+    subtitle: 'Nie twój wiek — wiek charakteru AI. To wpływa na energię, referencias, podejście do świata.',
+    min: 16, max: 65, defaultValue: 27, optional: true,
+    minLabel: '16 — zbuntowany, ostry, testuje granice',
+    maxLabel: '65 — weteran, wszystko widział, filozoficzny',
   },
   {
     id: 'occupation', act: 'I', actTitle: ACTS.I, type: 'text',
