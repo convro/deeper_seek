@@ -52,6 +52,7 @@ function getSoul(userId) {
 const DEFAULT_SETTINGS = {
   extended_thinking:       true,
   agent_extended_thinking: true,
+  use_pro_model:           false,
   github_pat:              '',
   github_username:         '',
   github_user_id:          '',

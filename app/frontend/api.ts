@@ -112,6 +112,7 @@ export async function logoutRequest(): Promise<void> {
 export interface UserSettings {
   extended_thinking: boolean;
   agent_extended_thinking: boolean;
+  use_pro_model: boolean;
   github_pat?: string;
   github_username?: string;
 }

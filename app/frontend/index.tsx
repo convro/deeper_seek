@@ -9,9 +9,8 @@ import { sendMessage, regenerateMessage, listConversations, getConversation, ren
 import type { UserSettings, GithubRepo } from './api';
 import { SettingsModal } from './settings-modal';
 import { MessagesList, InputArea } from './chat';
-import { EventsDrawer, StatusDot, Spinner } from './components';
+import { StatusDot, Spinner } from './components';
 import { Workspace } from './workspace';
-import { Agents }   from './agents';
 import { useAuth, AuthScreen, UserMenu } from './auth';
 import { Onboarding } from './onboarding';
 import type {
@@ -22,7 +21,7 @@ import { generateSessionId, generateId } from './state';
 
 const LOGO_URL = 'https://r.convro.eu/content/Stable/realises/ds73';
 
-type Tab = 'chat' | 'workspace' | 'agents';
+type Tab = 'chat' | 'workspace';
 
 // ── GitHub repo link modal ────────────────────────────────────────────────
 interface GithubLinkModalProps {
@@ -215,14 +214,6 @@ const TAB_DEFS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     icon: (
       <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
         <path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/>
-      </svg>
-    ),
-  },
-  {
-    id: 'agents', label: 'Agents',
-    icon: (
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM4.5 7.5a.5.5 0 0 0 0 1h5.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3a.5.5 0 0 0 0-.708l-3-3a.5.5 0 1 0-.708.708L10.293 7.5H4.5Z"/>
       </svg>
     ),
   },
@@ -1123,7 +1114,7 @@ function App() {
 
   // ── Settings modal ────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
-  const [userSettings, setUserSettings] = useState<UserSettings>({ extended_thinking: true, agent_extended_thinking: true });
+  const [userSettings, setUserSettings] = useState<UserSettings>({ extended_thinking: true, agent_extended_thinking: true, use_pro_model: false });
 
   // ── GitHub repo link modal ────────────────────────────────────────────
   const [showGithubLink, setShowGithubLink] = useState(false);
@@ -1323,7 +1314,6 @@ function App() {
             </>
           )}
           {activeTab === 'workspace' && <Workspace />}
-          {activeTab === 'agents'    && <Agents liveAgents={liveAgents} />}
         </main>
       </div>
 

@@ -88,8 +88,8 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
                 <div className="settings-row-name">Extended Thinking</div>
                 <div className="settings-row-desc">
                   {local.extended_thinking
-                    ? 'DeepSeek-R1 — deep chain-of-thought reasoning. Best for complex tasks, slower.'
-                    : 'DeepSeek-Chat — fast responses. Great for quick tasks and iterating.'}
+                    ? 'Chain-of-thought reasoning enabled — AI thinks step-by-step before responding. Best for complex tasks.'
+                    : 'Direct responses — no reasoning chain. Fastest mode, great for simple tasks.'}
                 </div>
               </div>
               <button
@@ -103,11 +103,29 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
 
             <div className="settings-row">
               <div className="settings-row-info">
-                <div className="settings-row-name">Agent Extended Thinking</div>
+                <div className="settings-row-name">Pro Model (R1)</div>
+                <div className="settings-row-desc">
+                  {local.use_pro_model
+                    ? 'DeepSeek-R1 — maximum reasoning depth. Slower, limited tool calls. Best for analysis & research.'
+                    : 'DeepSeek-V3 — fast, full tool support. Recommended for all coding and file tasks.'}
+                </div>
+              </div>
+              <button
+                className={`settings-toggle ${local.use_pro_model ? 'on' : 'off'}`}
+                onClick={() => toggle('use_pro_model')}
+                aria-pressed={local.use_pro_model}
+              >
+                <span className="settings-toggle-knob" />
+              </button>
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-name">Agent Thinking</div>
                 <div className="settings-row-desc">
                   {local.agent_extended_thinking
-                    ? 'Specialist agents (planner, validator) use DeepSeek-R1. More thorough, slower.'
-                    : 'All agents use DeepSeek-Chat. Faster parallel execution, lighter tasks.'}
+                    ? 'Background agents use chain-of-thought reasoning. More thorough, slightly slower.'
+                    : 'Agents respond directly without reasoning chain. Faster parallel execution.'}
                 </div>
               </div>
               <button

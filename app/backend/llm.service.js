@@ -205,16 +205,27 @@ async function runAgentLoop({
   let selectedModel = model;
   if (!selectedModel) {
     if (agentType) {
-      const configModel = agentConfig?.model || sysConfig.llm.models.orchestrator;
-      selectedModel = (userSettings.agent_extended_thinking === false && configModel === sysConfig.llm.models.orchestrator)
-        ? sysConfig.llm.models.worker
-        : configModel;
+      // Agents always use deepseek-chat for reliable tool calls
+      selectedModel = sysConfig.llm.models.worker;
     } else {
-      selectedModel = userSettings.extended_thinking === false
-        ? sysConfig.llm.models.worker
-        : sysConfig.llm.models.orchestrator;
+      // use_pro_model explicitly selects deepseek-reasoner (user accepts tool limitations)
+      // Otherwise always deepseek-chat — reasoning controlled via reasoning_effort param
+      selectedModel = userSettings.use_pro_model
+        ? 'deepseek-reasoner'
+        : sysConfig.llm.models.worker;
     }
   }
+
+  // reasoning_effort: inject for deepseek-chat to enable chain-of-thought without R1
+  let reasoningEffort;
+  if (selectedModel !== 'deepseek-reasoner') {
+    if (agentType) {
+      reasoningEffort = userSettings.agent_extended_thinking !== false ? 'medium' : undefined;
+    } else {
+      reasoningEffort = userSettings.extended_thinking !== false ? 'medium' : undefined;
+    }
+  }
+
   const temperature   = agentConfig?.temperature ?? sysConfig.llm.defaults.temperature;
   const maxTokens     = agentConfig?.max_tokens   ?? sysConfig.llm.defaults.max_tokens;
 
@@ -227,9 +238,7 @@ async function runAgentLoop({
   let rounds = 0;
   const loopDeadline = Date.now() + LOOP_TIMEOUT_MS;
   const recentToolSignatures = [];
-  // Cap on how many times we silently nudge the model to continue after a
-  // text-only round. Prevents an infinite "I'll do X… ok, doing it…" loop.
-  // REASONER needs fewer nudges (2), CHAT model needs more (5) because it's less disciplined
+  // Reasoner (R1) tends to be more decisive and needs fewer nudges; chat model needs more.
   const MAX_TEXT_ONLY_CONTINUATIONS = selectedModel === 'deepseek-reasoner' ? 2 : 5;
   let consecutiveTextOnly = 0;
 
@@ -296,6 +305,7 @@ async function runAgentLoop({
           max_tokens:     maxTokens,
           stream:         true,
           stream_options: { include_usage: true },
+          ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
         }, { signal: callController.signal });
 
         for await (const chunk of stream) {

@@ -7,7 +7,7 @@
     "provider": "deepseek",
     "base_url": "https://api.deepseek.com",
     "models": {
-      "orchestrator": "deepseek-reasoner",
+      "orchestrator": "deepseek-chat",
       "worker": "deepseek-chat",
       "fast": "deepseek-chat"
     },
