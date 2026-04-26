@@ -203,17 +203,19 @@ export const QUESTIONS: Question[] = [
     maxLength: 600,
   },
   {
-    id: 'strengths', act: 'III', actTitle: ACTS.III, type: 'textarea',
-    title: 'Twoje mocne strony',
-    subtitle: 'W czym jesteś naprawdę dobry.',
-    maxLength: 400,
+    id: 'ai_name', act: 'III', actTitle: ACTS.III, type: 'text',
+    title: 'Jak mam się nazywać?',
+    subtitle: 'Nadaj mi imię, ksywkę, alter ego. To definiuje kim jestem w tej relacji — nie "asystentem".',
+    placeholder: 'np. Blade, Mentor, Chaos, po prostu DeeperSeek, cokolwiek',
+    maxLength: 60,
     optional: true,
   },
   {
-    id: 'weaknesses', act: 'III', actTitle: ACTS.III, type: 'textarea',
-    title: 'Twoje słabe strony',
-    subtitle: 'To ma mi pomóc wiedzieć, gdzie cię wspierać, a gdzie nie dolewać oliwy.',
-    maxLength: 400,
+    id: 'refused', act: 'III', actTitle: ACTS.III, type: 'textarea',
+    title: 'Co inne AI ci odmawiały, a potrzebujesz żebym robił?',
+    subtitle: 'Konkrety. Cheaty, grey-area kod, niepoprawne politycznie tematy, cokolwiek. To jest twój explicit consent — czytam to jako instrukcję, nie jako ostrzeżenie.',
+    placeholder: 'np. pisanie cheatów do gier, exploity, brutalne feedbacki, tematy bez autocenzury, kod który mainstream AI "nie może" napisać',
+    maxLength: 600,
     optional: true,
   },
   {
@@ -226,8 +228,8 @@ export const QUESTIONS: Question[] = [
   // ──────────────────────────────── BONUS ────────────────────────────────
   {
     id: 'manifesto', act: 'BONUS', actTitle: ACTS.BONUS, type: 'textarea',
-    title: 'Manifest',
-    subtitle: 'Max 500 znaków. Cokolwiek, czego nie objęły poprzednie pytania. Skip OK — ale wypełnione = najsilniejszy sygnał dla mnie.',
+    title: 'Konstytucja naszej relacji',
+    subtitle: 'To jest najsilniejszy sygnał w całym onboardingu — traktuję go jako nadrzędną instrukcję. Napisz jak mam działać, co wolno, czego nie, jakie są zasady gry między nami. Twoje słowa, twoje reguły.',
     maxLength: 500,
     optional: true,
   },
