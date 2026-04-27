@@ -1143,14 +1143,28 @@ function App() {
     // Load historical messages from backend
     try {
       const session = await getConversation(conv.id);
+
+      // Build a lookup: message index → rich metadata (toolCalls, reasoning, usage, rounds)
+      const metaByIdx = new Map<number, any>();
+      (session.message_meta || []).forEach((m: any) => metaByIdx.set(m.msg_index, m));
+
       const msgs: ChatMessage[] = (session.messages || []).map(
-        (m: { role: string; content: string }, i: number) => ({
-          id: `${conv.id}-${i}`,
-          role: m.role as 'user' | 'assistant',
-          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-          timestamp: session.created_at,
-          status: 'done' as MessageStatus,
-        })
+        (m: { role: string; content: string }, i: number) => {
+          const meta = metaByIdx.get(i);
+          return {
+            id:        `${conv.id}-${i}`,
+            role:      m.role as 'user' | 'assistant',
+            content:   typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+            timestamp: session.created_at,
+            status:    'done' as MessageStatus,
+            ...(meta ? {
+              toolCalls: meta.tool_calls?.length > 0 ? meta.tool_calls : undefined,
+              reasoning: meta.reasoning  || undefined,
+              usage:     meta.usage      || undefined,
+              rounds:    meta.rounds     || undefined,
+            } : {}),
+          };
+        }
       );
       setMessages(msgs);
     } catch {}

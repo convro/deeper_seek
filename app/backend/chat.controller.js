@@ -59,8 +59,54 @@ function loadAllSessions() {
 loadAllSessions();
 
 /**
- * Add tool usage to session history
+ * Create a per-request event accumulator that tracks tool calls and reasoning
+ * so they can be persisted in session.message_meta for history replay.
  */
+function createMetaAccumulator() {
+  const meta = { tool_calls: [], reasoning: '' };
+  function track(event) {
+    if (event.type === 'tool_call' && event.call_id) {
+      meta.tool_calls.push({
+        id:         event.call_id,
+        tool:       event.tool,
+        args:       event.args || {},
+        status:     'pending',
+      });
+    }
+    if (event.type === 'tool_result' && event.call_id) {
+      const tc = meta.tool_calls.find(t => t.id === event.call_id);
+      if (tc) {
+        tc.result      = event.result;
+        tc.error       = event.error;
+        tc.status      = event.status === 'error' ? 'error' : 'done';
+        tc.duration_ms = event.duration_ms;
+      }
+    }
+    if (event.type === 'reasoning') {
+      meta.reasoning = event.content || '';
+    }
+  }
+  return { meta, track };
+}
+
+/**
+ * Persist message_meta entry for an assistant turn.
+ * Removes any stale entries with msg_index >= current messages length first.
+ */
+function pushMessageMeta(session, meta, result) {
+  session.message_meta = (session.message_meta || []).filter(
+    m => m.msg_index < session.messages.length - 1
+  );
+  session.message_meta.push({
+    msg_index:  session.messages.length - 1,
+    tool_calls: meta.tool_calls.length > 0 ? meta.tool_calls : undefined,
+    reasoning:  meta.reasoning || undefined,
+    usage:      result.usage   || undefined,
+    rounds:     result.rounds  || undefined,
+  });
+}
+
+
 function addToolToHistory(sessionId, toolName, args, resultSummary, status) {
   const session = sessions.get(sessionId);
   if (!session) return;
@@ -347,8 +393,10 @@ async function sendMessage(req, res) {
   // drops via sendEvent).
   setImmediate(async () => {
     try {
+      const { meta: msgMeta, track: trackMeta } = createMetaAccumulator();
       const onEvent = (event) => {
         sendEvent(sessionId, event);
+        trackMeta(event);
         if (event.type === 'tool_call') {
           logger.tool(`[${sessionId}] Tool: ${event.tool}(${JSON.stringify(event.args).slice(0, 100)})`);
         }
@@ -386,6 +434,7 @@ async function sendMessage(req, res) {
       // Only persist if we got actual content
       if (result.content) {
         session.messages.push({ role: 'assistant', content: result.content });
+        pushMessageMeta(session, msgMeta, result);
         session.updated_at = new Date().toISOString();
         saveSession(session);
 
@@ -455,6 +504,10 @@ async function regenerate(req, res) {
          session.messages[session.messages.length - 1].role === 'assistant') {
     session.messages.pop();
   }
+  // Remove stale meta entries for the popped messages
+  session.message_meta = (session.message_meta || []).filter(
+    m => m.msg_index < session.messages.length
+  );
   session.updated_at = new Date().toISOString();
   saveSession(session);
 
@@ -471,7 +524,11 @@ async function regenerate(req, res) {
 
   setImmediate(async () => {
     try {
-      const onEvent = (event) => { sendEvent(session_id, event); };
+      const { meta: regenMeta, track: trackRegenMeta } = createMetaAccumulator();
+      const onEvent = (event) => {
+        sendEvent(session_id, event);
+        trackRegenMeta(event);
+      };
 
       // Build context from persisted history, then append ephemeral feedback
       // as an untracked user note so the regenerate has guidance without
@@ -529,6 +586,7 @@ async function regenerate(req, res) {
 
       if (result.content) {
         session.messages.push({ role: 'assistant', content: result.content });
+        pushMessageMeta(session, regenMeta, result);
         session.updated_at = new Date().toISOString();
         saveSession(session);
       }
@@ -634,6 +692,7 @@ function getSession(req, res) {
         ? m.content
         : '[multipart content]',
     })),
+    message_meta:  session.message_meta  || [],
     github_repo:   session.github_repo   || null,
     github_branch: session.github_branch || null,
   };
