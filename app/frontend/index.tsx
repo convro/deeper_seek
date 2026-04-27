@@ -490,10 +490,13 @@ interface SessionInfoPanelProps {
   messages: ChatMessage[];
   tokenReduction: boolean;
   onToggleTokenReduction: (v: boolean) => void;
+  rawCommandsMode: boolean;
+  onToggleRawCommands: (v: boolean) => void;
 }
 
 function SessionInfoPanel({
   open, onClose, convTitle, messages, tokenReduction, onToggleTokenReduction,
+  rawCommandsMode, onToggleRawCommands,
 }: SessionInfoPanelProps) {
   const [eggClicks,  setEggClicks]  = useState(0);
   const [broken,     setBroken]     = useState(false);
@@ -623,6 +626,21 @@ function SessionInfoPanel({
               className={`session-toggle ${tokenReduction ? 'on' : ''}`}
               onClick={() => onToggleTokenReduction(!tokenReduction)}
               aria-label="Toggle token reduction"
+            >
+              <span className="session-toggle-knob" />
+            </button>
+          </div>
+
+          {/* Raw Commands Mode toggle */}
+          <div className="session-panel-section session-panel-row">
+            <div className="session-panel-row-text">
+              <div className="session-panel-label">Raw Commands View</div>
+              <div className="session-panel-sub">Pokazuje tool calle jako bloki terminalowe zamiast badge'y</div>
+            </div>
+            <button
+              className={`session-toggle ${rawCommandsMode ? 'on' : ''}`}
+              onClick={() => onToggleRawCommands(!rawCommandsMode)}
+              aria-label="Toggle raw commands view"
             >
               <span className="session-toggle-knob" />
             </button>
@@ -1381,8 +1399,9 @@ function App() {
   }, [authActions]);
 
   // ── Session info panel ────────────────────────────────────────────────
-  const [showSessionPanel, setShowSessionPanel] = useState(false);
-  const [tokenReduction,   setTokenReduction]   = useState(false);
+  const [showSessionPanel,  setShowSessionPanel]  = useState(false);
+  const [tokenReduction,    setTokenReduction]    = useState(false);
+  const [rawCommandsMode,   setRawCommandsMode]   = useState(false);
 
   // ── Settings modal ────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
@@ -1579,6 +1598,7 @@ function App() {
                   onPickSuggestion={(t) => handleSend(t)}
                   greetingName={greetingName}
                   liveAgents={liveAgents}
+                  rawCommandsMode={rawCommandsMode}
                 />
               </div>
               <InputArea
@@ -1599,6 +1619,8 @@ function App() {
           messages={messages}
           tokenReduction={tokenReduction}
           onToggleTokenReduction={setTokenReduction}
+          rawCommandsMode={rawCommandsMode}
+          onToggleRawCommands={setRawCommandsMode}
         />
       )}
 

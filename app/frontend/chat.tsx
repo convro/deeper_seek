@@ -6,6 +6,7 @@ import { Markdown, PreviewModal } from './markdown';
 
 const OUTPUT_DIRS = '(?:output|dist|build|public|www|site|src)';
 const JOB_ID      = '[a-zA-Z0-9_-]{4,}';
+const WEB_EXT_RE  = /\.(html?|css|jsx?|tsx?)$/i;
 
 /** Extract workspace HTML file paths from AI response text. */
 function extractHtmlPaths(content: string): string[] {
@@ -423,32 +424,157 @@ function RetryFeedbackModal({ onCancel, onSubmit }: {
   );
 }
 
+// ── Raw Commands Mode — ToolCommandBlock ──────────────────────────────────
+
+function fmtCmd(tc: ToolCallRecord): string {
+  const a = (tc.args || {}) as Record<string, unknown>;
+  const s = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
+  switch (tc.tool) {
+    case 'bash': case 'execute_command': case 'run_command':
+      return s(a.command || a.cmd || a.code || '');
+    case 'read_file': case 'file_read':
+      return `cat ${s(a.path || a.file_path || a.filepath || '')}`;
+    case 'write_file': case 'file_write': case 'create_file': {
+      const p = s(a.path || a.file_path || a.filepath || '');
+      const len = String(a.content || '').length;
+      return `write → ${p}  (${len} chars)`;
+    }
+    case 'web_search': case 'search':
+      return `search "${s(a.query || a.q || '')}"`;
+    case 'web_navigate': case 'navigate':
+      return `navigate ${s(a.url || '')}`;
+    case 'web_screenshot':
+      return `screenshot ${s(a.url || a.path || '')}`;
+    case 'web_get_text': case 'get_page_text':
+      return `get_text ${s(a.url || '')}`;
+    case 'image_analyze': case 'analyze_image': {
+      const paths = Array.isArray(a.paths) ? (a.paths as string[]).join(' ') : s(a.path || '');
+      return `analyze_image ${paths}`;
+    }
+    case 'python': case 'python_repl': case 'run_python': {
+      const first = String(a.code || '').split('\n')[0];
+      return `python → ${first.slice(0, 90)}${first.length > 90 ? '…' : ''}`;
+    }
+    case 'agent_spawn': {
+      const task = String(a.task || '').slice(0, 60);
+      return `spawn [${s(a.agent_type || '?')}] "${task}${task.length >= 60 ? '…' : ''}"`;
+    }
+    case 'agent_status': return `agent_status ${s(a.agent_id || '')}`;
+    case 'list_files': case 'ls': return `ls ${s(a.path || a.directory || '.')}`;
+    case 'make_dir': case 'mkdir': return `mkdir -p ${s(a.path || '')}`;
+    case 'delete_file': case 'rm': return `rm ${s(a.path || '')}`;
+    case 'create_zip': case 'zip_files':
+      return `zip ${s(a.output || a.zip_path || '')} ${s(a.directory || '')}`;
+    default: {
+      const parts = Object.entries(a)
+        .filter(([, v]) => v !== undefined && v !== null && v !== '')
+        .map(([k, v]) => { const sv = typeof v === 'string' ? v : JSON.stringify(v); return `${k}=${sv.slice(0, 40)}${sv.length > 40 ? '…' : ''}`; })
+        .join(' ');
+      return `${tc.tool} ${parts}`.slice(0, 160);
+    }
+  }
+}
+
+function fmtResult(tc: ToolCallRecord): string | null {
+  const r = tc.result as Record<string, unknown> | string | null | undefined;
+  if (!r) return null;
+  let text = '';
+  if (typeof r === 'string') { text = r; }
+  else if (typeof r === 'object') {
+    text = String(
+      (r as any).output ?? (r as any).stdout ?? (r as any).result ??
+      (r as any).content ?? (r as any).text ?? JSON.stringify(r, null, 2)
+    );
+  }
+  if (!text.trim()) return null;
+  const lines = text.split('\n');
+  return lines.length > 10
+    ? lines.slice(0, 10).join('\n') + `\n… (+${lines.length - 10} lines)`
+    : text;
+}
+
+function ToolCommandBlock({ tc }: { tc: ToolCallRecord }) {
+  const [expanded, setExpanded] = useState(false);
+  const result = expanded ? fmtResult(tc) : null;
+  const hasOutput = fmtResult(tc) !== null;
+  const dur = tc.duration_ms != null
+    ? (tc.duration_ms < 1000 ? `${tc.duration_ms}ms` : `${(tc.duration_ms / 1000).toFixed(1)}s`)
+    : null;
+  return (
+    <div className={`cmd-block cmd-${tc.status}`}>
+      <div className="cmd-header">
+        <span className="cmd-name">{tc.tool}</span>
+        {dur && <span className="cmd-dur">{dur}</span>}
+        <span className="cmd-status-dot">
+          {tc.status === 'done' ? '✓' : tc.status === 'error' ? '✗' : '●'}
+        </span>
+        {hasOutput && (
+          <button className="cmd-expand" onClick={() => setExpanded(e => !e)}>
+            {expanded ? '▲ hide' : '▼ output'}
+          </button>
+        )}
+      </div>
+      <div className="cmd-line">
+        <span className="cmd-prompt">$</span>
+        <code className="cmd-text">{fmtCmd(tc)}</code>
+      </div>
+      {expanded && result && <pre className="cmd-output">{result}</pre>}
+    </div>
+  );
+}
+
 // ── Assistant message ─────────────────────────────────────────────────────
 
 interface AssistantMessageProps {
   message: ChatMessage;
   onRetry?: (msgId: string) => void;
   onRetryWithFeedback?: (msgId: string, feedback: string) => void;
-  /** App-level live sub-agent map. Looked up per tool-call's spawnedAgentId
-   *  so badges for `agent_spawn` show the spawned agent's real-time status. */
   liveAgents?: Map<string, LiveAgent>;
+  rawCommandsMode?: boolean;
 }
 
-function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents }: AssistantMessageProps) {
+function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents, rawCommandsMode = false }: AssistantMessageProps) {
   const isThinking = message.status === 'thinking';
   const isError    = message.status === 'error';
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
 
   const isDone = message.status === 'done';
 
-  // Detect workspace HTML paths for preview + downloadable files for download.
-  // Both scan message text AND tool call args/results for max reliability.
+  // Compute which workspace jobIds have web files (HTML/CSS/JS) — gates the Preview button.
+  // Only infer index.html for a workspace if we know web files were actually created there.
+  const webJobIds = (() => {
+    const ids = new Set<string>();
+    if (!isDone) return ids;
+    for (const tc of (message.toolCalls || [])) {
+      if (tc.status !== 'done') continue;
+      const a = (tc.args || {}) as Record<string, unknown>;
+      const p = String(a.path || a.file_path || a.filepath || a.filename || '');
+      if (p && WEB_EXT_RE.test(p)) {
+        const rel = p.replace(/^.*?workspace\//, '');
+        const jm = rel.match(new RegExp(`^(${JOB_ID})/`));
+        if (jm) ids.add(jm[1]);
+      }
+    }
+    // Also catch explicit .html mentions in text
+    if (message.content) {
+      const re = new RegExp(`workspace\\/(${JOB_ID})\\/[^\\s"')\\]]+\\.html?`, 'gi');
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(message.content)) !== null) ids.add(m[1]);
+    }
+    return ids;
+  })();
+
   const htmlPaths = isDone
     ? (() => {
         const fromText  = message.content ? extractHtmlPaths(message.content) : [];
         const fromTools = message.toolCalls ? extractPathsFromToolCalls(message.toolCalls) : [];
         const merged = [...fromText, ...fromTools];
-        return merged.filter((p, i) => merged.indexOf(p) === i);
+        // Only show Preview if the jobId has actual web files
+        return merged.filter((p, i) => {
+          if (merged.indexOf(p) !== i) return false;
+          const m = p.match(new RegExp(`workspace\\/(${JOB_ID})\\/`));
+          return m ? webJobIds.has(m[1]) : false;
+        });
       })()
     : [];
 
@@ -504,15 +630,22 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents }:
           <ThinkingBlock content={message.reasoning} />
         )}
 
-        {/* Content — rendered first so tool badges appear below streamed text */}
+        {/* Raw commands mode: terminal blocks sit ABOVE the response text (execution order) */}
+        {rawCommandsMode && !isThinking && message.toolCalls && message.toolCalls.length > 0 && (
+          <div className="msg-cmd-blocks">
+            {message.toolCalls.map(tc => <ToolCommandBlock key={tc.id} tc={tc} />)}
+          </div>
+        )}
+
+        {/* Content */}
         {!isThinking && contentToShow && (
           <div className={`msg-ai-content ${isError ? 'msg-error' : ''}`}>
             <Markdown content={contentToShow} />
           </div>
         )}
 
-        {/* Tool badges — after content so latest activity sits below the text */}
-        {message.toolCalls && message.toolCalls.length > 0 && (
+        {/* Tool badges — default mode only */}
+        {!rawCommandsMode && message.toolCalls && message.toolCalls.length > 0 && (
           <div className="msg-tool-badges">
             {message.toolCalls.map(tc => (
               <ToolCallBadge
@@ -600,14 +733,10 @@ interface MessagesListProps {
   messages: ChatMessage[];
   onRetry?: (msgId: string) => void;
   onRetryWithFeedback?: (msgId: string, feedback: string) => void;
-  /** Optional: when present, ghost suggestions in the empty state become
-   *  clickable and auto-fill the input via this callback. */
   onPickSuggestion?: (text: string) => void;
-  /** Optional: greeting name to personalise the empty state title. */
   greetingName?: string | null;
-  /** App-level live sub-agent map — passed through to ToolCallBadge so
-   *  `agent_spawn` badges render real-time sub-agent activity inline. */
   liveAgents?: Map<string, LiveAgent>;
+  rawCommandsMode?: boolean;
 }
 
 // Two ghost suggestions per session — picked once on first mount from a
@@ -634,7 +763,7 @@ function pickTwo<T>(arr: T[]): T[] {
 }
 
 export function MessagesList({
-  messages, onRetry, onRetryWithFeedback, onPickSuggestion, greetingName, liveAgents,
+  messages, onRetry, onRetryWithFeedback, onPickSuggestion, greetingName, liveAgents, rawCommandsMode,
 }: MessagesListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   // Pick suggestions once per mount so they don't reshuffle on every render.
@@ -687,6 +816,7 @@ export function MessagesList({
               onRetry={onRetry}
               onRetryWithFeedback={onRetryWithFeedback}
               liveAgents={liveAgents}
+              rawCommandsMode={rawCommandsMode}
             />
       )}
       <div ref={bottomRef} />
