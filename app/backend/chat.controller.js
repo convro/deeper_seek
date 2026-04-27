@@ -63,9 +63,26 @@ loadAllSessions();
  * so they can be persisted in session.message_meta for history replay.
  */
 function createMetaAccumulator() {
-  const meta = { tool_calls: [], reasoning: '' };
+  const meta = { tool_calls: [], reasoning: '', segments: [] };
+  let pendingText = '';
+  function flushText() {
+    if (pendingText) {
+      meta.segments.push({ type: 'text', content: pendingText });
+      pendingText = '';
+    }
+  }
   function track(event) {
+    if (event.type === 'content_delta' && event.delta) {
+      pendingText += event.delta;
+    }
     if (event.type === 'tool_call' && event.call_id) {
+      flushText();
+      const last = meta.segments[meta.segments.length - 1];
+      if (last && last.type === 'tools') {
+        last.callIds.push(event.call_id);
+      } else {
+        meta.segments.push({ type: 'tools', callIds: [event.call_id] });
+      }
       meta.tool_calls.push({
         id:         event.call_id,
         tool:       event.tool,
@@ -86,7 +103,8 @@ function createMetaAccumulator() {
       meta.reasoning = event.content || '';
     }
   }
-  return { meta, track };
+  function finalize() { flushText(); }
+  return { meta, track, finalize };
 }
 
 /**
@@ -103,6 +121,7 @@ function pushMessageMeta(session, meta, result) {
     reasoning:  meta.reasoning || undefined,
     usage:      result.usage   || undefined,
     rounds:     result.rounds  || undefined,
+    segments:   meta.segments  && meta.segments.length > 0 ? meta.segments : undefined,
   });
 }
 
@@ -393,7 +412,7 @@ async function sendMessage(req, res) {
   // drops via sendEvent).
   setImmediate(async () => {
     try {
-      const { meta: msgMeta, track: trackMeta } = createMetaAccumulator();
+      const { meta: msgMeta, track: trackMeta, finalize: finalizeMeta } = createMetaAccumulator();
       const onEvent = (event) => {
         sendEvent(sessionId, event);
         trackMeta(event);
@@ -434,6 +453,7 @@ async function sendMessage(req, res) {
       // Only persist if we got actual content
       if (result.content) {
         session.messages.push({ role: 'assistant', content: result.content });
+        finalizeMeta();
         pushMessageMeta(session, msgMeta, result);
         session.updated_at = new Date().toISOString();
         saveSession(session);
@@ -524,7 +544,7 @@ async function regenerate(req, res) {
 
   setImmediate(async () => {
     try {
-      const { meta: regenMeta, track: trackRegenMeta } = createMetaAccumulator();
+      const { meta: regenMeta, track: trackRegenMeta, finalize: finalizeRegenMeta } = createMetaAccumulator();
       const onEvent = (event) => {
         sendEvent(session_id, event);
         trackRegenMeta(event);
@@ -586,6 +606,7 @@ async function regenerate(req, res) {
 
       if (result.content) {
         session.messages.push({ role: 'assistant', content: result.content });
+        finalizeRegenMeta();
         pushMessageMeta(session, regenMeta, result);
         session.updated_at = new Date().toISOString();
         saveSession(session);

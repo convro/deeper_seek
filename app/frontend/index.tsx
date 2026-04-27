@@ -850,11 +850,17 @@ function App() {
     ws.on('content_delta', (event) => {
       const id = pendingMsgId.current;
       if (!id || !event.delta) return;
-      setMessages(prev => prev.map(m =>
-        m.id === id
-          ? { ...m, content: (m.content || '') + event.delta, status: 'streaming' as MessageStatus }
-          : m
-      ));
+      setMessages(prev => prev.map(m => {
+        if (m.id !== id) return m;
+        const segs = [...(m.segments || [])];
+        const last = segs[segs.length - 1];
+        if (last && last.type === 'text') {
+          segs[segs.length - 1] = { type: 'text', content: last.content + event.delta };
+        } else {
+          segs.push({ type: 'text', content: event.delta });
+        }
+        return { ...m, content: (m.content || '') + event.delta, status: 'streaming' as MessageStatus, segments: segs };
+      }));
     });
 
     ws.on('reasoning_delta', (event) => {
@@ -888,6 +894,18 @@ function App() {
       };
       pendingToolIds.current.set(event.call_id, msgId);
       addToolCall(msgId, tc);
+      // Update segments to record tool group at this position
+      setMessages(prev => prev.map(m => {
+        if (m.id !== msgId) return m;
+        const segs = [...(m.segments || [])];
+        const last = segs[segs.length - 1];
+        if (last && last.type === 'tools') {
+          segs[segs.length - 1] = { type: 'tools', callIds: [...last.callIds, event.call_id!] };
+        } else {
+          segs.push({ type: 'tools', callIds: [event.call_id!] });
+        }
+        return { ...m, segments: segs };
+      }));
     });
 
     ws.on('tool_result', (event) => {
@@ -1180,6 +1198,7 @@ function App() {
               reasoning: meta.reasoning  || undefined,
               usage:     meta.usage      || undefined,
               rounds:    meta.rounds     || undefined,
+              segments:  meta.segments?.length > 0   ? meta.segments  : undefined,
             } : {}),
           };
         }

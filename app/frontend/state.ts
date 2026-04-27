@@ -54,6 +54,10 @@ export interface Attachment {
   path?: string;
 }
 
+export type Segment =
+  | { type: 'text';  content: string }
+  | { type: 'tools'; callIds: string[] };
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;
@@ -64,6 +68,8 @@ export interface ChatMessage {
   toolCalls?: ToolCallRecord[];
   rounds?: number;
   usage?: { prompt_tokens: number; completion_tokens: number; cache_hit_tokens?: number; model?: string };
+  /** Interleaved content+tools ordering for Raw Commands Mode */
+  segments?: Segment[];
   /** Attachments displayed inline — only on user messages */
   attachments?: Attachment[];
 }

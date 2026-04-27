@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import type { ChatMessage, ToolCallRecord, Attachment, LiveAgent } from './state';
+import type { ChatMessage, ToolCallRecord, Attachment, LiveAgent, Segment } from './state';
 import { generateLocalId } from './state';
 import { Spinner, TypingDots, ThinkingBlock, ToolCallBadge } from './components';
 import { Markdown, PreviewModal } from './markdown';
@@ -630,36 +630,65 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents, r
           <ThinkingBlock content={message.reasoning} />
         )}
 
-        {/* Raw commands mode: terminal blocks sit ABOVE the response text (execution order) */}
-        {rawCommandsMode && !isThinking && message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="msg-cmd-blocks">
-            {message.toolCalls.map(tc => <ToolCommandBlock key={tc.id} tc={tc} />)}
-          </div>
-        )}
+        {/* Raw commands mode with segments: interleaved text + tool blocks */}
+        {rawCommandsMode && !isThinking && message.segments && message.segments.length > 0 ? (
+          <>
+            {message.segments.map((seg: Segment, i: number) =>
+              seg.type === 'text' ? (
+                <div key={i} className={`msg-ai-content ${isError ? 'msg-error' : ''}`}>
+                  <Markdown content={seg.content} />
+                </div>
+              ) : (
+                <div key={i} className="msg-cmd-blocks">
+                  {seg.callIds
+                    .map((id: string) => message.toolCalls?.find(tc => tc.id === id))
+                    .filter((tc): tc is ToolCallRecord => tc != null)
+                    .map(tc => <ToolCommandBlock key={tc.id} tc={tc} />)}
+                </div>
+              )
+            )}
+            {message.status === 'streaming' && <span className="msg-cursor" />}
+          </>
+        ) : rawCommandsMode && !isThinking && message.toolCalls && message.toolCalls.length > 0 ? (
+          // Fallback: no segments yet (streaming just started) — show blocks then content
+          <>
+            <div className="msg-cmd-blocks">
+              {message.toolCalls.map(tc => <ToolCommandBlock key={tc.id} tc={tc} />)}
+            </div>
+            {contentToShow && (
+              <div className={`msg-ai-content ${isError ? 'msg-error' : ''}`}>
+                <Markdown content={contentToShow} />
+              </div>
+            )}
+            {message.status === 'streaming' && <span className="msg-cursor" />}
+          </>
+        ) : (
+          <>
+            {/* Content */}
+            {!isThinking && contentToShow && (
+              <div className={`msg-ai-content ${isError ? 'msg-error' : ''}`}>
+                <Markdown content={contentToShow} />
+              </div>
+            )}
 
-        {/* Content */}
-        {!isThinking && contentToShow && (
-          <div className={`msg-ai-content ${isError ? 'msg-error' : ''}`}>
-            <Markdown content={contentToShow} />
-          </div>
-        )}
+            {/* Tool badges — default mode only */}
+            {!rawCommandsMode && message.toolCalls && message.toolCalls.length > 0 && (
+              <div className="msg-tool-badges">
+                {message.toolCalls.map(tc => (
+                  <ToolCallBadge
+                    key={tc.id}
+                    tc={tc}
+                    liveAgent={tc.spawnedAgentId ? liveAgents?.get(tc.spawnedAgentId) : undefined}
+                  />
+                ))}
+              </div>
+            )}
 
-        {/* Tool badges — default mode only */}
-        {!rawCommandsMode && message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="msg-tool-badges">
-            {message.toolCalls.map(tc => (
-              <ToolCallBadge
-                key={tc.id}
-                tc={tc}
-                liveAgent={tc.spawnedAgentId ? liveAgents?.get(tc.spawnedAgentId) : undefined}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Streaming cursor */}
-        {message.status === 'streaming' && (
-          <span className="msg-cursor" />
+            {/* Streaming cursor */}
+            {message.status === 'streaming' && (
+              <span className="msg-cursor" />
+            )}
+          </>
         )}
 
         {/* Action row: preview (HTML) + download (zip/archive/pdf) */}
