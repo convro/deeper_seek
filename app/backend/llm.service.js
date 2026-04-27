@@ -486,7 +486,11 @@ async function runAgentLoop({
         // to follow through. This stays out of the user's chat history —
         // the assistant bubble is unchanged on the frontend, and the
         // synthetic turn lives only in fullMessages.
-        fullMessages.push({ role: 'assistant', content: msgContent });
+        fullMessages.push({
+          role: 'assistant',
+          content: msgContent,
+          ...(thinkingEnabled && msgReasoning ? { reasoning_content: msgReasoning } : {}),
+        });
         fullMessages.push({
           role: 'user',
           content:
@@ -512,6 +516,7 @@ async function runAgentLoop({
       role:       'assistant',
       content:    msgContent || null,
       tool_calls: toolCalls,
+      ...(thinkingEnabled && msgReasoning ? { reasoning_content: msgReasoning } : {}),
     });
 
     // ── Execute each tool call ──────────────────────────────────────────
