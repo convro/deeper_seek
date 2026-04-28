@@ -15,8 +15,10 @@ import { useAuth, AuthScreen, UserMenu } from './auth';
 import { Onboarding } from './onboarding';
 import type {
   ChatMessage, AgentEvent, ToolCallRecord, Conversation, Attachment, MessageStatus,
-  LiveAgent,
+  LiveAgent, Segment,
 } from './state';
+
+interface StyleQuestion { question: string; options: string[] }
 import { generateSessionId, generateId } from './state';
 
 const LOGO_URL = 'https://r.convro.eu/content/Stable/realises/ds73';
@@ -434,6 +436,92 @@ function ConvItem({
   );
 }
 
+// ── Style Questions Card ──────────────────────────────────────────────────
+
+interface StyleQuestionsCardProps {
+  questions: StyleQuestion[];
+  onComplete: (answers: Record<number, string>, questions: StyleQuestion[]) => void;
+  onDismiss: () => void;
+}
+
+function StyleQuestionsCard({ questions, onComplete, onDismiss }: StyleQuestionsCardProps) {
+  const [index,      setIndex]      = useState(0);
+  const [answers,    setAnswers]    = useState<Record<number, string>>({});
+  const [customText, setCustomText] = useState('');
+  const CUSTOM_KEY = '__custom__';
+
+  const current   = questions[index];
+  const total     = questions.length;
+  const selected  = answers[index];
+  const canAdvance = selected != null && (selected !== CUSTOM_KEY || customText.trim().length > 0);
+
+  const select = (val: string) => {
+    setAnswers(prev => ({ ...prev, [index]: val }));
+    if (val !== CUSTOM_KEY) setCustomText('');
+  };
+
+  const advance = () => {
+    // Commit custom text into answers if that option was chosen
+    const finalAnswers = selected === CUSTOM_KEY
+      ? { ...answers, [index]: customText.trim() }
+      : answers;
+    if (index < total - 1) {
+      setAnswers(finalAnswers);
+      setIndex(index + 1);
+      setCustomText('');
+    } else {
+      onComplete(finalAnswers, questions);
+    }
+  };
+
+  return (
+    <div className="style-card">
+      <div className="style-card-header">
+        <span className="style-card-progress">{index + 1} / {total}</span>
+        <button
+          className={`style-card-next ${canAdvance ? 'active' : ''}`}
+          onClick={advance}
+          disabled={!canAdvance}
+          title={index < total - 1 ? 'Następne pytanie' : 'Zatwierdź i buduj'}
+        >
+          {index < total - 1 ? '→' : '✓'}
+        </button>
+      </div>
+
+      <div className="style-card-question">{current.question}</div>
+
+      <div className="style-card-options">
+        {current.options.slice(0, 3).map((opt, i) => (
+          <label key={i} className={`style-card-option ${selected === opt ? 'selected' : ''}`}>
+            <span className="style-card-radio" />
+            <span className="style-card-option-text">{opt}</span>
+            <input type="radio" name={`sq-${index}`} value={opt} checked={selected === opt} onChange={() => select(opt)} />
+          </label>
+        ))}
+        <label className={`style-card-option style-card-option-custom ${selected === CUSTOM_KEY ? 'selected' : ''}`}>
+          <span className="style-card-radio" />
+          <span className="style-card-option-text">Opisz sam…</span>
+          <input type="radio" name={`sq-${index}`} value={CUSTOM_KEY} checked={selected === CUSTOM_KEY} onChange={() => select(CUSTOM_KEY)} />
+        </label>
+        {selected === CUSTOM_KEY && (
+          <textarea
+            className="style-card-custom-input"
+            placeholder="Opisz jak to widzisz…"
+            value={customText}
+            onChange={e => setCustomText(e.target.value)}
+            autoFocus
+            rows={2}
+          />
+        )}
+      </div>
+
+      <button className="style-card-dismiss" onClick={onDismiss} title="Pomiń — AI zdecyduje sam">
+        pomiń, zdecyduj sam
+      </button>
+    </div>
+  );
+}
+
 // ── Session Info Panel ────────────────────────────────────────────────────
 const JOKES_PL = [
   'Czemu kobiety nie umieją czytać map? Bo tylko mężczyźni wmawiali im że centymetr to 30 km. 🍆',
@@ -842,6 +930,12 @@ function App() {
       }
     });
 
+    ws.on('style_questions', (event) => {
+      if (Array.isArray(event.questions) && event.questions.length > 0) {
+        setStyleCard({ questions: event.questions as StyleQuestion[] });
+      }
+    });
+
     ws.on('llm_start', () => {
       if (pendingMsgId.current) updateMsg(pendingMsgId.current, { status: 'thinking' });
     });
@@ -1184,8 +1278,14 @@ function App() {
       const metaByIdx = new Map<number, any>();
       (session.message_meta || []).forEach((m: any) => metaByIdx.set(m.msg_index, m));
 
-      const msgs: ChatMessage[] = (session.messages || []).map(
-        (m: { role: string; content: string }, i: number) => {
+      // Map with original index preserved (meta lookup keyed by backend msg_index),
+      // then filter out hidden style-answer messages that were never shown in UI.
+      const msgs: ChatMessage[] = (session.messages || [])
+        .map((m: { role: string; content: string }, origIdx: number) => ({ m, origIdx }))
+        .filter(({ m }) =>
+          !(m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('[STYLE_ANSWERS:'))
+        )
+        .map(({ m, origIdx: i }) => {
           const meta = metaByIdx.get(i);
           return {
             id:        `${conv.id}-${i}`,
@@ -1262,6 +1362,8 @@ function App() {
   // ── Send message ──────────────────────────────────────────────────────
   const handleSend = useCallback(async (text: string, attachments?: Attachment[]) => {
     if (processing) return;
+    // Dismiss style card if user sends a regular message — treat as "decide yourself"
+    setStyleCard(null);
 
     const userMsg: ChatMessage = {
       id: generateId(),
@@ -1381,6 +1483,45 @@ function App() {
     performSilentRetry(assistantMsgId, feedback);
   }, [performSilentRetry]);
 
+  // ── Style card completion — send hidden answers, add only assistant bubble ─
+  const handleStyleComplete = useCallback(async (answers: Record<number, string>, questions: StyleQuestion[]) => {
+    setStyleCard(null);
+    if (processing) return;
+
+    // Format answers as a context message for the AI — hidden from UI
+    const formatted = questions.map((q, i) => `Q${i + 1}: "${q.question}" → "${answers[i] ?? 'no answer'}"`).join(', ');
+    const hiddenText = `[STYLE_ANSWERS: ${formatted}]`;
+
+    // Create only the assistant bubble (user message stays hidden in UI)
+    const assistantId = generateId();
+    const assistantMsg: ChatMessage = {
+      id: assistantId, role: 'assistant', content: '',
+      timestamp: new Date().toISOString(), status: 'thinking',
+    };
+    pendingMsgId.current = assistantId;
+    pendingToolIds.current.clear();
+    setMessages(prev => [...prev, assistantMsg]);
+    setProcessing(true);
+
+    if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
+    processingTimeoutRef.current = setTimeout(() => {
+      if (pendingMsgId.current) {
+        updateMsg(pendingMsgId.current, { content: 'Request timed out.', status: 'error' });
+        pendingMsgId.current = null;
+        setProcessing(false);
+      }
+    }, 22 * 60 * 1000);
+
+    try {
+      await sendMessage(hiddenText, activeConvId);
+    } catch (err: any) {
+      if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
+      updateMsg(assistantId, { content: `Error: ${err.message}`, status: 'error' });
+      pendingMsgId.current = null;
+      setProcessing(false);
+    }
+  }, [processing, activeConvId, updateMsg]);
+
   // ── Current conversation title (for header display) ──────────────────
   const activeConvTitle = useMemo(
     () => conversations.find(c => c.id === activeConvId)?.title ?? '',
@@ -1416,6 +1557,9 @@ function App() {
       // swallow — user can retry from the menu
     }
   }, [authActions]);
+
+  // ── Style questions card ──────────────────────────────────────────────
+  const [styleCard, setStyleCard] = useState<{ questions: StyleQuestion[] } | null>(null);
 
   // ── Session info panel ────────────────────────────────────────────────
   const [showSessionPanel,  setShowSessionPanel]  = useState(false);
@@ -1620,6 +1764,13 @@ function App() {
                   rawCommandsMode={rawCommandsMode}
                 />
               </div>
+              {styleCard && (
+                <StyleQuestionsCard
+                  questions={styleCard.questions}
+                  onComplete={handleStyleComplete}
+                  onDismiss={() => setStyleCard(null)}
+                />
+              )}
               <InputArea
                 onSend={handleSend}
                 disabled={processing}

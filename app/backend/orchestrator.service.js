@@ -68,6 +68,16 @@ async function _fetchGhIdentity(token) {
  * Execute a single tool via Python subprocess.
  */
 async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
+  // Native built-in tools that don't go through the Python subprocess.
+  if (toolName === 'propose_style_questions') {
+    const questions = Array.isArray(args.questions) ? args.questions : [];
+    if (onEvent) onEvent({ type: 'style_questions', questions });
+    return {
+      status: 'questions_sent',
+      message: 'Style questionnaire displayed to the user. Write one brief acknowledgment sentence and stop — do not write any code until the user answers.',
+    };
+  }
+
   const input = JSON.stringify({ tool: toolName, args });
   const timeout = TOOLS_CONFIG.tool_registry[toolName]?.timeout_ms || 60000;
 
