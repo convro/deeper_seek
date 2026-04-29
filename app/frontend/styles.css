@@ -122,27 +122,30 @@ img { max-width: 100%; }
   to   { transform: translateX(0); }
 }
 
-/* Snow: fall + pop burst at ~80vh, drift is handled by outer wrapper translateX */
+/* Snow: fall with slow spin + crystalline burst at ~80vh.
+   Drift (horizontal sway) is handled by the outer wrapper translateX.
+   The drop-shadow burst at 84% creates tiny snowflake-shaped fragments
+   flying off in 5 directions — each shadow is a solid copy of the SVG. */
 @keyframes snowFall {
-  0%   { transform: translateY(-20px) scale(1); opacity: 0; box-shadow: none; }
-  8%   { opacity: 0.88; }
-  74%  { transform: translateY(74vh) scale(1); opacity: 0.82; box-shadow: none; }
-  83%  {
-    transform: translateY(80vh) scale(2.4);
-    opacity: 0;
-    box-shadow:
-      0 0 0 3px rgba(255,255,255,0.35),
-      8px -6px 0 2px rgba(255,255,255,0.22),
-      -8px -6px 0 2px rgba(255,255,255,0.22),
-      0 -10px 0 2px rgba(255,255,255,0.18),
-      10px 5px 0 1px rgba(255,255,255,0.15),
-      -10px 5px 0 1px rgba(255,255,255,0.15);
+  0%   { transform: translateY(-50px) scale(0.5) rotate(0deg);   opacity: 0;    filter: none; }
+  8%   { transform: translateY(-6px)  scale(1)   rotate(22deg);  opacity: 1;    filter: none; }
+  76%  { transform: translateY(74vh)  scale(1)   rotate(200deg); opacity: 0.85; filter: none; }
+  84%  {
+    transform: translateY(80vh) scale(1.9) rotate(228deg);
+    opacity: 0.5;
+    filter:
+      drop-shadow( 8px -8px 0 rgba(255,255,255,0.6))
+      drop-shadow(-8px -8px 0 rgba(255,255,255,0.5))
+      drop-shadow( 0  -12px 0 rgba(255,255,255,0.45))
+      drop-shadow(11px  5px 0 rgba(255,255,255,0.4))
+      drop-shadow(-11px 5px 0 rgba(255,255,255,0.4));
   }
-  100% { transform: translateY(80vh) scale(0); opacity: 0; box-shadow: none; }
+  93%  { transform: translateY(82vh) scale(0.25) rotate(242deg); opacity: 0;    filter: none; }
+  100% { transform: translateY(82vh) scale(0)    rotate(242deg); opacity: 0;    filter: none; }
 }
 @keyframes snowDrift {
   0%   { transform: translateX(0); }
-  100% { transform: translateX(16px); }
+  100% { transform: translateX(var(--drift, 18px)); }
 }
 
 .anim-fade-up    { animation: fadeUp 0.2s ease both; }
@@ -2000,36 +2003,61 @@ body.keyboard-open .messages-wrapper::after { display: none; }
 .auth-snow-outer {
   position: absolute;
   top: 0;
+  overflow: visible;
   animation: snowDrift ease-in-out infinite alternate;
 }
+/* SVG snowflake element — appearance is defined in the SVG markup itself.
+   transform-box + transform-origin ensure rotation pivots around the flake center. */
 .auth-snow-inner {
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 50%;
-  box-shadow: 0 0 4px rgba(255,255,255,0.35);
+  display: block;
+  overflow: visible;
+  transform-box: fill-box;
+  transform-origin: center;
   animation: snowFall linear infinite;
 }
 
-/* ── Mobile keyboard open: allow the card to scroll ─────────────────── */
+/* ── Mobile keyboard open: collapse brand, allow card to scroll ──────── */
 body.keyboard-open .auth-screen {
   align-items: flex-start;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-top: 12px;
+  padding-top: 8px;
 }
 body.keyboard-open .auth-card {
+  padding-top: 18px;
+  margin-bottom: 8px;
+}
+/* Shrink the logo/title/tagline so all form fields stay visible above the keyboard */
+body.keyboard-open .auth-brand {
   margin-bottom: 12px;
+}
+body.keyboard-open .auth-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  margin-bottom: 6px;
+}
+body.keyboard-open .auth-title {
+  font-size: 15px;
+  margin-bottom: 1px;
+}
+body.keyboard-open .auth-tagline {
+  display: none;
 }
 
 /* ── The card ─────────────────────────────────────────────────────────── */
 .auth-card {
   position: relative;
+  z-index: 1;
   width: 100%;
   max-width: 420px;
   padding: 32px 28px 28px;
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(255,255,255,0.03) inset;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 /* ── Brand ───────────────────────────────────────────────────────────── */
@@ -2136,8 +2164,8 @@ body.keyboard-open .auth-card {
 .auth-input:focus {
   outline: none;
   border-color: var(--accent);
-  background: var(--bg);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  background: var(--bg3);
+  box-shadow: 0 0 0 3px var(--accent-glow), 0 1px 4px rgba(0,0,0,0.3) inset;
 }
 .auth-input-license {
   font-family: var(--mono);

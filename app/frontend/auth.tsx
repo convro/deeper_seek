@@ -13,16 +13,38 @@ import type { AuthUser, AuthConfig } from './api';
 const LOGO_URL = 'https://r.convro.eu/content/Stable/realises/ds73';
 
 // ── Snow effect (desktop only) ────────────────────────────────────────────
+
+// Six rotations for the 6-fold crystalline symmetry of each snowflake arm.
+const FLAKE_ROTATIONS = [0, 60, 120, 180, 240, 300];
+
+// Five distinct arm patterns (SVG path, arm points up toward negative Y).
+// Each arm is stamped 6× at 60° increments to form a full snowflake.
+const FLAKE_ARMS: string[] = [
+  // A — classic dendrite: two symmetric branch pairs
+  'M0,0L0,-12 M0,-4.2L-2.8,-7M0,-4.2L2.8,-7 M0,-8.5L-2,-10.5M0,-8.5L2,-10.5',
+  // B — fern-stellar: three branch pairs tapering toward tip
+  'M0,0L0,-13.5 M0,-3L-2.5,-5.5M0,-3L2.5,-5.5 M0,-7L-3,-9.5M0,-7L3,-9.5 M0,-11L-1.8,-13M0,-11L1.8,-13',
+  // C — bullet rosette: wide angled branches
+  'M0,0L0,-11.5 M0,-3.5L-3.5,-7M0,-3.5L3.5,-7 M0,-7.5L-2.5,-10.5M0,-7.5L2.5,-10.5',
+  // D — short ornate: four tight branch pairs with tip spurs
+  'M0,0L0,-10.5 M0,-2L-1.8,-3.8M0,-2L1.8,-3.8 M0,-4.5L-2.5,-7M0,-4.5L2.5,-7 M0,-7.5L-2,-9.5M0,-7.5L2,-9.5 M0,-10.5L-1.5,-12M0,-10.5L1.5,-12',
+  // E — stellar plates: long sparse arms with tip fork
+  'M0,0L0,-13 M0,-5L-3,-8.5M0,-5L3,-8.5 M0,-9.5L-2,-12M0,-9.5L2,-12 M0,-13L-1,-14M0,-13L1,-14',
+];
+
 const SNOW_FLAKES = (() => {
-  const count = 26;
+  const count = 28;
   return Array.from({ length: count }, (_, i) => ({
-    left:       (i / count) * 100 + (Math.sin(i * 1.73) * 50 + 50) / count,
-    size:       Math.round(4 + (Math.cos(i * 2.31) * 0.5 + 0.5) * 7),
-    fallDur:    +(10 + (Math.sin(i * 0.79) * 0.5 + 0.5) * 8).toFixed(1),
-    fallDelay:  +(-Math.abs(Math.sin(i * 3.14)) * 18).toFixed(1),
-    driftDur:   +(3.5 + (Math.cos(i * 1.27) * 0.5 + 0.5) * 3.5).toFixed(1),
-    driftDelay: +(-Math.abs(Math.sin(i * 2.61)) * 4).toFixed(1),
-    driftDir:   i % 2 === 0 ? 1 : -1,
+    left:      (i / count) * 100 + (Math.sin(i * 1.73) * 50 + 50) / count,
+    size:      Math.round(12 + (Math.cos(i * 2.31) * 0.5 + 0.5) * 13), // 12–25 px
+    opacity:   +(0.45 + (Math.sin(i * 1.17) * 0.5 + 0.5) * 0.48).toFixed(2), // 0.45–0.93
+    fallDur:   +(13 + (Math.sin(i * 0.79) * 0.5 + 0.5) * 11).toFixed(1), // 13–24 s
+    fallDelay: +(-Math.abs(Math.sin(i * 3.14)) * 24).toFixed(1),
+    driftDur:  +(3.5 + (Math.cos(i * 1.27) * 0.5 + 0.5) * 4.5).toFixed(1), // 3.5–8 s
+    driftDelay:+(-Math.abs(Math.sin(i * 2.61)) * 5).toFixed(1),
+    driftAmt:  Math.round(10 + (Math.sin(i * 0.91) * 0.5 + 0.5) * 22), // 10–32 px
+    driftDir:  (i % 2 === 0 ? 'alternate' : 'alternate-reverse') as React.CSSProperties['animationDirection'],
+    variant:   i % FLAKE_ARMS.length,
   }));
 })();
 
@@ -36,20 +58,36 @@ function SnowflakeParticles() {
           className="auth-snow-outer"
           style={{
             left: `${f.left.toFixed(1)}%`,
+            ['--drift' as string]: `${f.driftAmt}px`,
             animationDuration: `${f.driftDur}s`,
             animationDelay: `${f.driftDelay}s`,
-            animationDirection: f.driftDir === 1 ? 'alternate' : 'alternate-reverse',
-          }}
+            animationDirection: f.driftDir,
+          } as React.CSSProperties}
         >
-          <div
+          <svg
             className="auth-snow-inner"
+            viewBox="-14 -14 28 28"
+            width={f.size}
+            height={f.size}
             style={{
-              width: `${f.size}px`,
-              height: `${f.size}px`,
+              opacity: f.opacity,
               animationDuration: `${f.fallDur}s`,
               animationDelay: `${f.fallDelay}s`,
             }}
-          />
+          >
+            <g
+              stroke="rgba(255,255,255,0.94)"
+              strokeWidth={f.size >= 20 ? '1.2' : '1.5'}
+              strokeLinecap="round"
+              fill="none"
+            >
+              {FLAKE_ROTATIONS.map(r => (
+                <g key={r} transform={`rotate(${r})`}>
+                  <path d={FLAKE_ARMS[f.variant]} />
+                </g>
+              ))}
+            </g>
+          </svg>
         </div>
       ))}
     </div>
@@ -209,6 +247,17 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
       }
       document.body.classList.remove('keyboard-open');
     };
+  }, []);
+
+  // Scroll focused input into view when the virtual keyboard shrinks the viewport.
+  useEffect(() => {
+    const onFocus = (e: Event) => {
+      const t = e.target as HTMLElement;
+      if (t.tagName !== 'INPUT') return;
+      setTimeout(() => t.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 160);
+    };
+    document.addEventListener('focusin', onFocus, { passive: true });
+    return () => document.removeEventListener('focusin', onFocus);
   }, []);
 
   const submit = async (e: React.FormEvent) => {
