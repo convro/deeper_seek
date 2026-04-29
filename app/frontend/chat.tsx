@@ -495,8 +495,10 @@ function fmtResult(tc: ToolCallRecord): string | null {
 
 function ToolCommandBlock({ tc }: { tc: ToolCallRecord }) {
   const [expanded, setExpanded] = useState(false);
-  const result = expanded ? fmtResult(tc) : null;
-  const hasOutput = fmtResult(tc) !== null;
+  const fmtOutput = fmtResult(tc);
+  const errorMsg = tc.status === 'error' ? (tc.error as string | null | undefined) ?? null : null;
+  const hasOutput = fmtOutput !== null || errorMsg !== null;
+  const result = expanded ? (fmtOutput ?? errorMsg) : null;
   const dur = tc.duration_ms != null
     ? (tc.duration_ms < 1000 ? `${tc.duration_ms}ms` : `${(tc.duration_ms / 1000).toFixed(1)}s`)
     : null;
@@ -518,7 +520,11 @@ function ToolCommandBlock({ tc }: { tc: ToolCallRecord }) {
         <span className="cmd-prompt">$</span>
         <code className="cmd-text">{fmtCmd(tc)}</code>
       </div>
-      {expanded && result && <pre className="cmd-output">{result}</pre>}
+      {expanded && result && (
+        <pre className={`cmd-output${tc.status === 'error' ? ' cmd-output-error' : ''}`}>
+          {result}
+        </pre>
+      )}
     </div>
   );
 }

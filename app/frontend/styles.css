@@ -3560,6 +3560,7 @@ body.keyboard-open .auth-card {
 .cmd-output::-webkit-scrollbar { width: 4px; }
 .cmd-output::-webkit-scrollbar-track { background: transparent; }
 .cmd-output::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 0; }
+.cmd-output-error { color: #e05555; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    SESSION INFO PANEL
