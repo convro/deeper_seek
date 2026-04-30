@@ -1971,31 +1971,132 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   background: var(--bg);
 }
 
-/* ── AUTH SCREEN — clean, premium, product-grade ────────────────────────── */
-/* Uses the app's own design tokens so the auth flow visually belongs to  */
-/* the product rather than standing out as a separate tech demo.          */
+/* ── AUTH SCREEN — two-column layout (desktop) / centered card (mobile) ─ */
 
 .auth-screen {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+  flex-direction: row;
+  align-items: stretch;
   overflow: hidden;
   z-index: 100;
   font-family: var(--font);
   color: var(--text);
-  /* grid lines + dual-source spotlight — adds depth without cyberpunk vibe */
   background:
     linear-gradient(rgba(30,45,70,0.2) 1px, transparent 1px) 0 0 / 48px 48px,
     linear-gradient(90deg, rgba(30,45,70,0.2) 1px, transparent 1px) 0 0 / 48px 48px,
-    radial-gradient(ellipse 90% 60% at 50% -5%, rgba(99,102,241,0.14) 0%, transparent 65%),
-    radial-gradient(ellipse 50% 50% at 15% 90%, rgba(79,70,229,0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 90% 60% at 30% 20%, rgba(99,102,241,0.1) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 60% at 80% 80%, rgba(79,70,229,0.06) 0%, transparent 60%),
     var(--bg);
 }
 
-/* ── Snow overlay (desktop only, rendered via React) ─────────────────── */
+/* ── Left panel (desktop only) ────────────────────────────────────────── */
+.auth-panel-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  max-width: 560px;
+  padding: 64px 56px;
+  position: relative;
+  z-index: 1;
+}
+.auth-panel-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 44px;
+}
+.auth-panel-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.25), 0 4px 12px rgba(0,0,0,0.4);
+}
+.auth-panel-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+.auth-panel-headline {
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -1px;
+  color: var(--text);
+  margin-bottom: 14px;
+}
+.auth-panel-sub {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text2);
+  margin-bottom: 44px;
+}
+.auth-features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-bottom: 44px;
+}
+.auth-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.auth-feature-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: rgba(99,102,241,0.1);
+  border: 1px solid rgba(99,102,241,0.2);
+  color: #818cf8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+.auth-feature > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.auth-feature strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}
+.auth-feature span {
+  font-size: 13px;
+  color: var(--text3);
+  line-height: 1.45;
+}
+.auth-panel-stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text3);
+}
+.auth-panel-stat-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(46,160,67,0.6);
+  animation: statPulse 2.5s ease-in-out infinite;
+}
+@keyframes statPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ── Snow overlay ─────────────────────────────────────────────────────── */
 .auth-snow {
   position: absolute;
   inset: 0;
@@ -2009,8 +2110,6 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   overflow: visible;
   animation: snowDrift ease-in-out infinite alternate;
 }
-/* SVG snowflake element — appearance is defined in the SVG markup itself.
-   transform-box + transform-origin ensure rotation pivots around the flake center. */
 .auth-snow-inner {
   display: block;
   overflow: visible;
@@ -2019,7 +2118,7 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   animation: snowFall linear infinite;
 }
 
-/* ── Mobile keyboard open: collapse brand, allow card to scroll ──────── */
+/* ── Mobile keyboard open ─────────────────────────────────────────────── */
 body.keyboard-open .auth-screen {
   align-items: flex-start;
   overflow-y: auto;
@@ -2029,31 +2128,22 @@ body.keyboard-open .auth-screen {
 body.keyboard-open .auth-card {
   padding-top: 18px;
   margin-bottom: 8px;
+  width: 100%;
+  margin-right: 0;
 }
-/* Shrink the logo/title/tagline so all form fields stay visible above the keyboard */
-body.keyboard-open .auth-brand {
-  margin-bottom: 12px;
-}
-body.keyboard-open .auth-logo {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  margin-bottom: 6px;
-}
-body.keyboard-open .auth-title {
-  font-size: 15px;
-  margin-bottom: 1px;
-}
-body.keyboard-open .auth-tagline {
-  display: none;
-}
+body.keyboard-open .auth-brand { margin-bottom: 12px; }
+body.keyboard-open .auth-logo  { width: 48px; height: 48px; border-radius: 12px; margin-bottom: 6px; }
+body.keyboard-open .auth-title { font-size: 15px; margin-bottom: 1px; }
+body.keyboard-open .auth-tagline { display: none; }
 
-/* ── The card ─────────────────────────────────────────────────────────── */
+/* ── Right panel — form card ──────────────────────────────────────────── */
 .auth-card {
   position: relative;
   z-index: 1;
-  width: 100%;
-  max-width: 420px;
+  width: 420px;
+  flex-shrink: 0;
+  align-self: center;
+  margin: 24px 64px 24px 0;
   padding: 36px 30px 30px;
   background: var(--bg2);
   border: 1px solid transparent;
@@ -2066,19 +2156,13 @@ body.keyboard-open .auth-tagline {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
 }
-/* gradient border — top-left lit corner, fades toward bottom-right */
 .auth-card::before {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: var(--radius-lg);
   padding: 1px;
-  background: linear-gradient(
-    148deg,
-    rgba(99,102,241,0.55) 0%,
-    rgba(99,102,241,0.2) 30%,
-    transparent 55%
-  );
+  background: linear-gradient(148deg, rgba(99,102,241,0.55) 0%, rgba(99,102,241,0.2) 30%, transparent 55%);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -2289,9 +2373,22 @@ body.keyboard-open .auth-tagline {
 }
 @keyframes auth-spin { to { transform: rotate(360deg); } }
 
+/* ── Responsive: hide left panel, center card ─────────────────────────── */
+@media (max-width: 860px) {
+  .auth-screen     { justify-content: center; align-items: center; padding: 24px; }
+  .auth-panel-left { display: none; }
+  .auth-card       { width: 100%; max-width: 420px; margin: 0; align-self: center; }
+  /* mobile: show the brand inside the card */
+  .auth-brand      { display: block; }
+}
+/* desktop: hide in-card brand (it's in the left panel) */
+@media (min-width: 861px) {
+  .auth-brand { display: none; }
+}
+
 @media (max-width: 480px) {
   .auth-screen { padding: 16px; }
-  .auth-card   { padding: 28px 22px 24px; max-width: 100%; }
+  .auth-card   { padding: 28px 22px 24px; }
   .auth-logo   { width: 88px; height: 88px; border-radius: 20px; }
   .auth-title  { font-size: 21px; }
 }

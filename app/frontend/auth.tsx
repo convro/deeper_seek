@@ -282,7 +282,85 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
   return (
     <div className="auth-screen">
       <SnowflakeParticles />
+
+      {/* ── Left panel (desktop only) ──────────────────────────────── */}
+      <div className="auth-panel-left" aria-hidden="true">
+        <div className="auth-panel-brand">
+          <img src={LOGO_URL} alt="" className="auth-panel-logo" />
+          <span className="auth-panel-name">DeeperSeek</span>
+        </div>
+
+        <h2 className="auth-panel-headline">The AI that actually works.</h2>
+        <p className="auth-panel-sub">
+          Not a chatbot. Extended reasoning, parallel agents,<br />
+          and 60+ real tools — all in one workspace.
+        </p>
+
+        <ul className="auth-features">
+          <li className="auth-feature">
+            <span className="auth-feature-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1zm0 1.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM8 4a.75.75 0 0 1 .75.75v3.5l2 1.15a.75.75 0 1 1-.75 1.3L7.5 9.2a.75.75 0 0 1-.375-.65v-3.8A.75.75 0 0 1 8 4z" fill="currentColor"/>
+              </svg>
+            </span>
+            <div>
+              <strong>Extended Thinking</strong>
+              <span>Chain-of-thought reasoning before every complex answer</span>
+            </div>
+          </li>
+          <li className="auth-feature">
+            <span className="auth-feature-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="3" cy="8" r="2" fill="currentColor"/>
+                <circle cx="13" cy="4" r="2" fill="currentColor"/>
+                <circle cx="13" cy="12" r="2" fill="currentColor"/>
+                <path d="M5 8h3M10 4.5 8.5 7M10 11.5 8.5 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              </svg>
+            </span>
+            <div>
+              <strong>Parallel Agents</strong>
+              <span>Spawn multiple specialized agents that work simultaneously</span>
+            </div>
+          </li>
+          <li className="auth-feature">
+            <span className="auth-feature-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity=".8"/>
+                <rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity=".6"/>
+                <rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".6"/>
+                <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".4"/>
+              </svg>
+            </span>
+            <div>
+              <strong>60+ Built-in Tools</strong>
+              <span>Web, code, browser, files, GitHub, APIs — zero setup</span>
+            </div>
+          </li>
+          <li className="auth-feature">
+            <span className="auth-feature-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v7a1.5 1.5 0 0 1-1.5 1.5H9l1 2H10l-2-2-2 2H5l1-2H3.5A1.5 1.5 0 0 1 2 10.5v-7z" fill="currentColor" opacity=".7"/>
+                <path d="M5.5 6.5h5M5.5 8.5h3" stroke="white" strokeWidth="1.1" strokeLinecap="round"/>
+              </svg>
+            </span>
+            <div>
+              <strong>Isolated Workspaces</strong>
+              <span>Every task gets its own sandbox — export as ZIP anytime</span>
+            </div>
+          </li>
+        </ul>
+
+        {state.userCount > 0 && (
+          <div className="auth-panel-stat">
+            <span className="auth-panel-stat-dot" />
+            {state.userCount.toLocaleString()} {state.userCount === 1 ? 'user' : 'users'} active
+          </div>
+        )}
+      </div>
+
+      {/* ── Right panel — form ──────────────────────────────────────── */}
       <div className="auth-card">
+        {/* Brand shown only on mobile (hidden on desktop via CSS) */}
         <div className="auth-brand">
           <img src={LOGO_URL} alt="DeeperSeek" className="auth-logo" />
           <h1 className="auth-title">DeeperSeek</h1>
