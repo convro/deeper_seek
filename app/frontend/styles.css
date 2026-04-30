@@ -1978,8 +1978,11 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   inset: 0;
   display: flex;
   flex-direction: row;
-  align-items: stretch;
-  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  gap: 48px;
+  padding: 40px 8vw;
+  overflow: hidden auto;
   z-index: 100;
   font-family: var(--font);
   color: var(--text);
@@ -1995,10 +1998,9 @@ body.keyboard-open .messages-wrapper::after { display: none; }
 .auth-panel-left {
   display: flex;
   flex-direction: column;
-  justify-content: center;
   flex: 1;
-  max-width: 560px;
-  padding: 64px 56px;
+  max-width: 480px;
+  min-width: 0;
   position: relative;
   z-index: 1;
 }
@@ -2006,7 +2008,7 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 44px;
+  margin-bottom: 36px;
 }
 .auth-panel-logo {
   width: 40px;
@@ -2140,10 +2142,8 @@ body.keyboard-open .auth-tagline { display: none; }
 .auth-card {
   position: relative;
   z-index: 1;
-  width: 420px;
+  width: 400px;
   flex-shrink: 0;
-  align-self: center;
-  margin: 24px 64px 24px 0;
   padding: 36px 30px 30px;
   background: var(--bg2);
   border: 1px solid transparent;
@@ -2375,13 +2375,11 @@ body.keyboard-open .auth-tagline { display: none; }
 
 /* ── Responsive: hide left panel, center card ─────────────────────────── */
 @media (max-width: 860px) {
-  .auth-screen     { justify-content: center; align-items: center; padding: 24px; }
+  .auth-screen     { gap: 0; padding: 24px; }
   .auth-panel-left { display: none; }
-  .auth-card       { width: 100%; max-width: 420px; margin: 0; align-self: center; }
-  /* mobile: show the brand inside the card */
+  .auth-card       { width: 100%; max-width: 420px; }
   .auth-brand      { display: block; }
 }
-/* desktop: hide in-card brand (it's in the left panel) */
 @media (min-width: 861px) {
   .auth-brand { display: none; }
 }
