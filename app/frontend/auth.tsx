@@ -104,6 +104,13 @@ function SnowCanvas() {
     const flakes: Flake[] = [];
     const particles: Particle[] = [];
 
+    // Track mouse position for hover-burst; null = off-screen
+    let mx = -9999, my = -9999;
+    const onMouseMove = (e: MouseEvent) => { mx = e.clientX; my = e.clientY; };
+    const onMouseLeave = () => { mx = -9999; my = -9999; };
+    window.addEventListener('mousemove', onMouseMove, { passive: true });
+    window.addEventListener('mouseleave', onMouseLeave, { passive: true });
+
     const resize = () => {
       canvas.width  = window.innerWidth;
       canvas.height = window.innerHeight;
@@ -134,6 +141,16 @@ function SnowCanvas() {
           f.bursted = true;
           spawnBurst(x, f.y, f, particles);
         }
+
+        // Cursor proximity burst — trigger if pointer is within the flake radius
+        if (!f.bursted) {
+          const dx = mx - x, dy = my - f.y;
+          if (dx * dx + dy * dy < (f.size + 8) * (f.size + 8)) {
+            f.bursted = true;
+            spawnBurst(x, f.y, f, particles);
+          }
+        }
+
         if (f.y > height + 80) {
           f.y = -f.size * 4 - Math.random() * 120;
           f.baseX   = Math.random();
@@ -165,7 +182,12 @@ function SnowCanvas() {
     };
 
     rafId = requestAnimationFrame(tick);
-    return () => { cancelAnimationFrame(rafId); window.removeEventListener('resize', resize); };
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseleave', onMouseLeave);
+    };
   }, []);
 
   if (typeof window !== 'undefined' && window.innerWidth <= 768) return null;
