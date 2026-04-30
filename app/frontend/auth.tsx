@@ -3,7 +3,7 @@
  * Shown when AUTH_MODE=multi_user and no valid token is stored.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   loginRequest, registerRequest, setAuthToken, clearAuthToken, logoutRequest,
   fetchAuthConfig, fetchMe,
@@ -12,86 +12,164 @@ import type { AuthUser, AuthConfig } from './api';
 
 const LOGO_URL = 'https://r.convro.eu/content/Stable/realises/ds73';
 
-// ── Snow effect (desktop only) ────────────────────────────────────────────
+// ── Canvas snowflake animation ────────────────────────────────────────────
 
-// Six rotations for the 6-fold crystalline symmetry of each snowflake arm.
-const FLAKE_ROTATIONS = [0, 60, 120, 180, 240, 300];
-
-// Five distinct arm patterns (SVG path, arm points up toward negative Y).
-// Each arm is stamped 6× at 60° increments to form a full snowflake.
-const FLAKE_ARMS: string[] = [
-  // A — classic dendrite: two symmetric branch pairs
-  'M0,0L0,-12 M0,-4.2L-2.8,-7M0,-4.2L2.8,-7 M0,-8.5L-2,-10.5M0,-8.5L2,-10.5',
-  // B — fern-stellar: three branch pairs tapering toward tip
-  'M0,0L0,-13.5 M0,-3L-2.5,-5.5M0,-3L2.5,-5.5 M0,-7L-3,-9.5M0,-7L3,-9.5 M0,-11L-1.8,-13M0,-11L1.8,-13',
-  // C — bullet rosette: wide angled branches
-  'M0,0L0,-11.5 M0,-3.5L-3.5,-7M0,-3.5L3.5,-7 M0,-7.5L-2.5,-10.5M0,-7.5L2.5,-10.5',
-  // D — short ornate: four tight branch pairs with tip spurs
-  'M0,0L0,-10.5 M0,-2L-1.8,-3.8M0,-2L1.8,-3.8 M0,-4.5L-2.5,-7M0,-4.5L2.5,-7 M0,-7.5L-2,-9.5M0,-7.5L2,-9.5 M0,-10.5L-1.5,-12M0,-10.5L1.5,-12',
-  // E — stellar plates: long sparse arms with tip fork
-  'M0,0L0,-13 M0,-5L-3,-8.5M0,-5L3,-8.5 M0,-9.5L-2,-12M0,-9.5L2,-12 M0,-13L-1,-14M0,-13L1,-14',
+// Each variant is a list of [stemFraction, branchXFraction] pairs.
+// The branch goes: from (0, -size*sf) to (±size*xf, -size*(sf + xf*0.9))
+const FLAKE_VARIANTS: ReadonlyArray<ReadonlyArray<[number, number]>> = [
+  [[0.35, 0.22], [0.70, 0.16]],
+  [[0.25, 0.19], [0.50, 0.27], [0.76, 0.15]],
+  [[0.30, 0.30], [0.65, 0.20]],
+  [[0.22, 0.18], [0.44, 0.24], [0.66, 0.22], [0.84, 0.12]],
+  [[0.38, 0.26], [0.72, 0.17]],
 ];
 
-const SNOW_FLAKES = (() => {
-  const count = 28;
-  return Array.from({ length: count }, (_, i) => ({
-    left:      (i / count) * 100 + (Math.sin(i * 1.73) * 50 + 50) / count,
-    size:      Math.round(12 + (Math.cos(i * 2.31) * 0.5 + 0.5) * 13), // 12–25 px
-    opacity:   +(0.45 + (Math.sin(i * 1.17) * 0.5 + 0.5) * 0.48).toFixed(2), // 0.45–0.93
-    fallDur:   +(13 + (Math.sin(i * 0.79) * 0.5 + 0.5) * 11).toFixed(1), // 13–24 s
-    fallDelay: +(-Math.abs(Math.sin(i * 3.14)) * 24).toFixed(1),
-    driftDur:  +(3.5 + (Math.cos(i * 1.27) * 0.5 + 0.5) * 4.5).toFixed(1), // 3.5–8 s
-    driftDelay:+(-Math.abs(Math.sin(i * 2.61)) * 5).toFixed(1),
-    driftAmt:  Math.round(10 + (Math.sin(i * 0.91) * 0.5 + 0.5) * 22), // 10–32 px
-    driftDir:  (i % 2 === 0 ? 'alternate' : 'alternate-reverse') as React.CSSProperties['animationDirection'],
-    variant:   i % FLAKE_ARMS.length,
-  }));
-})();
+interface Flake {
+  baseX: number; y: number; size: number; baseAlpha: number;
+  rot: number; rotSpeed: number; fallSpeed: number;
+  driftAmp: number; driftSpeed: number; driftPhase: number;
+  variant: number; bursted: boolean;
+}
+interface Particle {
+  x: number; y: number; vx: number; vy: number; gravity: number;
+  size: number; baseAlpha: number; rot: number; rotSpeed: number;
+  variant: number; life: number; decay: number;
+}
 
-function SnowflakeParticles() {
-  if (typeof window === 'undefined' || window.innerWidth <= 768) return null;
-  return (
-    <div className="auth-snow" aria-hidden="true">
-      {SNOW_FLAKES.map((f, i) => (
-        <div
-          key={i}
-          className="auth-snow-outer"
-          style={{
-            left: `${f.left.toFixed(1)}%`,
-            ['--drift' as string]: `${f.driftAmt}px`,
-            animationDuration: `${f.driftDur}s`,
-            animationDelay: `${f.driftDelay}s`,
-            animationDirection: f.driftDir,
-          } as React.CSSProperties}
-        >
-          <svg
-            className="auth-snow-inner"
-            viewBox="-14 -14 28 28"
-            width={f.size}
-            height={f.size}
-            style={{
-              opacity: f.opacity,
-              animationDuration: `${f.fallDur}s`,
-              animationDelay: `${f.fallDelay}s`,
-            }}
-          >
-            <g
-              stroke="rgba(255,255,255,0.94)"
-              strokeWidth={f.size >= 20 ? '1.2' : '1.5'}
-              strokeLinecap="round"
-              fill="none"
-            >
-              {FLAKE_ROTATIONS.map(r => (
-                <g key={r} transform={`rotate(${r})`}>
-                  <path d={FLAKE_ARMS[f.variant]} />
-                </g>
-              ))}
-            </g>
-          </svg>
-        </div>
-      ))}
-    </div>
-  );
+function makeFlake(h: number): Flake {
+  return {
+    baseX: Math.random(), y: -Math.random() * h,
+    size: 6 + Math.random() * 10, baseAlpha: 0.4 + Math.random() * 0.5,
+    rot: Math.random() * Math.PI * 2, rotSpeed: (Math.random() - 0.5) * 1.2,
+    fallSpeed: 28 + Math.random() * 35,
+    driftAmp: 12 + Math.random() * 22,
+    driftSpeed: 0.35 + Math.random() * 0.55,
+    driftPhase: Math.random() * Math.PI * 2,
+    variant: Math.floor(Math.random() * FLAKE_VARIANTS.length), bursted: false,
+  };
+}
+
+function drawFlake(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, rot: number, alpha: number, variant: number) {
+  const branches = FLAKE_VARIANTS[variant % FLAKE_VARIANTS.length];
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+  ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+  ctx.lineWidth = Math.max(0.7, size / 9);
+  ctx.lineCap = 'round';
+  for (let arm = 0; arm < 6; arm++) {
+    ctx.save();
+    ctx.rotate(arm * Math.PI / 3);
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(0, -size);
+    for (const [sf, xf] of branches) {
+      const sy = -size * sf;
+      const bx = size * xf;
+      const by = sy - size * xf * 0.9;
+      ctx.moveTo(0, sy); ctx.lineTo(-bx, by);
+      ctx.moveTo(0, sy); ctx.lineTo( bx, by);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function spawnBurst(x: number, y: number, f: Flake, particles: Particle[]) {
+  const count = 5 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.9;
+    const speed = 40 + Math.random() * 65;
+    particles.push({
+      x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 28,
+      gravity: 20, size: f.size * (0.22 + Math.random() * 0.28),
+      baseAlpha: 0.75 + Math.random() * 0.25,
+      rot: Math.random() * Math.PI * 2, rotSpeed: (Math.random() - 0.5) * 5,
+      variant: f.variant, life: 1, decay: 1.2 + Math.random() * 0.8,
+    });
+  }
+}
+
+function SnowCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (window.innerWidth <= 768) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const flakes: Flake[] = [];
+    const particles: Particle[] = [];
+
+    const resize = () => {
+      canvas.width  = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (flakes.length === 0)
+        for (let i = 0; i < 28; i++) flakes.push(makeFlake(canvas.height));
+    };
+    resize();
+    window.addEventListener('resize', resize, { passive: true });
+
+    let lastTime = performance.now();
+    let rafId = 0;
+
+    const tick = (now: number) => {
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+      const { width, height } = canvas;
+      ctx.clearRect(0, 0, width, height);
+
+      const burstY     = height * 0.82;
+      const fadeStartY = height * 0.70;
+
+      for (const f of flakes) {
+        f.y   += f.fallSpeed * dt;
+        f.rot += f.rotSpeed  * dt;
+        const x = f.baseX * width + Math.sin(now / 1000 * f.driftSpeed + f.driftPhase) * f.driftAmp;
+
+        if (!f.bursted && f.y >= burstY) {
+          f.bursted = true;
+          spawnBurst(x, f.y, f, particles);
+        }
+        if (f.y > height + 80) {
+          f.y = -f.size * 4 - Math.random() * 120;
+          f.baseX   = Math.random();
+          f.bursted = false;
+        }
+        if (f.bursted) continue;
+
+        let alpha = f.baseAlpha;
+        if (f.y > fadeStartY) {
+          const t = (f.y - fadeStartY) / (burstY - fadeStartY);
+          alpha *= 1 - t * 0.85;
+        }
+        drawFlake(ctx, x, f.y, f.size, f.rot, alpha, f.variant);
+      }
+
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.life -= p.decay * dt;
+        if (p.life <= 0) { particles.splice(i, 1); continue; }
+        p.x  += p.vx * dt;
+        p.y  += p.vy * dt;
+        p.vy += p.gravity * dt;
+        p.vx *= Math.pow(0.88, dt * 60);
+        p.rot += p.rotSpeed * dt;
+        drawFlake(ctx, p.x, p.y, p.size, p.rot, p.baseAlpha * p.life, p.variant);
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => { cancelAnimationFrame(rafId); window.removeEventListener('resize', resize); };
+  }, []);
+
+  if (typeof window !== 'undefined' && window.innerWidth <= 768) return null;
+  return <canvas ref={canvasRef} className="auth-snow-canvas" aria-hidden="true" />;
 }
 
 export type AuthMode = 'open' | 'multi_user';
@@ -195,12 +273,13 @@ interface AuthScreenProps {
 
 export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
   const [tab, setTab] = useState<'login' | 'register'>('login');
-  const [email,      setEmail]    = useState('');
-  const [password,   setPassword] = useState('');
-  const [username,   setUsername] = useState('');
-  const [license,    setLicense]  = useState('');
-  const [error,      setError]    = useState<string | null>(null);
-  const [loading,    setLoading]  = useState(false);
+  const [email,        setEmail]       = useState('');
+  const [password,     setPassword]    = useState('');
+  const [username,     setUsername]    = useState('');
+  const [license,      setLicense]     = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error,        setError]       = useState<string | null>(null);
+  const [loading,      setLoading]     = useState(false);
 
   // ── iOS keyboard pin ────────────────────────────────────────────────
   // .auth-screen is position:fixed, so when the iOS keyboard opens the
@@ -281,7 +360,7 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
 
   return (
     <div className="auth-screen">
-      <SnowflakeParticles />
+      <SnowCanvas />
 
       {/* ── Left panel (desktop only) ──────────────────────────────── */}
       <div className="auth-panel-left" aria-hidden="true">
@@ -413,16 +492,38 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
 
           <label className="auth-field">
             <span className="auth-label">Password</span>
-            <input
-              type="password"
-              className="auth-input"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder={tab === 'register' ? 'min 8 characters' : '••••••••'}
-              autoComplete={tab === 'register' ? 'new-password' : 'current-password'}
-              required
-              minLength={tab === 'register' ? 8 : undefined}
-            />
+            <div className="auth-input-wrap">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                className="auth-input"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder={tab === 'register' ? 'min 8 characters' : '••••••••'}
+                autoComplete={tab === 'register' ? 'new-password' : 'current-password'}
+                required
+                minLength={tab === 'register' ? 8 : undefined}
+              />
+              <button
+                type="button"
+                className="auth-pw-toggle"
+                onClick={() => setShowPassword(p => !p)}
+                tabIndex={-1}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? (
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 8s2.667-5 7-5 7 5 7 5-2.667 5-7 5-7-5-7-5z"/>
+                    <circle cx="8" cy="8" r="2.2"/>
+                    <line x1="2" y1="2" x2="14" y2="14"/>
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 8s2.667-5 7-5 7 5 7 5-2.667 5-7 5-7-5-7-5z"/>
+                    <circle cx="8" cy="8" r="2.2"/>
+                  </svg>
+                )}
+              </button>
+            </div>
           </label>
 
           {tab === 'register' && (
