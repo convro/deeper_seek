@@ -1986,12 +1986,7 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   z-index: 100;
   font-family: var(--font);
   color: var(--text);
-  background:
-    linear-gradient(rgba(30,45,70,0.2) 1px, transparent 1px) 0 0 / 48px 48px,
-    linear-gradient(90deg, rgba(30,45,70,0.2) 1px, transparent 1px) 0 0 / 48px 48px,
-    radial-gradient(ellipse 90% 60% at 30% 20%, rgba(99,102,241,0.1) 0%, transparent 55%),
-    radial-gradient(ellipse 60% 60% at 80% 80%, rgba(79,70,229,0.06) 0%, transparent 60%),
-    var(--bg);
+  background: var(--bg);
 }
 
 /* ── Left panel (desktop only) ────────────────────────────────────────── */
