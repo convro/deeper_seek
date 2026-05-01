@@ -16,6 +16,7 @@ const uploadController = require('./upload.controller');
 const authController = require('./auth.controller');
 const authMiddleware = require('./auth');
 const githubService = require('./github.service');
+const discordService = require('./discord.service');
 const soulService = require('./soul.service');
 
 // Multer setup for file uploads — namespaced per user when auth is active
@@ -200,6 +201,69 @@ router.post('/github/disconnect', (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Authentication required' });
   soulService.saveUserSettings(req.user.id, { github_pat: '', github_username: '' });
   res.json({ ok: true });
+});
+
+// ── Discord integration ──────────────────────────────────────────────────────
+
+// POST /api/discord/bookmarklet/begin
+// Generates a one-time-token and the bookmarklet javascript: URI.
+router.post('/discord/bookmarklet/begin', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const result = discordService.beginBookmarklet(req.user.id, origin);
+  res.json({ ok: true, script: result.script, expires_at: result.expiresAt });
+});
+
+// POST /api/discord/bookmarklet/submit — called by the bookmarklet on discord.com
+// No standard auth header — the OTT is the auth. CORS-permissive on purpose.
+router.post('/discord/bookmarklet/submit', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const { ott, discord_token } = req.body || {};
+  if (!ott || !discord_token) {
+    return res.status(400).json({ ok: false, error: 'Missing ott or discord_token' });
+  }
+  try {
+    const identity = await discordService.submitBookmarklet(ott, discord_token, soulService);
+    res.json({ ok: true, username: identity.username, user_id: identity.id });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
+// OPTIONS pre-flight for bookmarklet submit (cross-origin from discord.com)
+router.options('/discord/bookmarklet/submit', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'POST');
+  res.sendStatus(204);
+});
+
+// GET /api/discord/status — poll after bookmarklet install to detect connection
+router.get('/discord/status', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  const s = soulService.getUserSettings(req.user.id);
+  if (s.discord_username) {
+    res.json({
+      connected:   true,
+      username:    s.discord_username,
+      global_name: s.discord_global_name,
+      user_id:     s.discord_user_id,
+      avatar:      s.discord_avatar,
+    });
+  } else {
+    res.json({ connected: false });
+  }
+});
+
+// POST /api/discord/disconnect
+router.post('/discord/disconnect', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  try {
+    await discordService.disconnect(req.user.id, soulService);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Agents ──────────────────────────────────────

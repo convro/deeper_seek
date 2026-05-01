@@ -3495,6 +3495,143 @@ body.keyboard-open .auth-tagline { display: none; }
   padding: 6px 10px;
 }
 
+/* ── Discord integration ──────────────────────────────────────────────────── */
+.dc-connect-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  background: #5865f2;
+  border: 1px solid rgba(88,101,242,0.5);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+}
+.dc-connect-btn:hover {
+  background: #4752c4;
+  box-shadow: 0 4px 16px rgba(88,101,242,0.35);
+  transform: translateY(-1px);
+}
+.dc-connect-btn:active { transform: translateY(0); }
+
+.dc-tos-note {
+  color: var(--text3);
+  font-style: italic;
+}
+
+.dc-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.dc-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #5865f2;
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.dc-waiting-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dc-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dc-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text2);
+  line-height: 1.45;
+}
+.dc-step-num {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(88,101,242,0.2);
+  border: 1px solid rgba(88,101,242,0.35);
+  color: #818cf8;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.dc-bookmarklet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  background: linear-gradient(135deg, #5865f2 0%, #4752c4 100%);
+  border: 2px dashed rgba(88,101,242,0.6);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: grab;
+  text-decoration: none;
+  width: fit-content;
+  transition: box-shadow 0.15s, transform 0.1s;
+  user-select: none;
+}
+.dc-bookmarklet-btn:hover {
+  box-shadow: 0 4px 16px rgba(88,101,242,0.4);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+.dc-bookmarklet-btn:active { cursor: grabbing; }
+
+.dc-waiting-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text3);
+}
+.dc-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #5865f2;
+  animation: dcPulse 1.4s ease-in-out infinite;
+}
+@keyframes dcPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.75); }
+}
+
+.dc-cancel-btn {
+  background: none;
+  border: none;
+  color: var(--text3);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  width: fit-content;
+}
+.dc-cancel-btn:hover { color: var(--text2); }
+
 /* ══════════════════════════════════════════════════════════════════════════
    PWA INSTALL GATE  (shown on mobile browsers when not in standalone mode)
 ══════════════════════════════════════════════════════════════════════════ */

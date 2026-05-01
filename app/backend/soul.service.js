@@ -57,6 +57,11 @@ const DEFAULT_SETTINGS = {
   github_username:         '',
   github_user_id:          '',
   github_name:             '',
+  discord_token:           '',
+  discord_user_id:         '',
+  discord_username:        '',
+  discord_global_name:     '',
+  discord_avatar:          '',
 };
 
 /**

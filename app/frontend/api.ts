@@ -115,6 +115,11 @@ export interface UserSettings {
   use_pro_model: boolean;
   github_pat?: string;
   github_username?: string;
+  discord_token?: string;
+  discord_user_id?: string;
+  discord_username?: string;
+  discord_global_name?: string;
+  discord_avatar?: string;
 }
 
 export async function fetchUserSettings(): Promise<{ settings: UserSettings }> {
@@ -322,6 +327,35 @@ export function connectGithubOAuth(): Promise<GithubOAuthResult> {
 
 export async function disconnectGithub(): Promise<void> {
   await fetchJson(`${BASE}/github/disconnect`, { method: 'POST' });
+}
+
+// ── Discord integration ────────────────────────────────────────────────────
+
+export interface DiscordStatus {
+  connected: boolean;
+  username?: string;
+  global_name?: string;
+  user_id?: string;
+  avatar?: string;
+}
+
+/**
+ * Generates a one-time-token bookmarklet. Returns the javascript: URI
+ * the user should drag to their bookmarks bar.
+ */
+export async function getDiscordBookmarklet(): Promise<{ script: string; expires_at: number }> {
+  return fetchJson(`${BASE}/discord/bookmarklet/begin`, { method: 'POST' });
+}
+
+/**
+ * Poll backend to check if bookmarklet has successfully submitted the token.
+ */
+export async function getDiscordStatus(): Promise<DiscordStatus> {
+  return fetchJson(`${BASE}/discord/status`);
+}
+
+export async function disconnectDiscord(): Promise<void> {
+  await fetchJson(`${BASE}/discord/disconnect`, { method: 'POST' });
 }
 
 export async function listGithubRepos(): Promise<{ repos: GithubRepo[] }> {

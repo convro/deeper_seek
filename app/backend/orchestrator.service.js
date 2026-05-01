@@ -129,6 +129,9 @@ async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
         // User token — used only for authentication (push/pull), NOT for commit identity.
         subEnv.GITHUB_TOKEN = String(gs.github_pat);
       }
+      if (gs.discord_token) {
+        subEnv.DISCORD_TOKEN = String(gs.discord_token);
+      }
     } catch {}
   }
 

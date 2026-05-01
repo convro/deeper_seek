@@ -87,6 +87,8 @@ TOOL_MAP = {
     "sqli_test":          "tools/security/sqli_test.py",
     "ssl_inspect":        "tools/security/ssl_inspect.py",
     "tech_detect":        "tools/security/tech_detect.py",
+    # Discord (user-token / self-bot integration)
+    "discord_tool":       "tools/discord/discord_tool.py",
 }
 
 
