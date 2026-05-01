@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { UserSettings, DiscordStatus } from './api';
-import { connectGithubOAuth, disconnectGithub, getDiscordBookmarklet, getDiscordStatus, disconnectDiscord } from './api';
+import { connectGithubOAuth, disconnectGithub, getDiscordBookmarklet, getDiscordStatus, disconnectDiscord, verifyDiscord } from './api';
 
 interface SettingsModalProps {
   settings: UserSettings;
@@ -22,6 +22,7 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
   const [dcScript,       setDcScript]       = useState<string>('');
   const [dcError,        setDcError]        = useState<string | null>(null);
   const [dcDisconnecting,setDcDisconnecting]= useState(false);
+  const [dcStale,        setDcStale]        = useState(false);  // token rotated/expired
   const dcPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -32,6 +33,30 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
 
   // Stop polling on unmount
   useEffect(() => () => { if (dcPollRef.current) clearInterval(dcPollRef.current); }, []);
+
+  // On modal open: if Discord is connected, ping it to verify token is still alive.
+  // Discord rotates tokens silently (e.g. when the user changes their password),
+  // so we want to detect a dead token immediately rather than wait until the AI
+  // tries to use the tool.
+  useEffect(() => {
+    if (!settings.discord_username) return;
+    let cancelled = false;
+    verifyDiscord().then(r => {
+      if (cancelled) return;
+      if (r.connected && !r.valid) {
+        setDcStale(true);
+      } else if (r.connected && r.valid) {
+        // Refresh username/avatar from Discord if it changed
+        setLocal(s => ({
+          ...s,
+          discord_username:    r.username || s.discord_username,
+          discord_global_name: r.global_name || s.discord_global_name,
+          discord_avatar:      r.avatar !== undefined ? r.avatar : s.discord_avatar,
+        }));
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [settings.discord_username]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -114,6 +139,7 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
       setLocal(s => ({ ...s, discord_username: '', discord_user_id: '', discord_global_name: '', discord_avatar: '' }));
       setDcStep('idle');
       setDcScript('');
+      setDcStale(false);
     } finally {
       setDcDisconnecting(false);
     }
@@ -241,34 +267,42 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
             <div className="settings-section-label">Discord</div>
 
             {isDiscordConnected ? (
-              <div className="gh-connected-row">
-                {local.discord_avatar ? (
-                  <img
-                    src={`https://cdn.discordapp.com/avatars/${local.discord_user_id}/${local.discord_avatar}.webp?size=40`}
-                    alt=""
-                    className="dc-avatar"
-                  />
-                ) : (
-                  <span className="dc-avatar dc-avatar-placeholder">
-                    {(local.discord_global_name || local.discord_username || '?')[0].toUpperCase()}
-                  </span>
-                )}
-                <div className="gh-connected-info">
-                  <span className="gh-connected-name">
-                    {local.discord_global_name || local.discord_username}
-                  </span>
-                  <span className="gh-connected-label">
-                    @{local.discord_username} · Connected
-                  </span>
+              <>
+                <div className={`gh-connected-row${dcStale ? ' dc-stale' : ''}`}>
+                  {local.discord_avatar ? (
+                    <img
+                      src={`https://cdn.discordapp.com/avatars/${local.discord_user_id}/${local.discord_avatar}.webp?size=40`}
+                      alt=""
+                      className="dc-avatar"
+                    />
+                  ) : (
+                    <span className="dc-avatar dc-avatar-placeholder">
+                      {(local.discord_global_name || local.discord_username || '?')[0].toUpperCase()}
+                    </span>
+                  )}
+                  <div className="gh-connected-info">
+                    <span className="gh-connected-name">
+                      {local.discord_global_name || local.discord_username}
+                    </span>
+                    <span className="gh-connected-label">
+                      @{local.discord_username} · {dcStale ? 'Token expired' : 'Connected'}
+                    </span>
+                  </div>
+                  <button
+                    className="gh-disconnect-btn"
+                    onClick={handleDisconnectDiscord}
+                    disabled={dcDisconnecting}
+                  >
+                    {dcDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+                  </button>
                 </div>
-                <button
-                  className="gh-disconnect-btn"
-                  onClick={handleDisconnectDiscord}
-                  disabled={dcDisconnecting}
-                >
-                  {dcDisconnecting ? 'Disconnecting…' : 'Disconnect'}
-                </button>
-              </div>
+                {dcStale && (
+                  <div className="dc-stale-warning">
+                    Discord rejected the stored token. This usually means you changed
+                    your password or logged out elsewhere. Disconnect and reconnect to refresh.
+                  </div>
+                )}
+              </>
             ) : dcStep === 'waiting' ? (
               <div className="dc-waiting-section">
                 <div className="dc-steps">

@@ -354,6 +354,15 @@ export async function getDiscordStatus(): Promise<DiscordStatus> {
   return fetchJson(`${BASE}/discord/status`);
 }
 
+/**
+ * Actively pings Discord with the stored token to verify it's still valid.
+ * Use when the user opens settings to detect silently-rotated tokens.
+ * Also refreshes username/avatar in stored settings if they changed on Discord.
+ */
+export async function verifyDiscord(): Promise<{ valid: boolean; connected: boolean; error?: string; username?: string; global_name?: string; avatar?: string }> {
+  return fetchJson(`${BASE}/discord/verify`);
+}
+
 export async function disconnectDiscord(): Promise<void> {
   await fetchJson(`${BASE}/discord/disconnect`, { method: 'POST' });
 }

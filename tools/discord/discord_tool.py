@@ -66,7 +66,12 @@ def _headers(token: str, with_content_type: bool = True) -> dict:
     return h
 
 
-def _req(method: str, path: str, data=None, token: str = None) -> any:
+def _req(method: str, path: str, data=None, token: str = None, _retry: int = 0) -> any:
+    """
+    Make an authenticated request to the Discord REST API.
+    Handles 401 (auth invalid → clear actionable error) and 429 (rate limited
+    → automatic retry honoring Retry-After up to 2 retries).
+    """
     if token is None:
         token = _token()
     url = f'{DISCORD_API}{path}'
@@ -83,15 +88,61 @@ def _req(method: str, path: str, data=None, token: str = None) -> any:
             if not raw or resp.status == 204:
                 return {}
             return json.loads(raw)
+
     except urllib.error.HTTPError as e:
         raw = e.read().decode('utf-8', errors='replace')
         try:
-            err = json.loads(raw)
-            msg = err.get('message', raw)
-            code = err.get('code', '')
-            raise RuntimeError(f'Discord API {e.code} (code {code}): {msg}')
-        except (json.JSONDecodeError, KeyError):
-            raise RuntimeError(f'Discord API {e.code}: {raw[:300]}')
+            err = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            err = {}
+        msg  = err.get('message') or raw[:300] or f'HTTP {e.code}'
+        code = err.get('code', '')
+
+        # 401 — token is invalid or has been rotated by Discord.
+        # The user needs to reconnect via Settings → Discord.
+        if e.code == 401:
+            raise RuntimeError(
+                'Discord token is invalid or expired. The user must reconnect '
+                'their Discord account: open DeeperSeek Settings → Discord → '
+                'Disconnect, then click Connect Discord again to refresh the token.'
+            )
+
+        # 429 — rate limited. Honor Retry-After and try once more.
+        if e.code == 429 and _retry < 2:
+            retry_after = err.get('retry_after')
+            if retry_after is None:
+                retry_after = float(e.headers.get('Retry-After', '1') or '1')
+            try:
+                retry_after = float(retry_after)
+            except (TypeError, ValueError):
+                retry_after = 1.0
+            # Cap at 30s so we never block the tool for too long
+            wait = min(max(retry_after, 0.5), 30.0)
+            time.sleep(wait + 0.2)
+            return _req(method, path, data=data, token=token, _retry=_retry + 1)
+
+        # 403 — missing permissions or guild restrictions
+        if e.code == 403:
+            raise RuntimeError(
+                f'Discord 403 Forbidden: {msg}. The account lacks permission for '
+                f'this action (missing role permissions, account locked, or the '
+                f'target user has DMs/friend requests disabled).'
+            )
+
+        # 404 — entity not found (wrong ID, deleted, or no access)
+        if e.code == 404:
+            raise RuntimeError(
+                f'Discord 404 Not Found: {msg}. Double-check the ID — the resource '
+                f'may not exist, may have been deleted, or the account may not have '
+                f'access to it.'
+            )
+
+        # Generic
+        suffix = f' (code {code})' if code else ''
+        raise RuntimeError(f'Discord API {e.code}{suffix}: {msg}')
+
+    except urllib.error.URLError as e:
+        raise RuntimeError(f'Discord network error: {e.reason}')
 
 
 def _require(args: dict, key: str):

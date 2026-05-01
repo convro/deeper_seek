@@ -137,6 +137,37 @@ router.get('/github/oauth/callback', async (req, res) => {
   }
 });
 
+// ── Discord bookmarklet submit — PUBLIC (called from discord.com origin) ────
+// The bookmarklet runs in discord.com context with NO DeeperSeek auth header.
+// The one-time-token (OTT) embedded at generation IS the auth credential here.
+// Must be registered BEFORE authMiddleware.
+router.options('/discord/bookmarklet/submit', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin',  '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Max-Age',       '86400');
+  res.sendStatus(204);
+});
+
+router.post('/discord/bookmarklet/submit', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const { ott, discord_token } = req.body || {};
+  if (!ott || !discord_token) {
+    return res.status(400).json({ ok: false, error: 'Missing ott or discord_token' });
+  }
+  try {
+    const identity = await discordService.submitBookmarklet(ott, discord_token, soulService);
+    res.json({
+      ok: true,
+      username:    identity.username,
+      global_name: identity.global_name || identity.username,
+      user_id:     identity.id,
+    });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
 // ── Everything below requires auth (when AUTH_MODE=multi_user) ──────────
 router.use(authMiddleware);
 
@@ -214,35 +245,11 @@ router.post('/discord/bookmarklet/begin', (req, res) => {
   res.json({ ok: true, script: result.script, expires_at: result.expiresAt });
 });
 
-// POST /api/discord/bookmarklet/submit — called by the bookmarklet on discord.com
-// No standard auth header — the OTT is the auth. CORS-permissive on purpose.
-router.post('/discord/bookmarklet/submit', async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  const { ott, discord_token } = req.body || {};
-  if (!ott || !discord_token) {
-    return res.status(400).json({ ok: false, error: 'Missing ott or discord_token' });
-  }
-  try {
-    const identity = await discordService.submitBookmarklet(ott, discord_token, soulService);
-    res.json({ ok: true, username: identity.username, user_id: identity.id });
-  } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
-
-// OPTIONS pre-flight for bookmarklet submit (cross-origin from discord.com)
-router.options('/discord/bookmarklet/submit', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Allow-Methods', 'POST');
-  res.sendStatus(204);
-});
-
-// GET /api/discord/status — poll after bookmarklet install to detect connection
+// GET /api/discord/status — connection state (just checks stored credentials)
 router.get('/discord/status', (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Authentication required' });
   const s = soulService.getUserSettings(req.user.id);
-  if (s.discord_username) {
+  if (s.discord_username && s.discord_token) {
     res.json({
       connected:   true,
       username:    s.discord_username,
@@ -252,6 +259,33 @@ router.get('/discord/status', (req, res) => {
     });
   } else {
     res.json({ connected: false });
+  }
+});
+
+// GET /api/discord/verify — actually pings Discord to confirm token is still alive.
+// Use this when the user opens settings to detect silently-rotated tokens.
+router.get('/discord/verify', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  const s = soulService.getUserSettings(req.user.id);
+  if (!s.discord_token) return res.json({ valid: false, connected: false });
+  try {
+    const identity = await discordService.verifyToken(s.discord_token);
+    // Refresh stored identity if anything changed (username, avatar, etc.)
+    if (identity.username !== s.discord_username ||
+        (identity.global_name || identity.username) !== s.discord_global_name ||
+        (identity.avatar || '') !== s.discord_avatar) {
+      soulService.saveUserSettings(req.user.id, {
+        discord_username:    identity.username,
+        discord_global_name: identity.global_name || identity.username,
+        discord_avatar:      identity.avatar || '',
+      });
+    }
+    res.json({ valid: true, connected: true,
+              username: identity.username,
+              global_name: identity.global_name || identity.username,
+              avatar: identity.avatar || '' });
+  } catch (e) {
+    res.json({ valid: false, connected: true, error: e.message });
   }
 });
 
