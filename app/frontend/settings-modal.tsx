@@ -31,15 +31,32 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
   // React sanitizes javascript: hrefs in JSX props AND can also reset DOM
   // attributes set via setAttribute on subsequent renders. The bulletproof
   // way to render a draggable bookmarklet is to inject raw HTML so React
-  // never touches the anchor. We attach the onClick handler manually after.
+  // never touches the anchor.
+  //
+  // BUT — even with a real javascript: href in DOM, Chrome on Mac sometimes
+  // fails to set dataTransfer correctly when the drag starts from a child
+  // element (svg, text). We force-set the URI on dragstart ourselves so the
+  // drop target (bookmarks bar) gets the right URL no matter what.
   useEffect(() => {
     const wrap = bookmarkletWrapRef.current;
     if (!wrap || !dcScript) return;
     const anchor = wrap.querySelector('a');
     if (!anchor) return;
     const onClick = (e: Event) => e.preventDefault();
-    anchor.addEventListener('click', onClick);
-    return () => anchor.removeEventListener('click', onClick);
+    const onDragStart = (e: Event) => {
+      const dt = (e as DragEvent).dataTransfer;
+      if (!dt) return;
+      dt.effectAllowed = 'copyLink';
+      dt.setData('text/uri-list', dcScript);
+      dt.setData('text/plain',    dcScript);
+      dt.setData('text/x-moz-url',`${dcScript}\nDeeperSeek Discord`);
+    };
+    anchor.addEventListener('click',     onClick);
+    anchor.addEventListener('dragstart', onDragStart);
+    return () => {
+      anchor.removeEventListener('click',     onClick);
+      anchor.removeEventListener('dragstart', onDragStart);
+    };
   }, [dcScript]);
 
   const handleCopyScript = async () => {
@@ -338,7 +355,12 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
                 <div className="dc-steps">
                   <div className="dc-step">
                     <span className="dc-step-num">1</span>
-                    <span>Drag the button below to your bookmarks bar</span>
+                    <span>
+                      Show your bookmarks bar
+                      {' '}<kbd>{navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}</kbd>
+                      <kbd>Shift</kbd><kbd>B</kbd>
+                      {' '}— then drag the button below onto it
+                    </span>
                   </div>
                   <div className="dc-step">
                     <span className="dc-step-num">2</span>

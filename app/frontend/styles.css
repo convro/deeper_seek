@@ -3601,6 +3601,21 @@ body.keyboard-open .auth-tagline { display: none; }
 .dc-bookmarklet-btn:active { cursor: grabbing; }
 .dc-bookmarklet-wrap { display: block; }
 .dc-bookmarklet-wrap a { -webkit-user-drag: element; }
+/* Children can't be drag-source — only the anchor itself.
+   Otherwise Chrome tries to drag the SVG/text, not the URL. */
+.dc-bookmarklet-wrap a > * { pointer-events: none; }
+
+.dc-step kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  margin: 0 1px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border1);
+  border-radius: 3px;
+  color: var(--text2);
+}
 
 .dc-manual-toggle {
   margin-top: 4px;
