@@ -23,7 +23,15 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
   const [dcError,        setDcError]        = useState<string | null>(null);
   const [dcDisconnecting,setDcDisconnecting]= useState(false);
   const [dcStale,        setDcStale]        = useState(false);  // token rotated/expired
-  const dcPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dcPollRef        = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bookmarkletRef   = useRef<HTMLAnchorElement>(null);
+
+  // React strips javascript: hrefs for XSS reasons — set it directly on the DOM.
+  useEffect(() => {
+    if (bookmarkletRef.current && dcScript) {
+      bookmarkletRef.current.setAttribute('href', dcScript);
+    }
+  }, [dcScript]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -320,7 +328,7 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
                   </div>
                 </div>
                 <a
-                  href={dcScript}
+                  ref={bookmarkletRef}
                   className="dc-bookmarklet-btn"
                   draggable
                   onClick={e => e.preventDefault()}
