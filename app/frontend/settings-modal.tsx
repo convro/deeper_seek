@@ -23,15 +23,37 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
   const [dcError,        setDcError]        = useState<string | null>(null);
   const [dcDisconnecting,setDcDisconnecting]= useState(false);
   const [dcStale,        setDcStale]        = useState(false);  // token rotated/expired
+  const [dcCopied,       setDcCopied]       = useState(false);
+  const [dcShowManual,   setDcShowManual]   = useState(false);
   const dcPollRef        = useRef<ReturnType<typeof setInterval> | null>(null);
-  const bookmarkletRef   = useRef<HTMLAnchorElement>(null);
+  const bookmarkletWrapRef = useRef<HTMLDivElement>(null);
 
-  // React strips javascript: hrefs for XSS reasons — set it directly on the DOM.
+  // React sanitizes javascript: hrefs in JSX props AND can also reset DOM
+  // attributes set via setAttribute on subsequent renders. The bulletproof
+  // way to render a draggable bookmarklet is to inject raw HTML so React
+  // never touches the anchor. We attach the onClick handler manually after.
   useEffect(() => {
-    if (bookmarkletRef.current && dcScript) {
-      bookmarkletRef.current.setAttribute('href', dcScript);
-    }
+    const wrap = bookmarkletWrapRef.current;
+    if (!wrap || !dcScript) return;
+    const anchor = wrap.querySelector('a');
+    if (!anchor) return;
+    const onClick = (e: Event) => e.preventDefault();
+    anchor.addEventListener('click', onClick);
+    return () => anchor.removeEventListener('click', onClick);
   }, [dcScript]);
+
+  const handleCopyScript = async () => {
+    if (!dcScript) return;
+    try {
+      await navigator.clipboard.writeText(dcScript);
+      setDcCopied(true);
+      setTimeout(() => setDcCopied(false), 1800);
+    } catch {
+      // Clipboard API unavailable — fall back to the visible textarea select trick
+      const ta = document.getElementById('dc-script-fallback') as HTMLTextAreaElement | null;
+      if (ta) { ta.select(); document.execCommand('copy'); setDcCopied(true); setTimeout(() => setDcCopied(false), 1800); }
+    }
+  };
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -327,25 +349,55 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
                     <span>Click the bookmarklet — connection completes automatically</span>
                   </div>
                 </div>
-                <a
-                  ref={bookmarkletRef}
-                  className="dc-bookmarklet-btn"
-                  draggable
-                  onClick={e => e.preventDefault()}
-                  title="Drag this to your bookmarks bar"
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8V1.5Z"/>
-                  </svg>
-                  Connect Discord
-                </a>
+                <div
+                  ref={bookmarkletWrapRef}
+                  className="dc-bookmarklet-wrap"
+                  dangerouslySetInnerHTML={{
+                    __html: dcScript
+                      ? `<a href="${dcScript.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" class="dc-bookmarklet-btn" draggable="true" title="Drag this to your bookmarks bar"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8V1.5Z"/></svg>Connect Discord</a>`
+                      : ''
+                  }}
+                />
                 <div className="dc-waiting-hint">
                   <span className="dc-pulse" />
                   Waiting for connection…
                 </div>
+                <div className="dc-manual-toggle">
+                  <button
+                    type="button"
+                    className="dc-manual-link"
+                    onClick={() => setDcShowManual(s => !s)}
+                  >
+                    {dcShowManual ? 'Hide manual setup' : 'Drag not working? Set up manually'}
+                  </button>
+                </div>
+                {dcShowManual && (
+                  <div className="dc-manual-section">
+                    <ol className="dc-manual-steps">
+                      <li>Right-click your bookmarks bar → <strong>Add bookmark</strong> (or press <kbd>Ctrl/Cmd</kbd>+<kbd>D</kbd>)</li>
+                      <li>Name it anything (e.g. <em>DeeperSeek Discord</em>)</li>
+                      <li>Paste the code below as the URL, then save</li>
+                      <li>Open <strong>discord.com</strong> and click your new bookmark</li>
+                    </ol>
+                    <textarea
+                      id="dc-script-fallback"
+                      className="dc-script-textarea"
+                      readOnly
+                      value={dcScript}
+                      onClick={e => (e.target as HTMLTextAreaElement).select()}
+                    />
+                    <button
+                      type="button"
+                      className="dc-copy-btn"
+                      onClick={handleCopyScript}
+                    >
+                      {dcCopied ? '✓ Copied' : 'Copy bookmarklet code'}
+                    </button>
+                  </div>
+                )}
                 <button
                   className="dc-cancel-btn"
-                  onClick={() => { if (dcPollRef.current) clearInterval(dcPollRef.current); setDcStep('idle'); }}
+                  onClick={() => { if (dcPollRef.current) clearInterval(dcPollRef.current); setDcStep('idle'); setDcShowManual(false); }}
                 >
                   Cancel
                 </button>
