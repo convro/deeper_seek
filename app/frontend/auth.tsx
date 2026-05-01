@@ -440,8 +440,9 @@ export function AuthScreen({ state, onLogin, onRegister }: AuthScreenProps) {
           <li className="auth-feature">
             <span className="auth-feature-icon">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v7a1.5 1.5 0 0 1-1.5 1.5H9l1 2H10l-2-2-2 2H5l1-2H3.5A1.5 1.5 0 0 1 2 10.5v-7z" fill="currentColor" opacity=".7"/>
-                <path d="M5.5 6.5h5M5.5 8.5h3" stroke="white" strokeWidth="1.1" strokeLinecap="round"/>
+                <rect x="3" y="7.5" width="10" height="7" rx="1.5" fill="currentColor" opacity=".75"/>
+                <path d="M5.5 7.5V5a2.5 2.5 0 0 1 5 0v2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+                <circle cx="8" cy="11" r="1.2" fill="white" opacity=".9"/>
               </svg>
             </span>
             <div>

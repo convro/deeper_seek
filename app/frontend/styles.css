@@ -1985,7 +1985,7 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   height: 40px;
   border-radius: 10px;
   object-fit: cover;
-  box-shadow: 0 0 0 1px rgba(99,102,241,0.25), 0 4px 12px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
 }
 .auth-panel-name {
   font-size: 17px;
@@ -2025,7 +2025,6 @@ body.keyboard-open .messages-wrapper::after { display: none; }
   flex-shrink: 0;
   border-radius: 8px;
   background: rgba(99,102,241,0.1);
-  border: 1px solid rgba(99,102,241,0.2);
   color: #818cf8;
   display: flex;
   align-items: center;
@@ -2141,7 +2140,6 @@ body.keyboard-open .auth-tagline { display: none; }
   display: inline-block;
   box-shadow:
     var(--shadow-md),
-    0 0 0 4px rgba(99,102,241,0.1),
     0 0 32px rgba(99,102,241,0.22),
     0 0 64px rgba(99,102,241,0.08);
 }
