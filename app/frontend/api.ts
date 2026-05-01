@@ -340,15 +340,28 @@ export interface DiscordStatus {
 }
 
 /**
- * Generates a one-time-token bookmarklet. Returns the javascript: URI
- * the user should drag to their bookmarks bar.
+ * Returns the bookmarklet javascript: URI. The bookmarklet copies the
+ * extracted token to the clipboard for the user to paste back here.
  */
 export async function getDiscordBookmarklet(): Promise<{ script: string; expires_at: number }> {
   return fetchJson(`${BASE}/discord/bookmarklet/begin`, { method: 'POST' });
 }
 
 /**
- * Poll backend to check if bookmarklet has successfully submitted the token.
+ * Submit the pasted Discord token. Backend verifies via Discord API and stores it.
+ */
+export async function connectDiscordWithToken(token: string): Promise<{
+  ok: boolean; username?: string; global_name?: string; user_id?: string; avatar?: string; error?: string;
+}> {
+  return fetchJson(`${BASE}/discord/connect`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ token }),
+  });
+}
+
+/**
+ * Read current connection state from stored settings (no network call to Discord).
  */
 export async function getDiscordStatus(): Promise<DiscordStatus> {
   return fetchJson(`${BASE}/discord/status`);

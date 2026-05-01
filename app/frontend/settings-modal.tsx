@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { UserSettings, DiscordStatus } from './api';
-import { connectGithubOAuth, disconnectGithub, getDiscordBookmarklet, getDiscordStatus, disconnectDiscord, verifyDiscord } from './api';
+import { connectGithubOAuth, disconnectGithub, getDiscordBookmarklet, connectDiscordWithToken, disconnectDiscord, verifyDiscord } from './api';
 
 interface SettingsModalProps {
   settings: UserSettings;
@@ -18,14 +18,15 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
   const [ghDisconnecting, setGhDisconnecting] = useState(false);
 
   // Discord bookmarklet state
-  const [dcStep,         setDcStep]         = useState<'idle' | 'waiting' | 'done'>('idle');
+  const [dcStep,         setDcStep]         = useState<'idle' | 'waiting'>('idle');
   const [dcScript,       setDcScript]       = useState<string>('');
   const [dcError,        setDcError]        = useState<string | null>(null);
   const [dcDisconnecting,setDcDisconnecting]= useState(false);
   const [dcStale,        setDcStale]        = useState(false);  // token rotated/expired
   const [dcCopied,       setDcCopied]       = useState(false);
   const [dcShowManual,   setDcShowManual]   = useState(false);
-  const dcPollRef        = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [dcPaste,        setDcPaste]        = useState('');
+  const [dcConnecting,   setDcConnecting]   = useState(false);
   const bookmarkletWrapRef = useRef<HTMLDivElement>(null);
 
   // React sanitizes javascript: hrefs in JSX props AND can also reset DOM
@@ -77,9 +78,6 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
-
-  // Stop polling on unmount
-  useEffect(() => () => { if (dcPollRef.current) clearInterval(dcPollRef.current); }, []);
 
   // On modal open: if Discord is connected, ping it to verify token is still alive.
   // Discord rotates tokens silently (e.g. when the user changes their password),
@@ -151,36 +149,47 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
 
   const handleConnectDiscord = async () => {
     setDcError(null);
-    setDcStep('idle');
+    setDcPaste('');
     try {
       const { script } = await getDiscordBookmarklet();
       setDcScript(script);
       setDcStep('waiting');
-      // Poll every 2s for up to 15 minutes
-      dcPollRef.current = setInterval(async () => {
-        try {
-          const status = await getDiscordStatus();
-          if (status.connected && status.username) {
-            if (dcPollRef.current) clearInterval(dcPollRef.current);
-            setDcStep('done');
-            setLocal(s => ({
-              ...s,
-              discord_username:    status.username,
-              discord_global_name: status.global_name,
-              discord_user_id:     status.user_id,
-              discord_avatar:      status.avatar,
-            }));
-          }
-        } catch {}
-      }, 2000);
     } catch (e: any) {
       setDcError(e.message || 'Failed to generate bookmarklet');
     }
   };
 
+  const handleSubmitToken = async () => {
+    const raw = dcPaste.trim();
+    if (!raw) return;
+    setDcError(null);
+    setDcConnecting(true);
+    try {
+      const r = await connectDiscordWithToken(raw);
+      if (!r.ok) {
+        setDcError(r.error || 'Connection failed');
+        return;
+      }
+      setLocal(s => ({
+        ...s,
+        discord_username:    r.username || '',
+        discord_global_name: r.global_name || r.username || '',
+        discord_user_id:     r.user_id || '',
+        discord_avatar:      r.avatar || '',
+      }));
+      setDcStep('idle');
+      setDcScript('');
+      setDcPaste('');
+      setDcStale(false);
+    } catch (e: any) {
+      setDcError(e.message || 'Connection failed');
+    } finally {
+      setDcConnecting(false);
+    }
+  };
+
   const handleDisconnectDiscord = async () => {
     setDcDisconnecting(true);
-    if (dcPollRef.current) clearInterval(dcPollRef.current);
     try {
       await disconnectDiscord();
       setLocal(s => ({ ...s, discord_username: '', discord_user_id: '', discord_global_name: '', discord_avatar: '' }));
@@ -364,11 +373,11 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
                   </div>
                   <div className="dc-step">
                     <span className="dc-step-num">2</span>
-                    <span>Open <strong>discord.com</strong> in your browser (already logged in)</span>
+                    <span>Open <strong>discord.com</strong> (already logged in) and click the new bookmark</span>
                   </div>
                   <div className="dc-step">
                     <span className="dc-step-num">3</span>
-                    <span>Click the bookmarklet — connection completes automatically</span>
+                    <span>Your token is copied to clipboard — return here and paste below</span>
                   </div>
                 </div>
                 <div
@@ -380,9 +389,28 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
                       : ''
                   }}
                 />
-                <div className="dc-waiting-hint">
-                  <span className="dc-pulse" />
-                  Waiting for connection…
+                <div className="dc-paste-section">
+                  <label className="dc-paste-label" htmlFor="dc-paste-input">
+                    Paste your token here (starts with <code>ds:</code>)
+                  </label>
+                  <input
+                    id="dc-paste-input"
+                    type="text"
+                    className="dc-paste-input"
+                    placeholder="ds:..."
+                    value={dcPaste}
+                    onChange={e => setDcPaste(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && dcPaste.trim()) handleSubmitToken(); }}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="dc-submit-btn"
+                    onClick={handleSubmitToken}
+                    disabled={!dcPaste.trim() || dcConnecting}
+                  >
+                    {dcConnecting ? 'Verifying…' : 'Connect Discord'}
+                  </button>
                 </div>
                 <div className="dc-manual-toggle">
                   <button
@@ -417,9 +445,10 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
                     </button>
                   </div>
                 )}
+                {dcError && <div className="gh-oauth-error">{dcError}</div>}
                 <button
                   className="dc-cancel-btn"
-                  onClick={() => { if (dcPollRef.current) clearInterval(dcPollRef.current); setDcStep('idle'); setDcShowManual(false); }}
+                  onClick={() => { setDcStep('idle'); setDcShowManual(false); setDcPaste(''); setDcError(null); }}
                 >
                   Cancel
                 </button>

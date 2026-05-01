@@ -137,37 +137,6 @@ router.get('/github/oauth/callback', async (req, res) => {
   }
 });
 
-// ── Discord bookmarklet submit — PUBLIC (called from discord.com origin) ────
-// The bookmarklet runs in discord.com context with NO DeeperSeek auth header.
-// The one-time-token (OTT) embedded at generation IS the auth credential here.
-// Must be registered BEFORE authMiddleware.
-router.options('/discord/bookmarklet/submit', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Max-Age',       '86400');
-  res.sendStatus(204);
-});
-
-router.post('/discord/bookmarklet/submit', async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  const { ott, discord_token } = req.body || {};
-  if (!ott || !discord_token) {
-    return res.status(400).json({ ok: false, error: 'Missing ott or discord_token' });
-  }
-  try {
-    const identity = await discordService.submitBookmarklet(ott, discord_token, soulService);
-    res.json({
-      ok: true,
-      username:    identity.username,
-      global_name: identity.global_name || identity.username,
-      user_id:     identity.id,
-    });
-  } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
-
 // ── Everything below requires auth (when AUTH_MODE=multi_user) ──────────
 router.use(authMiddleware);
 
@@ -237,12 +206,32 @@ router.post('/github/disconnect', (req, res) => {
 // ── Discord integration ──────────────────────────────────────────────────────
 
 // POST /api/discord/bookmarklet/begin
-// Generates a one-time-token and the bookmarklet javascript: URI.
+// Returns the bookmarklet javascript: URI. The bookmarklet copies the
+// extracted token to the clipboard; the user pastes it into DeeperSeek.
 router.post('/discord/bookmarklet/begin', (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Authentication required' });
-  const origin = `${req.protocol}://${req.get('host')}`;
-  const result = discordService.beginBookmarklet(req.user.id, origin);
+  const result = discordService.beginBookmarklet(req.user.id, '');
   res.json({ ok: true, script: result.script, expires_at: result.expiresAt });
+});
+
+// POST /api/discord/connect — receives the pasted token, verifies it,
+// and stores it in the user's soul settings.
+router.post('/discord/connect', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  const { token } = req.body || {};
+  if (!token) return res.status(400).json({ ok: false, error: 'Missing token' });
+  try {
+    const identity = await discordService.connectWithToken(req.user.id, token, soulService);
+    res.json({
+      ok: true,
+      username:    identity.username,
+      global_name: identity.global_name || identity.username,
+      user_id:     identity.id,
+      avatar:      identity.avatar || '',
+    });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
 });
 
 // GET /api/discord/status — connection state (just checks stored credentials)

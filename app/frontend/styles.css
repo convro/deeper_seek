@@ -3617,6 +3617,69 @@ body.keyboard-open .auth-tagline { display: none; }
   color: var(--text2);
 }
 
+.dc-paste-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: rgba(88,101,242,0.08);
+  border: 1px solid rgba(88,101,242,0.25);
+  border-radius: 8px;
+}
+.dc-paste-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+}
+.dc-paste-label code {
+  padding: 1px 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  background: var(--bg2);
+  border: 1px solid var(--border1);
+  border-radius: 3px;
+  color: var(--text1);
+}
+.dc-paste-input {
+  padding: 9px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text1);
+  background: var(--bg1);
+  border: 1px solid var(--border1);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.dc-paste-input:focus {
+  border-color: #5865f2;
+}
+.dc-paste-input::placeholder {
+  color: var(--text3);
+  opacity: 0.6;
+}
+.dc-submit-btn {
+  align-self: flex-start;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #fff;
+  background: linear-gradient(135deg, #5865f2 0%, #4752c4 100%);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.15s, opacity 0.15s;
+}
+.dc-submit-btn:hover:not(:disabled) {
+  box-shadow: 0 4px 16px rgba(88,101,242,0.35);
+  transform: translateY(-1px);
+}
+.dc-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .dc-manual-toggle {
   margin-top: 4px;
 }

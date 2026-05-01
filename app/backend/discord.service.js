@@ -3,58 +3,46 @@
 /**
  * discord.service.js — Discord user-token management.
  *
- * Handles one-time-token (OTT) bookmarklet flow:
- *   1. beginBookmarklet(userId) → { ott, bookmarkletJs, expiresAt }
+ * Bookmarklet → clipboard → paste flow:
+ *   1. beginBookmarklet() → { script, expiresAt }
  *   2. User drags the bookmarklet to their bar, clicks it on discord.com
- *   3. Bookmarklet extracts the user token and calls submitBookmarklet(ott, discordToken)
- *   4. Backend validates the Discord token, stores it in soul settings
+ *   3. Bookmarklet extracts the token and copies "ds:<token>" to clipboard
+ *   4. User returns to DeeperSeek and pastes in the connection field
+ *   5. Frontend POSTs to /api/discord/connect → connectWithToken()
+ *   6. connectWithToken validates the token via Discord API and stores it
  */
 
-const crypto = require('crypto');
-const https  = require('https');
+const https = require('https');
 
-// In-memory OTT store: ott → { userId, expiresAt }
-// Short TTL — if the user takes longer than 15min they just click "Generate" again.
-const _otts = new Map();
+// Bookmarklet "expiry" is purely informational now — the script doesn't
+// embed any server-side state. Kept so the frontend can show a refresh hint.
 const OTT_TTL_MS = 15 * 60 * 1000;
-
-// Prune expired OTTs every minute
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of _otts) {
-    if (v.expiresAt < now) _otts.delete(k);
-  }
-}, 60_000);
 
 
 /**
- * Generate a one-time-token and return the bookmarklet script.
- * The bookmarklet embeds the OTT and the backend origin so it can POST back.
+ * Generate the bookmarklet script.
+ *
+ * Discord.com's strict CSP plus Chrome's Private Network Access blocks
+ * make it impossible for the bookmarklet to fetch back to a self-hosted
+ * DeeperSeek instance (which is usually on localhost or a private IP).
+ *
+ * Working flow on every browser:
+ *   1. Bookmarklet extracts the user token (4 fallback methods).
+ *   2. Bookmarklet writes `ds:<token>` to the clipboard.
+ *   3. Bookmarklet alerts the user to return to DeeperSeek and paste.
+ *   4. DeeperSeek's settings modal has a paste field that strips the
+ *      `ds:` prefix and POSTs to /api/discord/connect on same origin
+ *      — no CORS, no CSP, no PNA issues.
  */
-function beginBookmarklet(userId, backendOrigin) {
-  const ott       = crypto.randomBytes(24).toString('hex');
+function beginBookmarklet(_userId, _backendOrigin) {
   const expiresAt = Date.now() + OTT_TTL_MS;
-  _otts.set(ott, { userId, expiresAt });
-
-  // The bookmarklet runs on discord.com (cross-origin). It tries multiple
-  // proven token-extraction methods and falls through to the next on failure:
-  //   1. iframe localStorage trick — uses a fresh iframe to read localStorage
-  //      because Discord deletes window.localStorage.token after page load.
-  //   2. webpack chunk push (default export) — for older Discord builds.
-  //   3. webpack chunk push (Z export) — common in newer minified builds.
-  //   4. Deep webpack scan — looks at every property of every module.
-  //
-  // After extracting, POSTs { ott, discord_token } to DeeperSeek.
-  const apiUrl = `${backendOrigin}/api/discord/bookmarklet/submit`;
   const script =
     `javascript:(function(){` +
-      `var ott=${JSON.stringify(ott)};` +
-      `var api=${JSON.stringify(apiUrl)};` +
       `if(!location.host.endsWith('discord.com')){` +
         `alert('DeeperSeek: open discord.com first, then click this bookmarklet.');return;` +
       `}` +
       `var token=null;` +
-      // Method 1 — iframe trick (most reliable as of 2025)
+      // Method 1 — iframe localStorage trick (most reliable as of 2025)
       `try{` +
         `var f=document.createElement('iframe');` +
         `document.body.appendChild(f);` +
@@ -62,7 +50,7 @@ function beginBookmarklet(userId, backendOrigin) {
         `document.body.removeChild(f);` +
         `if(lt){token=lt.replace(/^"|"$/g,'');}` +
       `}catch(e){}` +
-      // Method 2-4 — webpack chunk push, multiple known shapes
+      // Methods 2-4 — webpack chunk push, multiple module shapes
       `if(!token){` +
         `try{` +
           `var found=null;` +
@@ -78,7 +66,6 @@ function beginBookmarklet(userId, backendOrigin) {
                     `try{var v=x.getToken();if(v){found=v;return;}}catch(_){}` +
                   `}` +
                 `}` +
-                // Deep scan — sometimes getToken is on a nested key
                 `if(typeof m==='object'){` +
                   `for(var k in m){` +
                     `try{` +
@@ -99,38 +86,48 @@ function beginBookmarklet(userId, backendOrigin) {
         `alert('DeeperSeek: could not read Discord token.\\n\\nMake sure you are on discord.com (not Canary/PTB) and logged in.\\nIf this keeps failing, log out and back in to Discord, then retry.');` +
         `return;` +
       `}` +
-      `fetch(api,{` +
-        `method:'POST',` +
-        `headers:{'Content-Type':'application/json'},` +
-        `body:JSON.stringify({ott:ott,discord_token:token})` +
-      `}).then(function(r){return r.json();})` +
-      `.then(function(d){` +
-        `if(d.ok){alert('✓ DeeperSeek: Discord connected as '+(d.global_name||'@'+d.username)+'!\\nYou can close this and return to DeeperSeek.');}` +
-        `else{alert('DeeperSeek error: '+(d.error||'unknown'));}` +
-      `}).catch(function(e){alert('DeeperSeek: request failed — '+e.message);});` +
+      `var payload='ds:'+token;` +
+      `var done=function(){alert('\\u2713 DeeperSeek: Discord token copied!\\n\\nReturn to DeeperSeek (your other tab) and paste it in the connection field.');};` +
+      // Clipboard API — bookmarklet click counts as user activation
+      `try{` +
+        `if(navigator.clipboard&&navigator.clipboard.writeText){` +
+          `navigator.clipboard.writeText(payload).then(done).catch(function(){` +
+            `prompt('DeeperSeek: copy the line below, return to DeeperSeek and paste it:',payload);` +
+          `});` +
+        `}else{` +
+          // execCommand fallback for older browsers
+          `var ta=document.createElement('textarea');` +
+          `ta.value=payload;ta.style.position='fixed';ta.style.opacity='0';` +
+          `document.body.appendChild(ta);ta.select();` +
+          `var ok=false;try{ok=document.execCommand('copy');}catch(e){}` +
+          `document.body.removeChild(ta);` +
+          `if(ok)done();` +
+          `else prompt('DeeperSeek: copy the line below, return to DeeperSeek and paste it:',payload);` +
+        `}` +
+      `}catch(e){` +
+        `prompt('DeeperSeek: copy the line below, return to DeeperSeek and paste it:',payload);` +
+      `}` +
     `})();`;
 
-  return { ott, script, expiresAt };
+  return { script, expiresAt };
 }
 
 
 /**
- * Validate OTT, verify the Discord token, then save it to soul settings.
- * Returns Discord user identity on success.
+ * Verify a pasted Discord token, then save it to the user's soul settings.
+ * Called from /api/discord/connect when the user pastes the bookmarklet output.
  */
-async function submitBookmarklet(ott, discordToken, soulService) {
-  const entry = _otts.get(ott);
-  if (!entry) throw new Error('Invalid or expired link — generate a new one in Settings.');
-  if (entry.expiresAt < Date.now()) {
-    _otts.delete(ott);
-    throw new Error('Link expired — generate a new one in Settings.');
-  }
-  _otts.delete(ott); // consume immediately
+async function connectWithToken(userId, discordToken, soulService) {
+  const tok = String(discordToken || '').trim();
+  if (!tok) throw new Error('Empty token');
+  // Strip the bookmarklet prefix if user pasted the whole "ds:..." string
+  const clean = tok.startsWith('ds:') ? tok.slice(3).trim() : tok;
+  if (clean.length < 30) throw new Error('That doesn\'t look like a valid Discord token');
 
-  const identity = await verifyToken(discordToken);
+  const identity = await verifyToken(clean);
 
-  await soulService.saveUserSettings(entry.userId, {
-    discord_token:      discordToken,
+  soulService.saveUserSettings(userId, {
+    discord_token:      clean,
     discord_user_id:    identity.id,
     discord_username:   identity.username,
     discord_global_name: identity.global_name || identity.username,
@@ -189,4 +186,4 @@ async function disconnect(userId, soulService) {
 }
 
 
-module.exports = { beginBookmarklet, submitBookmarklet, verifyToken, disconnect };
+module.exports = { beginBookmarklet, connectWithToken, verifyToken, disconnect };
