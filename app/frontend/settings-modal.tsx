@@ -106,11 +106,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Strip server-managed tokens — never overwrite with stale frontend state.
-      const { github_pat, github_username, discord_token, discord_user_id,
-              discord_username, discord_global_name, discord_avatar,
-              ...modelSettings } = local;
-      await onSave(modelSettings as UserSettings);
+      // Only strip raw secret tokens — display/identity fields are fine to persist.
+      const { github_pat, discord_token, ...toSave } = local;
+      await onSave(toSave as UserSettings);
       onClose();
     } finally {
       setSaving(false);
