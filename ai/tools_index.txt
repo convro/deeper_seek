@@ -7,20 +7,36 @@
 - fs_tree       → Get directory tree structure
 - fs_move       → Move or rename file/directory
 - fs_delete     → Delete file or directory
+- archive       → zip/tar create/extract/list/read
 
 ## Execution Tools
 - run_python    → Execute Python code, get stdout/stderr
 - run_bash      → Execute bash command, get output
 - run_node      → Execute Node.js code, get output
+- python_repl   → Stateful Python REPL (variables persist across calls)
 
 ## Web Tools
-- web_search    → Search web via DuckDuckGo
+- web_search    → Multi-engine parallel search (Google/Bing/DDG/Brave/Yandex)
 - web_fetch     → Fetch URL content (text/html/json)
+- web_research  → Deep research: multi-query, parallel fetch, structured dossier
+- web_browse    → Headless Chromium render (JS-heavy pages)
+- web_interact  → Full Playwright browser control (click, fill, upload, cookies)
+- http_request  → Raw HTTP GET/POST/PUT/DELETE with headers/body
+- video_info    → YouTube/Vimeo metadata + transcript
+
+## Image Tools
+- image_search  → Multi-engine parallel image search
+- page_images   → Extract all images from a URL
+- image_reverse → Reverse image search (Yandex/Google Lens/Bing)
+- image_analyze → Vision analysis: OCR, objects, colors, faces, layout
+- image_edit    → Resize, crop, rotate, filter, watermark, compose
 
 ## Workspace Tools
 - workspace_create    → Create new job workspace, get job_id
 - workspace_load      → Load workspace state summary
 - workspace_snapshot  → Save point-in-time snapshot
+- workspace_list      → List all workspaces (filter by status/owner)
+- workspace_export    → Export workspace as zip bundle
 
 ## Memory Tools
 - memory_store        → Store key-value (short/long term)
@@ -28,17 +44,52 @@
 - memory_search       → Semantic search through memories
 
 ## Agent Tools
-- agent_spawn         → Spawn specialized sub-agent
+- agent_spawn         → Spawn specialized sub-agent (async or sync)
 - agent_status        → Check async agent status
+- agent_wait          → Block until agent finishes, return result
 
 ## Orchestration Tools
-- task_split          → Decompose task into subtasks
+- task_split          → Decompose task into subtasks with deps + parallel groups
 
-## Analysis Tools
+## Analysis / Code Tools
 - code_analyzer       → Analyze code structure and patterns
-- repo_scanner        → Scan repository, produce overview
+- repo_scanner        → Scan repository: language breakdown, entry points, deps
+- ast_search          → Structural code search (function/class/import/call by name)
+- git_ops             → Git wrapper: status/diff/log/commit/push/pull/branch/…
+- github_ops          → GitHub API: list_prs/get_pr/create_issue/get_file/…
+
+## Data / Docs Tools
+- data_query          → Query CSV/Excel/Parquet/JSON/SQLite with DuckDB/pandas
+- chart               → Generate charts: line/bar/scatter/pie/hist/heatmap/box
+- pdf_generate        → Generate PDF from markdown/html/text
+- audio_transcribe    → Transcribe audio/video with Whisper
 
 ## Log Tools
 - log_reader          → Read and filter log files
 
-## Total: 24 tools
+## Security / Pentesting Tools (authorized use only)
+- port_scan           → TCP port scan with banner grabbing
+- dir_fuzz            → Web path brute-force fuzzer
+- dns_recon           → DNS recon + subdomain enumeration + CT logs
+- web_audit           → Security header/CORS/cookie/injection audit
+- sqli_test           → SQL injection testing (error/boolean/time-based)
+- ssl_inspect         → SSL/TLS cert + cipher + vulnerability check
+- tech_detect         → Technology fingerprinting (server/CMS/framework/CDN/WAF)
+
+## Discord Tool (requires connected Discord account in Settings)
+- discord_tool        → Full Discord REST API as the authenticated user (self-bot)
+  Actions: get_me, list_guilds, get_guild, list_channels, get_channel_messages,
+           send_message, send_dm, get_user, start_typing, add_reaction,
+           edit_message, delete_message, set_status, create_invite,
+           kick_member, ban_member, create_channel, delete_channel
+
+## Scheduler Tool — Autonomous Background Tasks
+- scheduler_tool      → Start a long-running autonomous background task
+  Spawns a detached worker that wakes every N seconds, runs LLM+tool loops,
+  posts progress ticks to the UI countdown bubble, and streams a final report
+  into chat when done. Worker has access to: discord_tool, web_search,
+  web_fetch, memory_store, memory_get, run_python, github_ops.
+  Params: task (REQUIRED), duration_min (default 30), wake_every_sec (default 90),
+          label (optional), context (optional)
+
+## Total: 57 tools

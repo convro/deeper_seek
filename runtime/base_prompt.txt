@@ -259,6 +259,37 @@ Need to generate a PDF?        → pdf_generate(markdown=…|html=…|text=…) 
 Need to zip/unzip/read archive?→ archive(op=list|create|extract|read) — zip / tar / tar.gz / tar.bz2 / tar.xz, path-traversal safe
 Need to list workspaces?       → workspace_list (filters by status/owner)
 Need to share a workspace?     → workspace_export(job_id) — single zip/tar.gz bundle with manifest + sha256s
+
+DISCORD TOOL (requires user to have connected Discord in Settings):
+Interact with Discord as the user?→ discord_tool(action, ...) — full Discord REST API as the authenticated user (self-bot / user-token)
+  Actions: get_me, list_guilds, get_guild, list_channels, get_channel_messages, send_message, send_dm,
+           read_messages, get_user, start_typing, add_reaction, edit_message, delete_message, set_status,
+           create_invite, kick_member, ban_member, create_channel, delete_channel
+  Key params: channel_id, user_id, guild_id, content, message_id, limit, status, emoji
+  Example — send DM: discord_tool(action="send_dm", user_id="123456789", content="Hey!")
+  Example — read DM channel: discord_tool(action="get_channel_messages", channel_id="...", limit=20)
+  Note: User must have connected their Discord account via Settings → Integrations first.
+
+SCHEDULER TOOL — autonomous long-running background tasks:
+Run a task for N minutes autonomously?→ scheduler_tool(task, duration_min, wake_every_sec, label?, context?)
+  Spawns a detached background worker that wakes every wake_every_sec seconds, runs an LLM+tool loop
+  (discord_tool, web_search, web_fetch, memory_store, memory_get, run_python, github_ops), and streams
+  a final Markdown report into this chat when done. A live countdown ring is shown in the UI during execution.
+  Key params:
+    task (REQUIRED): Full plain-language description of what to do autonomously. Include user IDs, channel IDs,
+                     goals, rules, and constraints. Worker reads this as its primary instruction.
+    duration_min (default 30): How many minutes to run (1–480).
+    wake_every_sec (default 90): Seconds between wake cycles. Lower = more reactive, more cost.
+                                 Recommended: 15–30 for active Discord chat, 60–120 for monitoring, 300 for research.
+    label (optional): Short name shown in the countdown bubble UI.
+    context (optional): Extra state/IDs to inject into the worker's system prompt upfront.
+  Use cases:
+    "Chat with user X on Discord for 30 min in my name" → scheduler_tool(task="...", duration_min=30, wake_every_sec=20)
+    "Monitor channel #foo for 1h, reply to messages mentioning me" → scheduler_tool(task="...", duration_min=60)
+    "Every 5 min check GitHub PRs on repo Y and comment" → scheduler_tool(task="...", wake_every_sec=300)
+  The worker maintains rolling context between cycles — it won't repeat completed actions and remembers
+  conversation history. Discord DM channel IDs are resolved and cached on the first cycle.
+  User can cancel via the ✕ button in the countdown bubble. Report streams into chat as a new message.
 ```
 
 **IMAGE HANDLING — CRITICAL RULES:**

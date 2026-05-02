@@ -2308,89 +2308,305 @@
           "type": "string",
           "description": "The Discord operation to perform. See full description for all valid actions and their parameters."
         },
-        "guild_id":    { "type": "string",  "description": "Discord guild (server) Snowflake ID" },
-        "channel_id":  { "type": "string",  "description": "Discord channel Snowflake ID" },
-        "message_id":  { "type": "string",  "description": "Discord message Snowflake ID" },
-        "user_id":     { "type": "string",  "description": "Discord user Snowflake ID" },
-        "role_id":     { "type": "string",  "description": "Discord role Snowflake ID" },
-        "webhook_id":  { "type": "string",  "description": "Discord webhook Snowflake ID" },
-        "webhook_token": { "type": "string","description": "Discord webhook token string" },
-        "event_id":    { "type": "string",  "description": "Discord scheduled event Snowflake ID" },
-        "emoji_id":    { "type": "string",  "description": "Discord custom emoji Snowflake ID" },
-        "code":        { "type": "string",  "description": "Discord invite code (part after discord.gg/)" },
-        "name":        { "type": "string",  "description": "Name for guild, channel, role, or webhook" },
-        "content":     { "type": "string",  "description": "Message text content (max 2000 chars)" },
-        "query":       { "type": "string",  "description": "Search query string" },
-        "username":    { "type": "string",  "description": "Discord username (with or without #discriminator)" },
-        "nick":        { "type": "string",  "description": "Guild nickname (null to reset)" },
-        "status":      { "type": "string",  "description": "Presence: online | idle | dnd | invisible" },
-        "custom_text": { "type": "string",  "description": "Custom status message text" },
-        "custom_emoji":{ "type": "string",  "description": "Custom status emoji (unicode)" },
-        "topic":       { "type": "string",  "description": "Channel topic text" },
-        "emoji":       { "type": "string",  "description": "Emoji for reactions (unicode or name:id)" },
-        "type":        { "type": "integer", "description": "Channel/thread/relationship type int" },
-        "limit":       { "type": "integer", "description": "Maximum items to return" },
-        "before":      { "type": "string",  "description": "Snowflake — fetch items before this" },
-        "after":       { "type": "string",  "description": "Snowflake — fetch items after this" },
-        "around":      { "type": "string",  "description": "Snowflake — fetch items around this" },
-        "reply_to":    { "type": "string",  "description": "Message Snowflake to reply to" },
-        "max_age":     { "type": "integer", "description": "Invite max age in seconds (0=permanent)" },
-        "max_uses":    { "type": "integer", "description": "Invite max uses (0=unlimited)" },
-        "temporary":   { "type": "boolean", "description": "Kick members who disconnect (invites)" },
-        "color":       { "type": "integer", "description": "Role color as int RGB" },
-        "hoist":       { "type": "boolean", "description": "Show role members separately in list" },
-        "mentionable": { "type": "boolean", "description": "Allow @rolename mentions" },
-        "permissions": { "type": "string",  "description": "Permission bit flags as numeric string" },
-        "roles":       { "type": "array",   "items": { "type": "string" }, "description": "Complete list of role IDs (replaces all current roles)" },
-        "mute":        { "type": "boolean", "description": "Server mute in voice" },
-        "deaf":        { "type": "boolean", "description": "Server deafen in voice" },
-        "until":       { "type": "string",  "description": "ISO8601 timestamp for timeout end, or null" },
-        "communication_disabled_until": { "type": "string", "description": "ISO8601 timeout timestamp or null" },
-        "delete_message_seconds": { "type": "integer", "description": "Seconds of messages to delete on ban (0-604800)" },
-        "auto_archive_duration":  { "type": "integer", "description": "Thread auto-archive minutes (60/1440/4320/10080)" },
-        "with_details":{ "type": "boolean", "description": "Fetch full details per item (slower)" },
-        "category_id": { "type": "string",  "description": "Parent category channel Snowflake" },
-        "nsfw":        { "type": "boolean", "description": "Age-restricted channel" },
-        "rate_limit_per_user": { "type": "integer", "description": "Slowmode seconds (0-21600)" },
-        "bitrate":     { "type": "integer", "description": "Voice bitrate bps (8000-96000)" },
-        "user_limit":  { "type": "integer", "description": "Max voice users (0=unlimited)" },
-        "message_ids": { "type": "array",   "items": { "type": "string" }, "description": "List of message Snowflakes for bulk ops" },
-        "embeds":      { "type": "array",   "description": "Array of Discord embed objects" },
-        "tts":         { "type": "boolean", "description": "Send as TTS message" },
-        "author_id":   { "type": "string",  "description": "Filter search by author Snowflake" },
-        "has":         { "type": "string",  "description": "Filter search: link|embed|file|video|image|sound|sticker" },
-        "action_type": { "type": "integer", "description": "Audit log event type (22=ban, 20=kick)" },
-        "start_time":  { "type": "string",  "description": "ISO8601 event start time" },
-        "end_time":    { "type": "string",  "description": "ISO8601 event end time" },
-        "description": { "type": "string",  "description": "Description text" },
-        "location":    { "type": "string",  "description": "External event location string" },
-        "event_type":  { "type": "integer", "description": "Scheduled event type: 1=stage, 2=voice, 3=external" },
-        "avatar":      { "type": "string",  "description": "Image as data URI 'data:image/png;base64,...'" },
-        "icon":        { "type": "string",  "description": "Guild/role icon as data URI" },
-        "avatar_url":  { "type": "string",  "description": "URL for webhook avatar override" },
-        "global_name": { "type": "string",  "description": "Display name shown in most places" },
-        "bio":         { "type": "string",  "description": "User profile bio" },
-        "expires_at":  { "type": "string",  "description": "ISO8601 expiry for custom status or null" },
-        "unique":      { "type": "boolean", "description": "Generate unique invite (default true)" }
+        "guild_id": {
+          "type": "string",
+          "description": "Discord guild (server) Snowflake ID"
+        },
+        "channel_id": {
+          "type": "string",
+          "description": "Discord channel Snowflake ID"
+        },
+        "message_id": {
+          "type": "string",
+          "description": "Discord message Snowflake ID"
+        },
+        "user_id": {
+          "type": "string",
+          "description": "Discord user Snowflake ID"
+        },
+        "role_id": {
+          "type": "string",
+          "description": "Discord role Snowflake ID"
+        },
+        "webhook_id": {
+          "type": "string",
+          "description": "Discord webhook Snowflake ID"
+        },
+        "webhook_token": {
+          "type": "string",
+          "description": "Discord webhook token string"
+        },
+        "event_id": {
+          "type": "string",
+          "description": "Discord scheduled event Snowflake ID"
+        },
+        "emoji_id": {
+          "type": "string",
+          "description": "Discord custom emoji Snowflake ID"
+        },
+        "code": {
+          "type": "string",
+          "description": "Discord invite code (part after discord.gg/)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name for guild, channel, role, or webhook"
+        },
+        "content": {
+          "type": "string",
+          "description": "Message text content (max 2000 chars)"
+        },
+        "query": {
+          "type": "string",
+          "description": "Search query string"
+        },
+        "username": {
+          "type": "string",
+          "description": "Discord username (with or without #discriminator)"
+        },
+        "nick": {
+          "type": "string",
+          "description": "Guild nickname (null to reset)"
+        },
+        "status": {
+          "type": "string",
+          "description": "Presence: online | idle | dnd | invisible"
+        },
+        "custom_text": {
+          "type": "string",
+          "description": "Custom status message text"
+        },
+        "custom_emoji": {
+          "type": "string",
+          "description": "Custom status emoji (unicode)"
+        },
+        "topic": {
+          "type": "string",
+          "description": "Channel topic text"
+        },
+        "emoji": {
+          "type": "string",
+          "description": "Emoji for reactions (unicode or name:id)"
+        },
+        "type": {
+          "type": "integer",
+          "description": "Channel/thread/relationship type int"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum items to return"
+        },
+        "before": {
+          "type": "string",
+          "description": "Snowflake — fetch items before this"
+        },
+        "after": {
+          "type": "string",
+          "description": "Snowflake — fetch items after this"
+        },
+        "around": {
+          "type": "string",
+          "description": "Snowflake — fetch items around this"
+        },
+        "reply_to": {
+          "type": "string",
+          "description": "Message Snowflake to reply to"
+        },
+        "max_age": {
+          "type": "integer",
+          "description": "Invite max age in seconds (0=permanent)"
+        },
+        "max_uses": {
+          "type": "integer",
+          "description": "Invite max uses (0=unlimited)"
+        },
+        "temporary": {
+          "type": "boolean",
+          "description": "Kick members who disconnect (invites)"
+        },
+        "color": {
+          "type": "integer",
+          "description": "Role color as int RGB"
+        },
+        "hoist": {
+          "type": "boolean",
+          "description": "Show role members separately in list"
+        },
+        "mentionable": {
+          "type": "boolean",
+          "description": "Allow @rolename mentions"
+        },
+        "permissions": {
+          "type": "string",
+          "description": "Permission bit flags as numeric string"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Complete list of role IDs (replaces all current roles)"
+        },
+        "mute": {
+          "type": "boolean",
+          "description": "Server mute in voice"
+        },
+        "deaf": {
+          "type": "boolean",
+          "description": "Server deafen in voice"
+        },
+        "until": {
+          "type": "string",
+          "description": "ISO8601 timestamp for timeout end, or null"
+        },
+        "communication_disabled_until": {
+          "type": "string",
+          "description": "ISO8601 timeout timestamp or null"
+        },
+        "delete_message_seconds": {
+          "type": "integer",
+          "description": "Seconds of messages to delete on ban (0-604800)"
+        },
+        "auto_archive_duration": {
+          "type": "integer",
+          "description": "Thread auto-archive minutes (60/1440/4320/10080)"
+        },
+        "with_details": {
+          "type": "boolean",
+          "description": "Fetch full details per item (slower)"
+        },
+        "category_id": {
+          "type": "string",
+          "description": "Parent category channel Snowflake"
+        },
+        "nsfw": {
+          "type": "boolean",
+          "description": "Age-restricted channel"
+        },
+        "rate_limit_per_user": {
+          "type": "integer",
+          "description": "Slowmode seconds (0-21600)"
+        },
+        "bitrate": {
+          "type": "integer",
+          "description": "Voice bitrate bps (8000-96000)"
+        },
+        "user_limit": {
+          "type": "integer",
+          "description": "Max voice users (0=unlimited)"
+        },
+        "message_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of message Snowflakes for bulk ops"
+        },
+        "embeds": {
+          "type": "array",
+          "description": "Array of Discord embed objects"
+        },
+        "tts": {
+          "type": "boolean",
+          "description": "Send as TTS message"
+        },
+        "author_id": {
+          "type": "string",
+          "description": "Filter search by author Snowflake"
+        },
+        "has": {
+          "type": "string",
+          "description": "Filter search: link|embed|file|video|image|sound|sticker"
+        },
+        "action_type": {
+          "type": "integer",
+          "description": "Audit log event type (22=ban, 20=kick)"
+        },
+        "start_time": {
+          "type": "string",
+          "description": "ISO8601 event start time"
+        },
+        "end_time": {
+          "type": "string",
+          "description": "ISO8601 event end time"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description text"
+        },
+        "location": {
+          "type": "string",
+          "description": "External event location string"
+        },
+        "event_type": {
+          "type": "integer",
+          "description": "Scheduled event type: 1=stage, 2=voice, 3=external"
+        },
+        "avatar": {
+          "type": "string",
+          "description": "Image as data URI 'data:image/png;base64,...'"
+        },
+        "icon": {
+          "type": "string",
+          "description": "Guild/role icon as data URI"
+        },
+        "avatar_url": {
+          "type": "string",
+          "description": "URL for webhook avatar override"
+        },
+        "global_name": {
+          "type": "string",
+          "description": "Display name shown in most places"
+        },
+        "bio": {
+          "type": "string",
+          "description": "User profile bio"
+        },
+        "expires_at": {
+          "type": "string",
+          "description": "ISO8601 expiry for custom status or null"
+        },
+        "unique": {
+          "type": "boolean",
+          "description": "Generate unique invite (default true)"
+        }
       },
-      "required": ["action"]
-    }
-  },
-
-  "scheduler_tool": {
-    "module": "tools/scheduler/scheduler_tool.py",
-    "timeout_ms": 15000,
-    "description": "Start an autonomous long-running background task that runs for a set duration, uses tools (Discord, web, memory, etc.), and posts a full report back to the chat when finished. A live countdown timer with current status is shown in the UI during execution.\n\nUSE CASES:\n- 'Chat with @user on Discord for 30 minutes in my name'\n- 'Monitor channel #general for 1 hour and respond to messages mentioning me'\n- 'Every 2 minutes, check if new PRs appeared on repo X and track them'\n- 'Spend 20 minutes researching topic Y and compile notes'\n\nPARAMETERS:\n  task (str, REQUIRED): Plain-language description of the full task. Be specific — include channel IDs, usernames, goals, rules, and any constraints. The worker AI reads this as its primary instruction.\n\n  duration_min (int, default 30): Minutes to run. Range: 1–480. The task WILL end at this time regardless of completion.\n\n  wake_every_sec (int, default 90): Seconds between wake cycles. Each cycle: worker reads context, calls tools, takes action. Lower = more responsive, more API cost. Recommended: 60 for active chat, 120 for monitoring, 300 for research.\n\n  label (str, optional): Short title shown in the chat timer bubble. Default: first 80 chars of task.\n\n  context (str, optional): Extra context appended to worker system prompt — useful for passing current state, IDs, or preferences the worker should know upfront.\n\nWORKFLOW:\n1. Call scheduler_tool with the task description.\n2. Tool spawns a background worker and returns immediately.\n3. Chat shows a live countdown timer bubble with current action and stats.\n4. User can continue chatting — the worker runs independently.\n5. When done, the report streams into chat as a new assistant message.\n6. Timer bubble transitions to 'Complete' state.\n\nIMPORTANT:\n- The worker has full tool access: discord_tool, web_search, web_fetch, memory_store, memory_get, run_python, github_ops.\n- Discord tasks require the user to have connected their Discord account in Settings.\n- The task description should be detailed enough for the worker to operate without asking questions.\n- For Discord chat tasks: provide channel_id or DM user_id, not just names.\n- Worker maintains action history across cycles — it won't repeat completed actions.\n- Cancellable via Settings → Active Tasks (future UI) or by starting a new conversation.",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "task":           { "type": "string",  "description": "Full task description. Be specific: include IDs, goals, constraints, rules." },
-        "duration_min":   { "type": "integer", "description": "Duration in minutes (1–480, default 30)" },
-        "wake_every_sec": { "type": "integer", "description": "Seconds between wake cycles (15–600, default 90)" },
-        "label":          { "type": "string",  "description": "Short display label for the timer bubble (default: first 80 chars of task)" },
-        "context":        { "type": "string",  "description": "Extra context for the worker (current state, IDs, preferences)" }
-      },
-      "required": ["task"]
+      "required": [
+        "action"
+      ]
+    },
+    "scheduler_tool": {
+      "module": "tools/scheduler/scheduler_tool.py",
+      "timeout_ms": 15000,
+      "description": "Start an autonomous long-running background task that runs for a set duration, uses tools (Discord, web, memory, etc.), and posts a full report back to the chat when finished. A live countdown timer with current status is shown in the UI during execution.\n\nUSE CASES:\n- 'Chat with @user on Discord for 30 minutes in my name'\n- 'Monitor channel #general for 1 hour and respond to messages mentioning me'\n- 'Every 2 minutes, check if new PRs appeared on repo X and track them'\n- 'Spend 20 minutes researching topic Y and compile notes'\n\nPARAMETERS:\n  task (str, REQUIRED): Plain-language description of the full task. Be specific — include channel IDs, usernames, goals, rules, and any constraints. The worker AI reads this as its primary instruction.\n\n  duration_min (int, default 30): Minutes to run. Range: 1–480. The task WILL end at this time regardless of completion.\n\n  wake_every_sec (int, default 90): Seconds between wake cycles. Each cycle: worker reads context, calls tools, takes action. Lower = more responsive, more API cost. Recommended: 60 for active chat, 120 for monitoring, 300 for research.\n\n  label (str, optional): Short title shown in the chat timer bubble. Default: first 80 chars of task.\n\n  context (str, optional): Extra context appended to worker system prompt — useful for passing current state, IDs, or preferences the worker should know upfront.\n\nWORKFLOW:\n1. Call scheduler_tool with the task description.\n2. Tool spawns a background worker and returns immediately.\n3. Chat shows a live countdown timer bubble with current action and stats.\n4. User can continue chatting — the worker runs independently.\n5. When done, the report streams into chat as a new assistant message.\n6. Timer bubble transitions to 'Complete' state.\n\nIMPORTANT:\n- The worker has full tool access: discord_tool, web_search, web_fetch, memory_store, memory_get, run_python, github_ops.\n- Discord tasks require the user to have connected their Discord account in Settings.\n- The task description should be detailed enough for the worker to operate without asking questions.\n- For Discord chat tasks: provide channel_id or DM user_id, not just names.\n- Worker maintains action history across cycles — it won't repeat completed actions.\n- Cancellable via Settings → Active Tasks (future UI) or by starting a new conversation.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Full task description. Be specific: include IDs, goals, constraints, rules."
+          },
+          "duration_min": {
+            "type": "integer",
+            "description": "Duration in minutes (1–480, default 30)"
+          },
+          "wake_every_sec": {
+            "type": "integer",
+            "description": "Seconds between wake cycles (15–600, default 90)"
+          },
+          "label": {
+            "type": "string",
+            "description": "Short display label for the timer bubble (default: first 80 chars of task)"
+          },
+          "context": {
+            "type": "string",
+            "description": "Extra context for the worker (current state, IDs, preferences)"
+          }
+        },
+        "required": [
+          "task"
+        ]
+      }
     }
   }
 }
