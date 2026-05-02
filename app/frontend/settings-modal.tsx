@@ -118,6 +118,11 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
   const toggle = (key: keyof UserSettings) =>
     setLocal(s => ({ ...s, [key]: !s[key] }));
 
+  const setTheme = (t: 'blue' | 'midnight' | 'tokyo') => {
+    setLocal(s => ({ ...s, color_theme: t }));
+    document.documentElement.setAttribute('data-theme', t);
+  };
+
   const handleConnectGithub = async () => {
     setGhConnecting(true);
     setGhError(null);
@@ -212,6 +217,39 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </div>
 
         <div className="settings-body">
+
+          {/* ── Appearance ────────────────────────────── */}
+          <div className="settings-section">
+            <div className="settings-section-label">Appearance</div>
+            <div className="theme-picker">
+              {([
+                { id: 'blue',     name: 'Ocean',        bg: '#070b18', bg2: '#0b1020', sidebar: '#0b1020', header: '#111827', border: '#1e2d45', bubble: '#172035', accent: '#6366f1' },
+                { id: 'midnight', name: 'Midnight',     bg: '#090909', bg2: '#0e0e0e', sidebar: '#0e0e0e', header: '#131313', border: '#252525', bubble: '#1a1a1a', accent: '#6366f1' },
+                { id: 'tokyo',    name: 'Tokyo Night',  bg: '#1a1b26', bg2: '#16161e', sidebar: '#16161e', header: '#1f2335', border: '#292e42', bubble: '#24283b', accent: '#7aa2f7' },
+              ] as const).map(({ id, name, bg, bg2, sidebar, header, border, bubble, accent }) => {
+                const active = (local.color_theme ?? 'blue') === id;
+                return (
+                  <button
+                    key={id}
+                    className={`theme-card ${active ? 'active' : ''}`}
+                    onClick={() => setTheme(id)}
+                    title={name}
+                  >
+                    <div className="theme-preview" style={{ background: bg }}>
+                      <div className="theme-preview-sidebar" style={{ background: sidebar, borderRight: `1px solid ${border}` }} />
+                      <div className="theme-preview-main" style={{ background: bg }}>
+                        <div className="theme-preview-header" style={{ background: header }} />
+                        <div className="theme-preview-bubble" style={{ background: bubble, width: '70%' }} />
+                        <div className="theme-preview-bubble theme-preview-bubble-accent" style={{ background: accent }} />
+                        <div className="theme-preview-input" style={{ background: bubble, borderColor: border }} />
+                      </div>
+                    </div>
+                    <span className="theme-card-name">{name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {/* ── Model ─────────────────────────────────── */}
           <div className="settings-section">

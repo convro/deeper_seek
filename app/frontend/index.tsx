@@ -1663,13 +1663,19 @@ function App() {
 
   useEffect(() => {
     if (auth.mode !== 'multi_user' || !auth.user) return;
-    fetchUserSettings().then(r => setUserSettings(r.settings)).catch(() => {});
+    fetchUserSettings().then(r => {
+      setUserSettings(r.settings);
+      if (r.settings.color_theme) {
+        document.documentElement.setAttribute('data-theme', r.settings.color_theme);
+      }
+    }).catch(() => {});
   }, [auth.mode, auth.user?.id]);
 
   const handleSaveSettings = useCallback(async (s: UserSettings) => {
     await saveUserSettings(s);
-    // Merge instead of replace — preserve github_username/github_pat which are
-    // managed by OAuth flow and never sent through the settings save endpoint.
+    if (s.color_theme) {
+      document.documentElement.setAttribute('data-theme', s.color_theme);
+    }
     setUserSettings(prev => ({ ...prev, ...s }));
   }, []);
 
@@ -1872,7 +1878,13 @@ function App() {
         <SettingsModal
           settings={userSettings}
           onSave={handleSaveSettings}
-          onClose={() => setShowSettings(false)}
+          onClose={() => {
+            // Revert any live preview back to the last saved theme
+            document.documentElement.setAttribute(
+              'data-theme', userSettings.color_theme ?? 'blue'
+            );
+            setShowSettings(false);
+          }}
         />
       )}
 

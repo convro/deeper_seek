@@ -113,6 +113,7 @@ export interface UserSettings {
   extended_thinking: boolean;
   agent_extended_thinking: boolean;
   use_pro_model: boolean;
+  color_theme?: 'blue' | 'midnight' | 'tokyo';
   github_pat?: string;
   github_username?: string;
   discord_token?: string;
