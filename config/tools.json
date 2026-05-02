@@ -2580,33 +2580,30 @@
       "timeout_ms": 15000,
       "description": "Start an autonomous long-running background task that runs for a set duration, uses tools (Discord, web, memory, etc.), and posts a full report back to the chat when finished. A live countdown timer with current status is shown in the UI during execution.\n\nUSE CASES:\n- 'Chat with @user on Discord for 30 minutes in my name'\n- 'Monitor channel #general for 1 hour and respond to messages mentioning me'\n- 'Every 2 minutes, check if new PRs appeared on repo X and track them'\n- 'Spend 20 minutes researching topic Y and compile notes'\n\nPARAMETERS:\n  task (str, REQUIRED): Plain-language description of the full task. Be specific — include channel IDs, usernames, goals, rules, and any constraints. The worker AI reads this as its primary instruction.\n\n  duration_min (int, default 30): Minutes to run. Range: 1–480. The task WILL end at this time regardless of completion.\n\n  wake_every_sec (int, default 90): Seconds between wake cycles. Each cycle: worker reads context, calls tools, takes action. Lower = more responsive, more API cost. Recommended: 60 for active chat, 120 for monitoring, 300 for research.\n\n  label (str, optional): Short title shown in the chat timer bubble. Default: first 80 chars of task.\n\n  context (str, optional): Extra context appended to worker system prompt — useful for passing current state, IDs, or preferences the worker should know upfront.\n\nWORKFLOW:\n1. Call scheduler_tool with the task description.\n2. Tool spawns a background worker and returns immediately.\n3. Chat shows a live countdown timer bubble with current action and stats.\n4. User can continue chatting — the worker runs independently.\n5. When done, the report streams into chat as a new assistant message.\n6. Timer bubble transitions to 'Complete' state.\n\nIMPORTANT:\n- The worker has full tool access: discord_tool, web_search, web_fetch, memory_store, memory_get, run_python, github_ops.\n- Discord tasks require the user to have connected their Discord account in Settings.\n- The task description should be detailed enough for the worker to operate without asking questions.\n- For Discord chat tasks: provide channel_id or DM user_id, not just names.\n- Worker maintains action history across cycles — it won't repeat completed actions.\n- Cancellable via Settings → Active Tasks (future UI) or by starting a new conversation.",
       "parameters": {
-        "type": "object",
-        "properties": {
-          "task": {
-            "type": "string",
-            "description": "Full task description. Be specific: include IDs, goals, constraints, rules."
-          },
-          "duration_min": {
-            "type": "integer",
-            "description": "Duration in minutes (1–480, default 30)"
-          },
-          "wake_every_sec": {
-            "type": "integer",
-            "description": "Seconds between wake cycles (15–600, default 90)"
-          },
-          "label": {
-            "type": "string",
-            "description": "Short display label for the timer bubble (default: first 80 chars of task)"
-          },
-          "context": {
-            "type": "string",
-            "description": "Extra context for the worker (current state, IDs, preferences)"
-          }
+        "task": {
+          "type": "string",
+          "description": "Full task description. Be specific: include IDs, goals, constraints, rules."
         },
-        "required": [
-          "task"
-        ]
-      }
+        "duration_min": {
+          "type": "integer",
+          "description": "Duration in minutes (1–480, default 30)"
+        },
+        "wake_every_sec": {
+          "type": "integer",
+          "description": "Seconds between wake cycles (15–600, default 90)"
+        },
+        "label": {
+          "type": "string",
+          "description": "Short display label for the timer bubble (default: first 80 chars of task)"
+        },
+        "context": {
+          "type": "string",
+          "description": "Extra context for the worker (current state, IDs, preferences)"
+        }
+      },
+      "required": [
+        "task"
+      ]
     }
   }
 }

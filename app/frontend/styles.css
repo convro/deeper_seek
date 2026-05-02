@@ -5042,3 +5042,58 @@ body.keyboard-open .auth-tagline { display: none; }
   white-space: nowrap;
 }
 .theme-card.active .theme-card-name { color: var(--accent); }
+
+/* ── Settings modal — mobile responsive ──────────────────────────────────── */
+@media (max-width: 640px) {
+  .settings-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: 92vh;
+    border-radius: 14px 14px 0 0;
+    margin-top: auto;
+    /* slide up from bottom on mobile */
+  }
+  .settings-backdrop {
+    align-items: flex-end;
+  }
+  .settings-layout {
+    flex-direction: column;
+  }
+  .settings-nav {
+    width: 100%;
+    flex-direction: row;
+    padding: 8px 10px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    gap: 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .settings-nav::-webkit-scrollbar { display: none; }
+  .settings-nav-btn {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    font-size: 12px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+  .settings-panel {
+    padding: 16px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .settings-row {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+  .settings-row-name { font-size: 13px; }
+  .settings-row-desc { font-size: 11px; }
+  .settings-footer {
+    padding: 10px 16px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  .theme-picker { gap: 8px; }
+  .theme-card { padding: 8px 6px 7px; }
+  .theme-preview { height: 44px; }
+}
