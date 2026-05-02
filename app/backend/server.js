@@ -37,6 +37,8 @@ const frontendRoot = path.join(__dirname, '../frontend');
 try {
   require('fs').accessSync(frontendDist);
   app.use(express.static(frontendDist));
+  // Named pages served before the SPA catch-all
+  app.get('/welcome', (req, res) => res.sendFile(path.join(frontendDist, 'welcome.html')));
   app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {
       res.sendFile(path.join(frontendDist, 'index.html'));

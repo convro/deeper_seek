@@ -25,3 +25,6 @@ uploads/files/*
 uploads/raw/*
 !uploads/raw/.gitkeep
 logs/*.log
+runtime/users.json
+runtime/tokens.json
+runtime/licenses.json

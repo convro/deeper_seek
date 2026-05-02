@@ -9,6 +9,33 @@ export interface ToolCallRecord {
   error?: string;
   status: 'pending' | 'done' | 'error';
   duration_ms?: number;
+  /** When this tool call spawned a sub-agent, the sub-agent's id is set here
+   *  so the UI can pull that agent's live state from the App-level
+   *  `liveAgents` map and render it inline beneath the badge. */
+  spawnedAgentId?: string;
+}
+
+/** Real-time view of a sub-agent's progress, derived purely from WS events.
+ *  Lives in App-level state (lifted from the polling-based `agents.tsx` tab)
+ *  so both the Agents sidebar tab AND the inline chat can render the same
+ *  live data without separate polling loops. */
+export interface LiveAgent {
+  id: string;
+  type: string;
+  status: 'running' | 'completed' | 'failed' | 'killed';
+  /** Last tool the sub-agent invoked (for "Running… web_search" UI). */
+  currentTool?: string;
+  toolCount: number;
+  /** Last text snippet streamed from the sub-agent (truncated). */
+  lastText?: string;
+  /** Final answer once the agent finishes. */
+  result?: string;
+  error?: string;
+  startedAt: string;
+  completedAt?: string;
+  /** Count of websocket events received — useful for "is it still alive" UI. */
+  eventCount: number;
+  lastEventAt: string;
 }
 
 export interface Attachment {
@@ -65,6 +92,10 @@ export interface Conversation {
   updated_at: string;
   message_count: number;
   last_message?: string | null;
+  pinned?: boolean;
+  pinned_at?: string | null;
+  github_repo?: string | null;
+  github_branch?: string | null;
 }
 
 export interface WorkspaceJob {

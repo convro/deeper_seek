@@ -7,7 +7,8 @@
     "start": "node app/backend/server.js",
     "dev": "NODE_ENV=development node app/backend/server.js",
     "build:frontend": "cd app/frontend && npm run build",
-    "bootstrap": "bash system/bootstrap.sh"
+    "bootstrap": "bash system/bootstrap.sh",
+    "license": "node scripts/license.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

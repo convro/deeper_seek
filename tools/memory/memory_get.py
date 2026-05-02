@@ -5,6 +5,14 @@ import time
 MEMORY_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../memory"))
 
 
+def _user_dir():
+    """Return per-user memory directory (legacy root when no user)."""
+    uid = os.environ.get("DEEPERSEEK_CURRENT_USER_ID")
+    if uid:
+        return os.path.join(MEMORY_ROOT, f"u_{uid}")
+    return MEMORY_ROOT
+
+
 def execute(key: str, tier: str = "both", **kwargs) -> dict:
     start = time.time()
     try:
@@ -12,8 +20,9 @@ def execute(key: str, tier: str = "both", **kwargs) -> dict:
         found = None
         found_tier = None
 
+        udir = _user_dir()
         for t in tiers:
-            file_path = os.path.join(MEMORY_ROOT, f"{t}_term.json")
+            file_path = os.path.join(udir, f"{t}_term.json")
             data = _load(file_path)
             if key in data:
                 found = data[key]

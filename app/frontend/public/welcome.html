@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeeperSeek — AI That Actually Does the Work</title>
+  <meta name="description" content="DeeperSeek is a fully autonomous AI assistant powered by DeepSeek R1. It codes, browses, runs tools, manages files, and pushes to GitHub — all on its own." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #08090c;
+      --surface:  #0f111a;
+      --border:   #1e2235;
+      --accent:   #5b6cff;
+      --accent2:  #9b6cff;
+      --text:     #e8eaf0;
+      --muted:    #6b7494;
+      --green:    #2dd4a0;
+      --radius:   14px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Noise overlay ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Glow orbs ── */
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: .18;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .orb-1 { width: 600px; height: 600px; background: var(--accent);  top: -200px; left: -150px; animation: drift 14s ease-in-out infinite alternate; }
+    .orb-2 { width: 500px; height: 500px; background: var(--accent2); bottom: -150px; right: -100px; animation: drift 18s ease-in-out infinite alternate-reverse; }
+    @keyframes drift { from { transform: translate(0,0); } to { transform: translate(40px, 30px); } }
+
+    /* ── Layout ── */
+    .wrap { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; padding: 0 24px; }
+
+    /* ── Nav ── */
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 22px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: -.3px;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .nav-logo img { width: 34px; height: 34px; border-radius: 8px; }
+    .nav-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      font-size: .88rem;
+      padding: 9px 20px;
+      border-radius: 8px;
+      text-decoration: none;
+      transition: background .2s, transform .15s;
+    }
+    .nav-cta:hover { background: #6e7fff; transform: translateY(-1px); }
+
+    /* ── Hero ── */
+    .hero {
+      text-align: center;
+      padding: 90px 0 70px;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(91,108,255,.12);
+      border: 1px solid rgba(91,108,255,.3);
+      color: #8a9fff;
+      font-size: .78rem;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      border-radius: 100px;
+      margin-bottom: 32px;
+    }
+    .hero-badge span { width: 6px; height: 6px; background: #5b6cff; border-radius: 50%; animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
+
+    .hero-logo {
+      width: 130px;
+      height: 130px;
+      margin: 0 auto 36px;
+      display: block;
+      filter: drop-shadow(0 0 40px rgba(91,108,255,.4));
+      animation: float 6s ease-in-out infinite;
+    }
+    @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+
+    h1 {
+      font-size: clamp(2.2rem, 5vw, 3.4rem);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -.03em;
+      margin-bottom: 22px;
+    }
+    h1 .grad {
+      background: linear-gradient(135deg, #7b8fff 0%, #b96cff 50%, #5b6cff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-sub {
+      font-size: 1.1rem;
+      color: var(--muted);
+      max-width: 560px;
+      margin: 0 auto 44px;
+      line-height: 1.7;
+    }
+
+    .hero-btns {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: linear-gradient(135deg, #5b6cff, #9b6cff);
+      color: #fff;
+      font-weight: 700;
+      font-size: 1rem;
+      padding: 14px 30px;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: transform .15s, box-shadow .2s;
+      box-shadow: 0 4px 24px rgba(91,108,255,.35);
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(91,108,255,.5); }
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-weight: 600;
+      font-size: 1rem;
+      padding: 14px 28px;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: border-color .2s, transform .15s;
+    }
+    .btn-secondary:hover { border-color: var(--accent); transform: translateY(-2px); }
+
+    /* ── Divider ── */
+    .section-label {
+      text-align: center;
+      font-size: .75rem;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 40px;
+    }
+
+    /* ── Features grid ── */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 80px;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 26px;
+      transition: border-color .25s, transform .2s;
+    }
+    .feature-card:hover { border-color: rgba(91,108,255,.45); transform: translateY(-3px); }
+    .feature-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+      margin-bottom: 16px;
+      background: rgba(91,108,255,.12);
+    }
+    .feature-card h3 { font-size: .95rem; font-weight: 700; margin-bottom: 8px; }
+    .feature-card p  { font-size: .85rem; color: var(--muted); line-height: 1.65; }
+
+    /* ── How it works ── */
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      margin-bottom: 80px;
+      position: relative;
+    }
+    .steps::before {
+      content: '';
+      position: absolute;
+      left: 20px;
+      top: 24px;
+      bottom: 24px;
+      width: 1px;
+      background: var(--border);
+    }
+    .step {
+      display: flex;
+      gap: 20px;
+      padding: 20px 0;
+    }
+    .step-num {
+      width: 40px;
+      height: 40px;
+      min-width: 40px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .8rem;
+      font-weight: 700;
+      color: var(--accent);
+      position: relative;
+      z-index: 1;
+    }
+    .step-body h4 { font-size: .95rem; font-weight: 700; margin-bottom: 4px; margin-top: 8px; }
+    .step-body p  { font-size: .85rem; color: var(--muted); line-height: 1.6; }
+
+    /* ── Powered by strip ── */
+    .powered {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-bottom: 80px;
+    }
+    .powered-text { font-size: .95rem; color: var(--muted); }
+    .powered-text strong { color: var(--text); }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 5px 14px;
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .pill-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+    /* ── CTA bottom ── */
+    .cta-bottom {
+      text-align: center;
+      padding: 60px 0 80px;
+      border-top: 1px solid var(--border);
+    }
+    .cta-bottom h2 {
+      font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+      font-weight: 800;
+      letter-spacing: -.03em;
+      margin-bottom: 14px;
+    }
+    .cta-bottom p { color: var(--muted); margin-bottom: 36px; font-size: .95rem; }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 24px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    footer .f-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: .9rem; }
+    footer .f-logo img { width: 24px; height: 24px; border-radius: 6px; }
+    footer .f-copy { font-size: .8rem; color: var(--muted); }
+
+    /* ── Terminal preview ── */
+    .terminal {
+      background: #0a0c14;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin: 48px 0 64px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    }
+    .term-bar {
+      background: #111420;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .term-dot { width: 11px; height: 11px; border-radius: 50%; }
+    .term-title { font-size: .78rem; color: var(--muted); margin-left: 8px; font-family: 'SF Mono', 'Fira Code', monospace; }
+    .term-body { padding: 20px 22px; font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: .82rem; line-height: 1.9; }
+    .t-dim    { color: #3a4060; }
+    .t-user   { color: #8a9fff; }
+    .t-tool   { color: var(--green); }
+    .t-out    { color: var(--muted); }
+    .t-ok     { color: var(--green); }
+    .t-reply  { color: var(--text); }
+    .cursor { display: inline-block; width: 8px; height: 14px; background: var(--accent); border-radius: 2px; animation: blink .9s step-end infinite; vertical-align: middle; }
+    @keyframes blink { 50%{opacity:0} }
+
+    @media (max-width: 600px) {
+      .hero { padding: 60px 0 50px; }
+      .powered { flex-direction: column; }
+      footer { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+
+<div class="wrap">
+
+  <!-- Nav -->
+  <nav>
+    <a class="nav-logo" href="/">
+      <img src="https://r.convro.eu/content/Stable/realises/ds73" alt="DeeperSeek" />
+      DeeperSeek
+    </a>
+    <a class="nav-cta" href="/">
+      Open App
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z"/></svg>
+    </a>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-badge"><span></span> Powered by DeepSeek R1</div>
+
+    <img
+      class="hero-logo"
+      src="https://r.convro.eu/content/Stable/realises/ds73"
+      alt="DeeperSeek"
+    />
+
+    <h1>The AI That<br /><span class="grad">Actually Does the Work</span></h1>
+
+    <p class="hero-sub">
+      DeeperSeek doesn't just answer questions — it codes, browses the web,
+      runs tools, edits files, clones repos, commits code, and pushes branches.
+      Give it a task. Watch it execute.
+    </p>
+
+    <div class="hero-btns">
+      <a class="btn-primary" href="/">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM4.5 7.5a.5.5 0 0 0 0 1h5.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3a.5.5 0 0 0 0-.708l-3-3a.5.5 0 1 0-.708.708L10.293 7.5H4.5Z"/></svg>
+        Launch DeeperSeek
+      </a>
+      <a class="btn-secondary" href="#features">
+        See what it can do
+      </a>
+    </div>
+  </section>
+
+  <!-- Terminal demo -->
+  <div class="terminal">
+    <div class="term-bar">
+      <div class="term-dot" style="background:#ff5f57"></div>
+      <div class="term-dot" style="background:#febc2e"></div>
+      <div class="term-dot" style="background:#28c840"></div>
+      <span class="term-title">DeeperSeek — live session</span>
+    </div>
+    <div class="term-body">
+      <div><span class="t-user">You</span>  <span class="t-dim">→</span>  Clone my repo, add dark mode, commit and push to a new branch.</div>
+      <div style="margin-top:8px"><span class="t-tool">▶ git_ops</span>  <span class="t-dim">clone convro/myapp → workspace/job_a91f/</span></div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Cloned. 147 files, branch main.</span></div>
+      <div><span class="t-tool">▶ code_exec</span>  <span class="t-dim">analyzing CSS architecture…</span></div>
+      <div><span class="t-tool">▶ file_write</span>  <span class="t-dim">src/styles/theme.css — dark palette injected</span></div>
+      <div><span class="t-tool">▶ file_write</span>  <span class="t-dim">src/index.html — theme toggle added</span></div>
+      <div><span class="t-tool">▶ git_ops</span>  <span class="t-dim">branch feature/dark-mode → commit → push</span></div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Pushed. PR ready at github.com/convro/myapp/compare/feature/dark-mode</span></div>
+      <div style="margin-top:8px"><span class="t-reply">Done. Dark mode is live on the branch. Want me to open a PR?</span> <span class="cursor"></span></div>
+    </div>
+  </div>
+
+  <!-- Features -->
+  <p class="section-label" id="features">What DeeperSeek can do</p>
+  <div class="features">
+    <div class="feature-card">
+      <div class="feature-icon">💻</div>
+      <h3>Autonomous coding</h3>
+      <p>Writes, edits, refactors, and debugs code across any language. Reads your files, understands the project, fixes the actual problem.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🌐</div>
+      <h3>Live web browsing</h3>
+      <p>Searches the web, reads pages, grabs real-time data. Not just training data — actual current information from any URL.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔧</div>
+      <h3>Tool execution</h3>
+      <p>Runs shell commands, executes Python, manages files and directories. It has a full workspace — not a sandbox illusion.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🐙</div>
+      <h3>GitHub integration</h3>
+      <p>Clone repos, create branches, commit changes, and push — all authenticated via OAuth. No tokens to copy, no config to touch.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🧠</div>
+      <h3>Deep chain-of-thought</h3>
+      <p>DeepSeek R1 reasons step-by-step before acting. Switch between fast Chat mode and thorough Thinking mode per task.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🤖</div>
+      <h3>Specialist sub-agents</h3>
+      <p>Complex tasks get delegated to specialist agents — planner, validator, coder — running in parallel for faster results.</p>
+    </div>
+  </div>
+
+  <!-- How it works -->
+  <p class="section-label">How it works</p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>You describe the task</h4>
+        <p>Plain language. "Build me a landing page", "fix this bug", "analyze this CSV and summarize findings". No prompt engineering required.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>DeeperSeek plans and acts</h4>
+        <p>The model reasons through the problem, picks the right tools, and executes step by step — browsing, coding, running commands, reading results.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>You see every step live</h4>
+        <p>Each tool call, result, and reasoning step streams in real time. You can watch exactly what it's doing and why.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h4>Task complete — artifacts ready</h4>
+        <p>Files, code, reports, pushed branches — everything lands in the workspace. Preview, download, or link directly from the chat.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Powered by -->
+  <div class="powered">
+    <div class="powered-text">
+      <strong>Built on proven technology.</strong><br />
+      Real models, real infrastructure, no hallucinated capabilities.
+    </div>
+    <div class="pill-row">
+      <span class="pill"><span class="pill-dot" style="background:#5b6cff"></span>DeepSeek R1</span>
+      <span class="pill"><span class="pill-dot" style="background:#2dd4a0"></span>DeepSeek Chat</span>
+      <span class="pill"><span class="pill-dot" style="background:#f59e0b"></span>Node.js + WebSocket</span>
+      <span class="pill"><span class="pill-dot" style="background:#ec4899"></span>GitHub OAuth</span>
+      <span class="pill"><span class="pill-dot" style="background:#a78bfa"></span>Python Toolchain</span>
+    </div>
+  </div>
+
+  <!-- CTA bottom -->
+  <div class="cta-bottom">
+    <h2>Ready to stop prompting<br />and start <span style="background:linear-gradient(135deg,#7b8fff,#b96cff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">delegating?</span></h2>
+    <p>DeeperSeek is running. Just open it and give it a task.</p>
+    <a class="btn-primary" href="/" style="display:inline-flex; font-size:1.05rem; padding:16px 36px;">
+      Open DeeperSeek
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM4.5 7.5a.5.5 0 0 0 0 1h5.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3a.5.5 0 0 0 0-.708l-3-3a.5.5 0 1 0-.708.708L10.293 7.5H4.5Z"/></svg>
+    </a>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <div class="f-logo">
+      <img src="https://r.convro.eu/content/Stable/realises/ds73" alt="DeeperSeek" />
+      DeeperSeek
+    </div>
+    <span class="f-copy">dslab.club &nbsp;·&nbsp; Built with DeepSeek R1 &nbsp;·&nbsp; 2026</span>
+  </footer>
+
+</div>
+</body>
+</html>

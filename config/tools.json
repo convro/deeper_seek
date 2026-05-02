@@ -26,15 +26,41 @@
     },
     "fs_search": {
       "module": "tools/filesystem/fs_search.py",
-      "description": "Search for files by glob pattern or search file contents with regex",
+      "description": "Search for files by glob pattern, search file contents with regex, OR run a structural AST search for symbols (functions, classes, methods, imports, calls, assignments) across Python/JS/TS.",
       "parameters": {
-        "pattern": {"type": "string", "description": "Glob or regex pattern"},
+        "pattern": {"type": "string", "description": "Glob (mode=glob), regex (mode=content), or symbol name / fnmatch-glob (mode=ast)"},
         "path": {"type": "string", "description": "Root directory to search in", "default": "."},
-        "mode": {"type": "string", "enum": ["glob", "content"], "default": "glob"},
-        "case_sensitive": {"type": "boolean", "default": false}
+        "mode": {"type": "string", "enum": ["glob", "content", "ast"], "default": "glob"},
+        "case_sensitive": {"type": "boolean", "default": false},
+        "context": {"type": "integer", "description": "Lines of context around each match (content/ast modes)", "default": 0},
+        "max_results": {"type": "integer", "default": 200},
+        "include": {"type": "array", "items": {"type": "string"}, "description": "Extra include globs (content/ast modes)"},
+        "exclude": {"type": "array", "items": {"type": "string"}, "description": "Extra exclude globs (content/ast modes)"},
+        "kind": {"type": "string", "enum": ["any", "function", "class", "method", "import", "call", "assign"], "default": "any", "description": "AST-mode only: which kind of symbol to match"},
+        "regex_name": {"type": "string", "description": "AST-mode only: alternative to pattern, Python regex for symbol names"},
+        "languages": {"type": "array", "items": {"type": "string"}, "description": "AST-mode only: languages to scan (python, js, ts, jsx, tsx)"}
       },
       "required": ["pattern"],
       "timeout_ms": 15000
+    },
+    "archive": {
+      "module": "tools/filesystem/archive.py",
+      "description": "Create, inspect, extract, or read single files from zip / tar / tar.gz / tar.bz2 / tar.xz archives. Path-traversal safe; size-capped to defuse zip bombs.",
+      "parameters": {
+        "op": {"type": "string", "enum": ["list", "create", "extract", "read"]},
+        "path": {"type": "string", "description": "Archive path (for list/extract/read)"},
+        "paths": {"type": "array", "items": {"type": "string"}, "description": "Source files/dirs to bundle (for create)"},
+        "dest": {"type": "string", "description": "Output path (create) or extraction dir (extract)"},
+        "format": {"type": "string", "enum": ["auto", "zip", "tar", "tar.gz", "tar.bz2", "tar.xz"], "default": "auto"},
+        "member": {"type": "string", "description": "Archive-relative path (for read)"},
+        "members": {"type": "array", "items": {"type": "string"}, "description": "Subset of members to extract"},
+        "max_bytes": {"type": "integer", "description": "Extraction size cap", "default": 2000000000},
+        "max_entries": {"type": "integer", "default": 5000},
+        "base_dir": {"type": "string", "description": "Base dir for archive-relative names on create"},
+        "overwrite": {"type": "boolean", "default": false}
+      },
+      "required": ["op"],
+      "timeout_ms": 120000
     },
     "fs_tree": {
       "module": "tools/filesystem/fs_tree.py",
@@ -99,26 +125,177 @@
       "required": ["code"],
       "timeout_ms": 60000
     },
+    "python_repl": {
+      "module": "tools/execution/python_repl.py",
+      "description": "Stateful Python REPL — unlike run_python, variables/imports/dataframes survive across calls per-session. Ideal for iterative data exploration.",
+      "parameters": {
+        "code": {"type": "string", "description": "Python code to run in the session"},
+        "session": {"type": "string", "description": "Session id (default 'default')", "default": "default"},
+        "timeout": {"type": "integer", "description": "Seconds", "default": 30},
+        "reset": {"type": "boolean", "description": "Drop and recreate the session before running", "default": false},
+        "kill": {"type": "boolean", "description": "Kill the session", "default": false},
+        "list_sessions": {"type": "boolean", "description": "List active sessions", "default": false}
+      },
+      "required": [],
+      "timeout_ms": 120000
+    },
     "web_fetch": {
       "module": "tools/web/web_fetch.py",
-      "description": "Fetch a URL and return its content (HTML stripped to text)",
+      "description": "Fetch a URL and return rich structured content: readability-cleaned main text (or markdown), title, description, author, publish date, Open Graph metadata, JSON-LD structured data, tables and top links. Handles HTML, JSON and PDFs. Use format='markdown' for nicely formatted extract, 'full' for everything, 'pdf' for PDFs.",
       "parameters": {
         "url": {"type": "string", "description": "URL to fetch"},
-        "format": {"type": "string", "enum": ["text", "html", "json"], "default": "text"},
-        "timeout": {"type": "integer", "default": 15}
+        "format": {"type": "string", "enum": ["text", "markdown", "html", "json", "pdf", "full"], "default": "text"},
+        "timeout": {"type": "integer", "default": 20},
+        "referer": {"type": "string", "description": "Optional Referer header"},
+        "max_chars": {"type": "integer", "default": 80000, "description": "Max characters of content to return"},
+        "include_links": {"type": "boolean", "default": true},
+        "include_tables": {"type": "boolean", "default": true}
       },
       "required": ["url"],
-      "timeout_ms": 30000
+      "timeout_ms": 45000
     },
     "web_search": {
       "module": "tools/web/web_search.py",
-      "description": "Search the web using DuckDuckGo and return results",
+      "description": "Multi-engine web search (Google, Bing, Brave, DuckDuckGo, Startpage, Yandex) in parallel with result merging and engine-agreement ranking. Full Google dorking supported either in the query string OR as structured args (site, exclude_site, filetype, intitle, inurl, intext, exact, or_terms, before, after). Example: query='best battery tech', site=['nature.com','arxiv.org'], after='2023-01-01'.",
       "parameters": {
-        "query": {"type": "string", "description": "Search query"},
-        "num_results": {"type": "integer", "default": 8, "description": "Number of results"}
+        "query": {"type": "string", "description": "Search query — supports Google dork operators inline (site:, filetype:, intitle:, inurl:, \"exact phrase\", etc.)"},
+        "num_results": {"type": "integer", "default": 10, "description": "Results to return (1-25)"},
+        "engine": {"type": "string", "enum": ["auto", "google", "bing", "brave", "ddg", "startpage", "yandex"], "default": "auto"},
+        "site": {"type": "string", "description": "Restrict to domain(s). String or array."},
+        "exclude_site": {"type": "string", "description": "Exclude domain(s)."},
+        "filetype": {"type": "string", "description": "pdf | doc | xls | csv | ppt | txt | …"},
+        "intitle": {"type": "string", "description": "Phrase that must appear in title"},
+        "inurl": {"type": "string", "description": "Substring that must appear in URL"},
+        "intext": {"type": "string", "description": "Phrase that must appear in body"},
+        "exact": {"type": "string", "description": "Exact-match phrase"},
+        "or_terms": {"type": "array", "items": {"type": "string"}, "description": "OR-joined alternative terms"},
+        "before": {"type": "string", "description": "Date upper bound (YYYY-MM-DD)"},
+        "after": {"type": "string", "description": "Date lower bound (YYYY-MM-DD)"},
+        "lang": {"type": "string", "default": "en"}
       },
       "required": ["query"],
-      "timeout_ms": 20000
+      "timeout_ms": 30000
+    },
+    "web_research": {
+      "module": "tools/web/web_research.py",
+      "description": "End-to-end research pipeline. Expands the topic into multiple sub-queries, searches across engines in parallel, ranks URLs by engine agreement and source quality (Wikipedia / news / academic prioritized, social noise filtered), fetches the top pages in parallel, extracts main content, and returns a structured dossier: sources, per-source excerpts, key bullet points, and extracted key facts with citations. This is the right tool when you actually need to answer a research question.",
+      "parameters": {
+        "topic": {"type": "string", "description": "Topic or research question"},
+        "depth": {"type": "integer", "default": 3, "description": "1=shallow (1 query), 2=multi-angle (3), 3=thorough (5)"},
+        "pages_per_query": {"type": "integer", "default": 5},
+        "max_pages": {"type": "integer", "default": 8, "description": "Pages to actually fetch"},
+        "subqueries": {"type": "array", "items": {"type": "string"}, "description": "Optional caller-defined subqueries (overrides depth)"},
+        "site": {"type": "string"},
+        "exclude_site": {"type": "string"},
+        "filetype": {"type": "string"},
+        "before": {"type": "string"},
+        "after": {"type": "string"},
+        "include_markdown": {"type": "boolean", "default": false}
+      },
+      "required": ["topic"],
+      "timeout_ms": 120000
+    },
+    "web_browse": {
+      "module": "tools/web/web_browse.py",
+      "description": "Drive a headless Chromium (Playwright) to render a page with JavaScript, accept cookie banners, scroll to trigger lazy-loading, screenshot the result and return the fully rendered HTML plus extracted main text, metadata, visible images and links. Use when web_fetch returns too little (SPAs, JS-only content, lazy-loaded images).",
+      "parameters": {
+        "url": {"type": "string", "description": "URL to render"},
+        "wait_until": {"type": "string", "enum": ["load", "domcontentloaded", "networkidle"], "default": "networkidle"},
+        "timeout_ms": {"type": "integer", "default": 25000},
+        "scroll": {"type": "boolean", "default": true},
+        "scroll_steps": {"type": "integer", "default": 8},
+        "screenshot": {"type": "boolean", "default": true},
+        "click_cookie": {"type": "boolean", "default": true},
+        "return_html": {"type": "boolean", "default": false}
+      },
+      "required": ["url"],
+      "timeout_ms": 90000
+    },
+    "image_search": {
+      "module": "tools/web/image_search.py",
+      "description": "Find and download high-quality images from the open web. Queries Google Images, Bing Images, DuckDuckGo Images, Yandex, Wikimedia Commons, Flickr, Pexels, Unsplash, Pixabay — in parallel. Editorial / news / wiki / real-photography sources rank first; generic stock is deprioritized. Pipeline auto-validates dimensions and magic bytes, deduplicates visually identical images with perceptual hashing, drops blurry ones, strips EXIF, and scores each for quality. Pick by quality — go for real, specific, editorial imagery rather than generic stock.",
+      "parameters": {
+        "query": {"type": "string", "description": "What to look for. Natural language; Google-style operators (site:, filetype:, \"phrase\") also accepted."},
+        "num_images": {"type": "integer", "default": 6, "description": "Number of final images to keep (1-25)"},
+        "save_dir": {"type": "string", "description": "Directory to save images (auto-created if empty)"},
+        "min_width": {"type": "integer", "default": 900},
+        "min_height": {"type": "integer", "default": 600},
+        "orientation": {"type": "string", "enum": ["any", "landscape", "portrait", "square"], "default": "any"},
+        "sources": {"type": "string", "default": "auto", "description": "'auto' or comma-separated: google,bing,ddg,yandex,wikimedia,flickr,pexels,unsplash,pixabay"},
+        "avoid_stock": {"type": "boolean", "default": true, "description": "Deprioritize generic stock sources; prefer editorial/real photography"},
+        "normalize": {"type": "boolean", "default": false, "description": "Convert webp/avif to jpg/png for broader compatibility"}
+      },
+      "required": ["query"],
+      "timeout_ms": 150000
+    },
+    "page_images": {
+      "module": "tools/web/page_images.py",
+      "description": "Scrape every image referenced by a single web page: <img src>+srcset (best variant), <picture><source>, CSS background-image, <link rel=preload as=image>, og:image / twitter:image, JSON-LD image fields. Optionally downloads them with the same validation pipeline as image_search. Enable use_browser=true for heavy JS sites.",
+      "parameters": {
+        "url": {"type": "string", "description": "Page URL to scan"},
+        "download": {"type": "boolean", "default": false},
+        "save_dir": {"type": "string", "description": "Where to save if download=true"},
+        "max_download": {"type": "integer", "default": 20},
+        "min_width": {"type": "integer", "default": 400},
+        "min_height": {"type": "integer", "default": 300},
+        "include_hero": {"type": "boolean", "default": true},
+        "use_browser": {"type": "boolean", "default": false, "description": "Render with Playwright first (for JS-heavy sites)"}
+      },
+      "required": ["url"],
+      "timeout_ms": 90000
+    },
+    "http_request": {
+      "module": "tools/web/http_request.py",
+      "description": "Generic REST client. GET/POST/PUT/PATCH/DELETE with JSON / form / multipart bodies, bearer or basic auth, automatic retry with exponential backoff on 429/5xx, SSRF guard (refuses private/link-local IPs unless allow_private=true). Responses auto-parsed as JSON/text or flagged binary.",
+      "parameters": {
+        "url": {"type": "string"},
+        "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"], "default": "GET"},
+        "headers": {"type": "object"},
+        "params": {"type": "object", "description": "URL query parameters"},
+        "json": {"description": "JSON body (dict/list)"},
+        "form": {"type": "object", "description": "application/x-www-form-urlencoded body"},
+        "multipart": {"type": "object", "description": "multipart/form-data body — each value may be a string or {path: ...}"},
+        "data": {"type": "string", "description": "Raw request body"},
+        "bearer": {"type": "string", "description": "Bearer token (sets Authorization)"},
+        "basic": {"type": "array", "items": {"type": "string"}, "description": "[username, password] for HTTP Basic auth"},
+        "timeout": {"type": "number", "default": 30},
+        "retries": {"type": "integer", "default": 2},
+        "retry_on": {"type": "array", "items": {"type": "integer"}, "description": "Status codes to retry (default 408/425/429/5xx)"},
+        "follow_redirects": {"type": "boolean", "default": true},
+        "max_bytes": {"type": "integer", "default": 5000000, "description": "Body preview cap"},
+        "save_to": {"type": "string", "description": "If set, save raw body to this path"},
+        "allow_private": {"type": "boolean", "default": false, "description": "Allow private/link-local IPs (disables SSRF guard)"},
+        "verify_ssl": {"type": "boolean", "default": true}
+      },
+      "required": ["url"],
+      "timeout_ms": 60000
+    },
+    "video_info": {
+      "module": "tools/web/video_info.py",
+      "description": "Video metadata + transcript extraction. YouTube: full metadata + transcripts (auto-generated and manual) with timestamps via the public timedtext API, optional on-the-fly translation, related videos. Vimeo: oEmbed metadata. Generic: Open Graph video metadata.",
+      "parameters": {
+        "url": {"type": "string", "description": "YouTube / Vimeo / any video URL"},
+        "transcript": {"type": "boolean", "default": true},
+        "lang": {"type": "string", "description": "Preferred transcript language (e.g. 'en', 'pl')"},
+        "translate_to": {"type": "string", "description": "Translate transcript into this language"},
+        "timeout": {"type": "integer", "default": 20},
+        "max_related": {"type": "integer", "default": 10},
+        "max_transcript_chars": {"type": "integer", "default": 80000}
+      },
+      "required": ["url"],
+      "timeout_ms": 45000
+    },
+    "image_reverse": {
+      "module": "tools/web/image_reverse.py",
+      "description": "Reverse-image search against Yandex, Google Lens and Bing. Given a publicly hosted image URL, returns the pages where that image appears (source/context) plus visually similar images — useful for tracking down the original, finding higher-resolution versions, or identifying a subject.",
+      "parameters": {
+        "url": {"type": "string", "description": "Publicly accessible image URL"},
+        "path": {"type": "string", "description": "Local file path (currently requires public URL — reserved for future upload support)"},
+        "max_results": {"type": "integer", "default": 15},
+        "engines": {"type": "string", "default": "yandex,google,bing"}
+      },
+      "required": [],
+      "timeout_ms": 60000
     },
     "workspace_create": {
       "module": "tools/workspace/workspace_create.py",
@@ -149,6 +326,34 @@
       "required": ["job_id"],
       "timeout_ms": 10000
     },
+    "workspace_list": {
+      "module": "tools/workspace/workspace_list.py",
+      "description": "List all workspaces with summary metadata (status, description, owner, created/modified times, optional size/file count). Filters by status and owner; respects per-user scoping when auth is on.",
+      "parameters": {
+        "status": {"type": "string", "enum": ["any", "active", "complete", "archived"], "default": "any"},
+        "owner_id": {"type": "string", "description": "Filter by owner; auto-set from env when auth is on"},
+        "limit": {"type": "integer", "default": 100},
+        "sort": {"type": "string", "enum": ["recent", "name", "size"], "default": "recent"},
+        "with_size": {"type": "boolean", "default": false, "description": "Compute file count + bytes (slower)"}
+      },
+      "required": [],
+      "timeout_ms": 15000
+    },
+    "workspace_export": {
+      "module": "tools/workspace/workspace_export.py",
+      "description": "Bundle a workspace into a single zip or tar.gz archive with an embedded manifest (file list + sha256). Useful for sharing/archival. Size-capped and ownership-enforced.",
+      "parameters": {
+        "job_id": {"type": "string", "description": "Workspace to export"},
+        "dest": {"type": "string", "description": "Output path — ALWAYS use workspace/{job_id}/output/<name>.zip so the user can download it. Default auto-creates inside the workspace."},
+        "format": {"type": "string", "enum": ["zip", "tar.gz"], "default": "zip"},
+        "include": {"type": "array", "items": {"type": "string"}, "description": "Extra include globs"},
+        "exclude": {"type": "array", "items": {"type": "string"}, "description": "Extra exclude globs"},
+        "max_bytes": {"type": "integer", "default": 500000000},
+        "include_meta": {"type": "boolean", "default": true}
+      },
+      "required": ["job_id"],
+      "timeout_ms": 120000
+    },
     "memory_store": {
       "module": "tools/memory/memory_store.py",
       "description": "Store a key-value entry in memory (short or long term)",
@@ -173,13 +378,15 @@
     },
     "memory_search": {
       "module": "tools/memory/memory_vector_search.py",
-      "description": "Semantic search through stored memories",
+      "description": "Semantic search through stored memories. 3-layer fallback: sentence-transformers embeddings (cached) → hashed TF-IDF on character trigrams → token overlap. Combines semantic similarity with lexical overlap so both concepts and exact keywords surface.",
       "parameters": {
         "query": {"type": "string", "description": "Search query"},
-        "top_k": {"type": "integer", "default": 5}
+        "top_k": {"type": "integer", "default": 5},
+        "tier": {"type": "string", "enum": ["short", "long", "both"], "default": "both"},
+        "min_score": {"type": "number", "default": 0.05, "description": "Drop results below this combined score"}
       },
       "required": ["query"],
-      "timeout_ms": 10000
+      "timeout_ms": 15000
     },
     "agent_spawn": {
       "module": "tools/agents/agent_spawn.py",
@@ -196,22 +403,74 @@
     },
     "agent_status": {
       "module": "tools/agents/agent_status.py",
-      "description": "Check status of a running async agent",
+      "description": "Check status of a running async agent (instant, non-blocking)",
       "parameters": {
         "agent_id": {"type": "string", "description": "Agent ID to check"}
       },
       "required": ["agent_id"],
       "timeout_ms": 3000
     },
+    "agent_wait": {
+      "module": "tools/agents/agent_wait.py",
+      "description": "Wait for an async agent to finish and return its result. Preferred over polling agent_status in a loop.",
+      "parameters": {
+        "agent_id": {"type": "string", "description": "Agent ID to wait for"},
+        "timeout": {"type": "integer", "description": "Max seconds to wait (default 300)", "default": 300}
+      },
+      "required": ["agent_id"],
+      "timeout_ms": 310000
+    },
     "task_split": {
       "module": "tools/orchestration/task_split.py",
-      "description": "Decompose a complex task into an ordered list of subtasks with dependencies",
+      "description": "Decompose a complex task into an ordered list of subtasks with dependencies, parallel groups, and critical path. Classifies the task shape (research/build/fix/refactor/migrate/analyze/document/media/data/deploy) and composes from templates.",
       "parameters": {
         "task": {"type": "string", "description": "Task to decompose"},
-        "max_subtasks": {"type": "integer", "default": 10}
+        "max_subtasks": {"type": "integer", "default": 10},
+        "context": {"type": "string", "description": "Optional extra context"}
       },
       "required": ["task"],
       "timeout_ms": 5000
+    },
+    "ast_search": {
+      "module": "tools/analysis/ast_search.py",
+      "description": "Structural code search that understands syntax. Finds functions, classes, methods, imports, call sites, and assignments by walking Python ASTs / JS-TS structure regex (never plain text). Supports exact names, fnmatch globs, or regex.",
+      "parameters": {
+        "root": {"type": "string", "default": "."},
+        "kind": {"type": "string", "enum": ["any", "function", "class", "method", "import", "call", "assign"], "default": "any"},
+        "name": {"type": "string", "description": "Exact symbol name or fnmatch glob"},
+        "regex": {"type": "string", "description": "Alternative: Python regex pattern"},
+        "languages": {"type": "array", "items": {"type": "string"}, "description": "Subset of: python, js, ts, jsx, tsx"},
+        "include": {"type": "array", "items": {"type": "string"}},
+        "exclude": {"type": "array", "items": {"type": "string"}},
+        "max_results": {"type": "integer", "default": 500},
+        "context": {"type": "integer", "default": 2}
+      },
+      "required": [],
+      "timeout_ms": 30000
+    },
+    "git_ops": {
+      "module": "tools/code/git_ops.py",
+      "description": "Safe git wrapper: status, diff, log, branch, add, commit, checkout, push, pull, fetch, clone, remote, reset, stash, blame, show, ls_files. Destructive flags require explicit opt-in (force=true / allow_hard=true).",
+      "parameters": {
+        "op": {"type": "string", "enum": ["status", "diff", "log", "branch", "add", "commit", "checkout", "push", "pull", "fetch", "clone", "remote", "reset", "stash", "blame", "show", "ls_files"]},
+        "cwd": {"type": "string", "description": "Repo directory (default: process cwd)"},
+        "timeout": {"type": "integer", "default": 60}
+      },
+      "required": ["op"],
+      "timeout_ms": 120000
+    },
+    "github_ops": {
+      "module": "tools/code/github_ops.py",
+      "description": "GitHub REST v3 client. Works anonymously (60/hr) or with GITHUB_TOKEN (5000/hr, write access). Supports: repo_get, repo_search, user_get, list_issues, get_issue, create_issue, comment_issue, close_issue, list_prs, get_pr, create_pr, merge_pr, review_pr, get_file, list_dir, list_commits, get_commit, list_branches, list_tags, list_releases, get_release, workflow_runs, rate_limit.",
+      "parameters": {
+        "op": {"type": "string"},
+        "owner": {"type": "string"},
+        "repo": {"type": "string"},
+        "token": {"type": "string", "description": "Override GITHUB_TOKEN for this call"},
+        "timeout": {"type": "integer", "default": 30}
+      },
+      "required": ["op"],
+      "timeout_ms": 45000
     },
     "code_analyzer": {
       "module": "tools/analysis/code_analyzer.py",
@@ -244,6 +503,250 @@
       },
       "required": ["log_file"],
       "timeout_ms": 5000
+    },
+    "image_analyze": {
+      "module": "tools/vision/image_analyze.py",
+      "description": "Advanced local image analysis tool. ALWAYS call this when the user sends an image or asks about image content. Uses PIL, numpy, OpenCV, and OCR to extract: dominant color palette with names and percentages, brightness/contrast/saturation metrics, full OCR text extraction (pytesseract + easyocr), edge density and sharpness, circle/shape/face detection, per-region 4x4 color and activity map, quadrant analysis, channel histograms, EXIF metadata, and image type classification. Returns a rich structured report that enables the AI to describe and reason about the image.",
+      "parameters": {
+        "path": {"type": "string", "description": "Absolute path to the saved image file"},
+        "question": {"type": "string", "description": "What to focus on or specific question about the image", "default": "Describe this image in full detail — content, style, colors, text, composition."}
+      },
+      "required": ["path"],
+      "timeout_ms": 300000
+    },
+    "image_edit": {
+      "module": "tools/vision/image_edit.py",
+      "description": "Image manipulation via Pillow. Ops: info, resize, crop (box/center), rotate, flip, filter (blur/sharpen/edge/grayscale/sepia/invert/contour/emboss), adjust (brightness/contrast/saturation/gamma), watermark (text or image, positioned), compose (paste overlay), collage (grid), convert (format/quality), thumbnail, annotate (rectangles/circles/lines/text), pad.",
+      "parameters": {
+        "op": {"type": "string"},
+        "src": {"type": "string"},
+        "dest": {"type": "string"},
+        "quality": {"type": "integer", "default": 88},
+        "keep_exif": {"type": "boolean", "default": false}
+      },
+      "required": ["op"],
+      "timeout_ms": 60000
+    },
+    "pdf_generate": {
+      "module": "tools/docs/pdf_generate.py",
+      "description": "Generate PDFs from markdown, HTML, plain text, or a source file. Uses weasyprint when available for rich HTML/CSS rendering, falls back to reportlab. Supports title/author metadata, custom CSS, configurable page size and margins.",
+      "parameters": {
+        "markdown": {"type": "string", "description": "Markdown source"},
+        "html": {"type": "string", "description": "HTML source"},
+        "text": {"type": "string", "description": "Plain text"},
+        "source_path": {"type": "string", "description": "Path to .md / .html / .txt file"},
+        "dest": {"type": "string", "description": "Output PDF path"},
+        "title": {"type": "string"},
+        "author": {"type": "string"},
+        "page_size": {"type": "string", "enum": ["A4", "Letter"], "default": "A4"},
+        "margin_mm": {"type": "integer", "default": 20},
+        "css": {"type": "string", "description": "Extra CSS (weasyprint only)"},
+        "base_url": {"type": "string", "description": "Base URL for resolving images (weasyprint only)"},
+        "backend": {"type": "string", "enum": ["auto", "weasyprint", "reportlab"], "default": "auto"}
+      },
+      "required": [],
+      "timeout_ms": 60000
+    },
+    "chart": {
+      "module": "tools/viz/chart.py",
+      "description": "Render charts as PNG / SVG / PDF via matplotlib. Types: line, area, bar (grouped or stacked, horizontal or vertical), scatter (optional sizes/colors/labels), pie, donut, histogram, heatmap, box. Data shape depends on type (see tool docstring).",
+      "parameters": {
+        "type": {"type": "string", "enum": ["line", "area", "bar", "scatter", "pie", "donut", "histogram", "hist", "heatmap", "box"], "default": "line"},
+        "data": {"type": "object", "description": "Chart-type-specific data"},
+        "title": {"type": "string"},
+        "xlabel": {"type": "string"},
+        "ylabel": {"type": "string"},
+        "legend": {"type": "boolean", "default": true},
+        "grid": {"type": "boolean", "default": true},
+        "colors": {"description": "Color list or matplotlib colormap name"},
+        "width": {"type": "integer", "default": 900},
+        "height": {"type": "integer", "default": 540},
+        "dpi": {"type": "integer", "default": 120},
+        "dest": {"type": "string"},
+        "format": {"type": "string", "enum": ["png", "svg", "pdf"]}
+      },
+      "required": ["type", "data"],
+      "timeout_ms": 45000
+    },
+    "audio_transcribe": {
+      "module": "tools/audio/audio_transcribe.py",
+      "description": "Transcribe audio / video with Whisper. Uses faster-whisper when available (4x faster, lower memory), falls back to openai-whisper. Auto language detection, optional translation to English, optional per-word timestamps, voice-activity detection.",
+      "parameters": {
+        "src": {"type": "string", "description": "Audio/video file path"},
+        "model": {"type": "string", "enum": ["tiny", "base", "small", "medium", "large-v3"], "default": "base"},
+        "language": {"type": "string", "default": "auto"},
+        "task": {"type": "string", "enum": ["transcribe", "translate"], "default": "transcribe"},
+        "vad": {"type": "boolean", "default": true},
+        "word_timestamps": {"type": "boolean", "default": false},
+        "max_duration": {"type": "integer", "default": 3600},
+        "beam_size": {"type": "integer", "default": 5}
+      },
+      "required": ["src"],
+      "timeout_ms": 1800000
+    },
+    "data_query": {
+      "module": "tools/data/data_query.py",
+      "description": "Schema + query tool for CSV / TSV / Excel / Parquet / JSON / JSONL / SQLite files. Ops: schema (columns + types + null counts + samples), head, sample, stats (per-column), query (DuckDB if available, else SQLite in-memory), filter (pandas query), unique (distinct + counts), groupby, pivot, join.",
+      "parameters": {
+        "op": {"type": "string", "enum": ["schema", "head", "sample", "stats", "query", "filter", "unique", "groupby", "pivot", "join"]},
+        "src": {"type": "string"},
+        "src2": {"type": "string", "description": "Second file for join"},
+        "format": {"type": "string", "enum": ["auto", "csv", "tsv", "json", "jsonl", "xlsx", "parquet", "sqlite"], "default": "auto"},
+        "format2": {"type": "string", "default": "auto"},
+        "table": {"type": "string", "default": "data"},
+        "sql": {"type": "string", "description": "SQL for query op"},
+        "expr": {"type": "string", "description": "pandas query expression for filter op"},
+        "column": {"type": "string", "description": "Column for unique op"},
+        "columns": {"type": "array", "items": {"type": "string"}, "description": "Subset of columns for stats"},
+        "by": {"description": "Grouping key(s)"},
+        "agg": {"type": "object", "description": "Aggregations for groupby (e.g. {amount: 'sum'})"},
+        "index": {"description": "Pivot index"},
+        "values": {"type": "string", "description": "Pivot values column"},
+        "aggfunc": {"type": "string", "default": "sum"},
+        "on": {"description": "Join key(s)"},
+        "how": {"type": "string", "enum": ["inner", "left", "right", "outer"], "default": "inner"},
+        "n": {"type": "integer", "default": 20},
+        "seed": {"type": "integer", "default": 0},
+        "limit": {"type": "integer", "default": 100},
+        "max_rows": {"type": "integer", "default": 1000}
+      },
+      "required": ["op"],
+      "timeout_ms": 60000
+    },
+    "web_interact": {
+      "module": "tools/web/web_interact.py",
+      "description": "Full interactive Playwright browser control for multi-step automation: click elements, type text, fill forms, select dropdowns, wait for selectors/URLs/text, evaluate JavaScript, upload files, manage cookies/sessions, take screenshots, detect and bypass CAPTCHAs via 2captcha API. Supports session persistence across calls. Perfect for login flows, account registration, complex form submission, and multi-page workflows. Actions are passed as a list of dicts, each with a 'type' field.",
+      "parameters": {
+        "url": {"type": "string", "description": "Initial URL to navigate to (optional if load_session=true)"},
+        "actions": {"type": "array", "description": "List of action dicts. Types: navigate, click, type, fill, fill_form, select, hover, focus, press, wait_selector, wait_url, wait_text, wait_ms, scroll_to, scroll_page, screenshot, evaluate, get_text, get_html, get_url, get_cookies, set_cookies, clear_cookies, upload_file, check_captcha, solve_captcha, go_back, go_forward, reload"},
+        "session_id": {"type": "string", "default": "default", "description": "Session ID for cookie persistence"},
+        "save_session": {"type": "boolean", "default": false, "description": "Save cookies after actions complete"},
+        "load_session": {"type": "boolean", "default": false, "description": "Restore previously saved session cookies"},
+        "timeout_ms": {"type": "integer", "default": 30000},
+        "user_agent": {"type": "string"},
+        "viewport_width": {"type": "integer", "default": 1440},
+        "viewport_height": {"type": "integer", "default": 900},
+        "captcha_api_key": {"type": "string", "description": "2captcha.com API key for automatic CAPTCHA solving"},
+        "click_cookie": {"type": "boolean", "default": true, "description": "Auto-click cookie consent banners"},
+        "proxy": {"type": "string", "description": "HTTP/SOCKS proxy URL (e.g. http://user:pass@host:port)"}
+      },
+      "required": [],
+      "timeout_ms": 120000
+    },
+    "port_scan": {
+      "module": "tools/security/port_scan.py",
+      "description": "TCP port scanner with service detection and banner grabbing. Scans ports concurrently using connect-based technique. Detects 80+ common services (SSH, HTTP, MySQL, Redis, MongoDB, RDP, etc.) from port numbers and banner responses. Use only on systems you own or have written authorization to test.",
+      "parameters": {
+        "host": {"type": "string", "description": "Hostname or IP address to scan"},
+        "ports": {"type": "string", "default": "common", "description": "Port specification: 'common' (top ~80 ports), 'web' (HTTP/HTTPS ports), 'all' (1-65535), '1-1024' (range), or '80,443,8080' (list)"},
+        "timeout": {"type": "number", "default": 1.0, "description": "Per-port connect timeout in seconds"},
+        "max_threads": {"type": "integer", "default": 150, "description": "Concurrent scan threads"},
+        "grab_banners": {"type": "boolean", "default": true, "description": "Try to read service banners for version detection"},
+        "resolve_host": {"type": "boolean", "default": true}
+      },
+      "required": ["host"],
+      "timeout_ms": 120000
+    },
+    "dir_fuzz": {
+      "module": "tools/security/dir_fuzz.py",
+      "description": "HTTP directory and endpoint fuzzer. Brute-forces paths on a web server with concurrent requests using built-in wordlists (common, api, php, asp) or custom wordlist files. Reports interesting responses by status code. Supports extension fuzzing (try each path with .php, .bak, etc.) and basic recursive scanning. Use only on systems you own or have written authorization to test.",
+      "parameters": {
+        "url": {"type": "string", "description": "Base URL to fuzz (e.g. https://target.com)"},
+        "wordlist": {"type": "string", "default": "common", "description": "Built-in wordlist: 'common', 'api', 'php', 'asp' — or absolute path to a custom wordlist file"},
+        "extensions": {"type": "array", "items": {"type": "string"}, "description": "File extensions to try (e.g. ['php','html','bak','txt'])"},
+        "threads": {"type": "integer", "default": 25},
+        "timeout": {"type": "integer", "default": 8},
+        "status_codes": {"type": "array", "items": {"type": "integer"}, "description": "Status codes to report (default: [200,201,204,301,302,307,308,401,403,405,500])"},
+        "follow_redirects": {"type": "boolean", "default": false},
+        "user_agent": {"type": "string"},
+        "headers": {"type": "object", "description": "Custom request headers"},
+        "cookies": {"type": "string", "description": "Cookie header string"},
+        "recursive": {"type": "boolean", "default": false, "description": "Recursively fuzz discovered directories"},
+        "max_results": {"type": "integer", "default": 500}
+      },
+      "required": ["url"],
+      "timeout_ms": 300000
+    },
+    "dns_recon": {
+      "module": "tools/security/dns_recon.py",
+      "description": "DNS reconnaissance and subdomain enumeration. Queries all common record types (A, AAAA, MX, NS, TXT, CNAME, SOA, SRV), attempts zone transfers (AXFR), brute-forces subdomains with a 100+ word built-in list, and queries crt.sh certificate transparency logs for additional subdomains. Use only on domains you own or have written authorization to test.",
+      "parameters": {
+        "domain": {"type": "string", "description": "Target domain (e.g. example.com)"},
+        "record_types": {"type": "array", "items": {"type": "string"}, "description": "DNS record types to query (default: all common types)"},
+        "subdomains": {"type": "boolean", "default": true, "description": "Run subdomain brute-force"},
+        "brute_force": {"type": "boolean", "default": true},
+        "ct_logs": {"type": "boolean", "default": true, "description": "Query crt.sh certificate transparency logs"},
+        "zone_transfer": {"type": "boolean", "default": true, "description": "Attempt AXFR zone transfer from nameservers"},
+        "reverse_dns": {"type": "boolean", "default": false, "description": "Reverse-lookup found IPs"},
+        "custom_wordlist": {"type": "array", "items": {"type": "string"}, "description": "Custom subdomain wordlist"},
+        "threads": {"type": "integer", "default": 50},
+        "timeout": {"type": "number", "default": 3.0}
+      },
+      "required": ["domain"],
+      "timeout_ms": 120000
+    },
+    "web_audit": {
+      "module": "tools/security/web_audit.py",
+      "description": "Comprehensive web security auditor. Checks: missing/misconfigured security headers (CSP, HSTS, X-Frame-Options, etc.), cookie security attributes (Secure/HttpOnly/SameSite), CORS misconfigurations (wildcard, credentialed), dangerous HTTP methods (TRACE/PUT/DELETE), open redirect vulnerabilities, information leakage (stack traces, version headers, exposed files), technology fingerprinting (CMS/framework/server/WAF), and robots.txt sensitive path disclosure. Returns findings sorted by severity. Use only on systems you own or have written authorization to test.",
+      "parameters": {
+        "url": {"type": "string", "description": "Target URL"},
+        "check_headers": {"type": "boolean", "default": true},
+        "check_cors": {"type": "boolean", "default": true},
+        "check_cookies": {"type": "boolean", "default": true},
+        "check_methods": {"type": "boolean", "default": true},
+        "check_redirects": {"type": "boolean", "default": true},
+        "check_info_leak": {"type": "boolean", "default": true},
+        "fingerprint": {"type": "boolean", "default": true},
+        "check_robots": {"type": "boolean", "default": true},
+        "timeout": {"type": "integer", "default": 10},
+        "user_agent": {"type": "string"},
+        "custom_headers": {"type": "object"}
+      },
+      "required": ["url"],
+      "timeout_ms": 120000
+    },
+    "sqli_test": {
+      "module": "tools/security/sqli_test.py",
+      "description": "SQL injection vulnerability tester. Tests URL parameters for error-based (detects DB error strings from MySQL/PostgreSQL/MSSQL/Oracle/SQLite), boolean-based blind (response comparison with true/false conditions), and time-based blind (SLEEP/WAITFOR delays) SQL injection. Auto-detects parameters from URL query string. Read-only probes — does not write to or delete from databases. Use only on systems you own or have written authorization to test.",
+      "parameters": {
+        "url": {"type": "string", "description": "Target URL with query parameters (e.g. https://example.com/search?q=test)"},
+        "params": {"type": "array", "items": {"type": "string"}, "description": "Specific parameter names to test (auto-detects from URL if empty)"},
+        "method": {"type": "string", "enum": ["GET", "POST"], "default": "GET"},
+        "post_data": {"type": "object", "description": "POST body parameters"},
+        "test_types": {"type": "array", "items": {"type": "string"}, "description": "Test types to run: ['error', 'boolean', 'time'] (default: all)"},
+        "timeout": {"type": "integer", "default": 10},
+        "cookies": {"type": "string"},
+        "user_agent": {"type": "string"},
+        "custom_headers": {"type": "object"}
+      },
+      "required": ["url"],
+      "timeout_ms": 300000
+    },
+    "ssl_inspect": {
+      "module": "tools/security/ssl_inspect.py",
+      "description": "SSL/TLS certificate and configuration inspector. Extracts: certificate details (issuer, subject, SANs, expiry, serial), protocol version support (SSLv2/3, TLS 1.0/1.1/1.2/1.3), active cipher suite, and vulnerability indicators (DROWN, POODLE, BEAST, deprecated protocols, weak ciphers, expired/self-signed/hostname-mismatched certs). Uses Python ssl + openssl CLI for protocol probing.",
+      "parameters": {
+        "host": {"type": "string", "description": "Hostname or IP"},
+        "port": {"type": "integer", "default": 443},
+        "check_protocols": {"type": "boolean", "default": true},
+        "check_chain": {"type": "boolean", "default": true},
+        "check_vulnerabilities": {"type": "boolean", "default": true},
+        "timeout": {"type": "integer", "default": 10}
+      },
+      "required": ["host"],
+      "timeout_ms": 60000
+    },
+    "tech_detect": {
+      "module": "tools/security/tech_detect.py",
+      "description": "Technology fingerprinting for web targets. Identifies: web servers (Apache/Nginx/IIS/Caddy), CDN/WAF (Cloudflare/Akamai/Fastly/Sucuri/Incapsula), backend language/runtime (PHP/ASP.NET/Node/Python), CMS (WordPress/Drupal/Joomla/Magento/Shopify), frontend frameworks (React/Next.js/Angular/Vue), JavaScript libraries (jQuery/Bootstrap/Tailwind), analytics (GA/GTM/Mixpanel/HotJar), payment providers (Stripe/PayPal), and security tools (reCAPTCHA/hCaptcha). Also fetches IP geolocation, ASN, and hosting organization via ipinfo.io.",
+      "parameters": {
+        "url": {"type": "string", "description": "Target URL"},
+        "include_ip_info": {"type": "boolean", "default": true, "description": "Fetch IP geolocation and ASN info"},
+        "timeout": {"type": "integer", "default": 12},
+        "user_agent": {"type": "string"}
+      },
+      "required": ["url"],
+      "timeout_ms": 30000
     }
   }
 }

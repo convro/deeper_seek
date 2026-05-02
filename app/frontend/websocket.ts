@@ -1,6 +1,7 @@
 // WebSocket client for DeeperSeek real-time events
 
 import type { AgentEvent } from './state';
+import { getAuthToken } from './api';
 
 type EventHandler = (event: AgentEvent) => void;
 
@@ -9,6 +10,7 @@ export class DeeperSeekWS {
   private sessionId: string;
   private handlers: Map<string, EventHandler[]> = new Map();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
   private reconnectDelay = 1000;
   private shouldReconnect = true;
 
@@ -20,13 +22,22 @@ export class DeeperSeekWS {
     return new Promise((resolve, reject) => {
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const host = window.location.host;
-      const url = `${protocol}://${host}/ws?session_id=${encodeURIComponent(this.sessionId)}`;
+      const token = getAuthToken();
+      const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+      const url = `${protocol}://${host}/ws?session_id=${encodeURIComponent(this.sessionId)}${tokenParam}`;
 
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
         this.reconnectDelay = 1000;
         this.emit('connected', { type: 'connected' });
+        // Heartbeat: send ping every 20s to keep connection alive through proxies
+        if (this.pingInterval) clearInterval(this.pingInterval);
+        this.pingInterval = setInterval(() => {
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 20_000);
         resolve();
       };
 
@@ -41,6 +52,7 @@ export class DeeperSeekWS {
 
       this.ws.onclose = () => {
         this.emit('disconnected', { type: 'disconnected' });
+        if (this.pingInterval) { clearInterval(this.pingInterval); this.pingInterval = null; }
         if (this.shouldReconnect) {
           this.reconnectTimer = setTimeout(() => this.connect(), this.reconnectDelay);
           this.reconnectDelay = Math.min(this.reconnectDelay * 2, 10000);
@@ -57,6 +69,7 @@ export class DeeperSeekWS {
   disconnect() {
     this.shouldReconnect = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.pingInterval) { clearInterval(this.pingInterval); this.pingInterval = null; }
     this.ws?.close();
   }
 

@@ -22,23 +22,123 @@ const AGENTS_CONFIG = JSON.parse(
   fs.readFileSync(path.join(PROJECT_ROOT, 'config/agents.json'), 'utf-8')
 );
 
-// In-memory agent state (per process — not persisted between restarts)
+// In-memory agent state (per process — not persisted between restarts).
+// Capped to MAX_REGISTRY_SIZE: when full, completed/failed/killed records
+// are evicted oldest-first. Running agents are never evicted, so a burst of
+// spawns will still succeed but old transcripts age out gracefully.
+const MAX_REGISTRY_SIZE = 200;
 const agentRegistry = new Map();
+
+function pruneAgentRegistry() {
+  if (agentRegistry.size < MAX_REGISTRY_SIZE) return;
+  // Evict non-running entries, oldest first (Map iteration is insertion order)
+  const target = Math.floor(MAX_REGISTRY_SIZE * 0.8); // bring back down to 160
+  for (const [id, a] of agentRegistry) {
+    if (agentRegistry.size <= target) break;
+    if (a.status !== 'running') agentRegistry.delete(id);
+  }
+  // Still over? Drop oldest regardless of state as a last resort.
+  if (agentRegistry.size >= MAX_REGISTRY_SIZE) {
+    const keys = Array.from(agentRegistry.keys());
+    for (let i = 0; i < keys.length && agentRegistry.size >= target; i++) {
+      agentRegistry.delete(keys[i]);
+    }
+  }
+}
+
+// Cache GitHub identity per token — API called at most once per process lifetime per user.
+const _ghIdentityCache = new Map();
+
+async function _fetchGhIdentity(token) {
+  if (_ghIdentityCache.has(token)) return _ghIdentityCache.get(token);
+  try {
+    const { validateToken } = require('./github.service');
+    const info = await validateToken(token);
+    if (info.ok && info.login) {
+      const result = { login: info.login, id: String(info.id || ''), name: info.name || info.login };
+      _ghIdentityCache.set(token, result);
+      return result;
+    }
+  } catch {}
+  _ghIdentityCache.set(token, null);
+  return null;
+}
 
 /**
  * Execute a single tool via Python subprocess.
  */
-async function executeTool(toolName, args = {}, onEvent = null) {
-  return new Promise((resolve) => {
-    const input = JSON.stringify({ tool: toolName, args });
-    const timeout = TOOLS_CONFIG.tool_registry[toolName]?.timeout_ms || 60000;
+async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
+  const input = JSON.stringify({ tool: toolName, args });
+  const timeout = TOOLS_CONFIG.tool_registry[toolName]?.timeout_ms || 60000;
 
+  // Propagate current-user context to Python subprocess so tools like
+  // workspace_create can stamp owner_id into job metadata, and internal
+  // token so tools like agent_spawn can call back into the authed backend.
+  const subEnv = {
+    ...process.env,
+    DEEPERSEEK_BACKEND_URL: `http://127.0.0.1:${process.env.PORT || 3000}`,
+  };
+  try {
+    const authService = require('./auth.service');
+    subEnv.DEEPERSEEK_INTERNAL_TOKEN = authService.getInternalToken();
+  } catch {}
+  if (context.ownerId)    subEnv.DEEPERSEEK_CURRENT_USER_ID = String(context.ownerId);
+  if (context.ownerEmail) subEnv.DEEPERSEEK_CURRENT_USER_EMAIL = String(context.ownerEmail);
+
+  // Inject GitHub identity so ALL git operations (git_ops, run_bash, etc.)
+  // are attributed to the right GitHub account, not the server's global config.
+  // GIT_AUTHOR_* / GIT_COMMITTER_* env vars have the highest priority in git —
+  // they override any gitconfig, so even `git commit` called via run_bash works.
+  if (context.ownerId) {
+    try {
+      const soulSvc = require('./soul.service');
+      const gs = soulSvc.getUserSettings(context.ownerId);
+      if (gs.github_pat) {
+        subEnv.GITHUB_TOKEN = String(gs.github_pat);
+
+        let username = gs.github_username || '';
+        let userId   = gs.github_user_id  || '';
+        let name     = gs.github_name     || '';
+
+        // If user_id is missing (soul file predates this field, or OAuth ran
+        // before the server was updated), fetch once from the GitHub API and
+        // persist so subsequent calls are free.
+        if (!userId) {
+          const info = await _fetchGhIdentity(gs.github_pat);
+          if (info) {
+            username = username || info.login;
+            userId   = info.id;
+            name     = name || info.name;
+            // Persist so future calls skip the API
+            soulSvc.saveUserSettings(context.ownerId, {
+              github_user_id: userId,
+              github_name:    name || username,
+            });
+          }
+        }
+
+        name = name || username;
+        if (username) subEnv.GITHUB_USERNAME = username;
+        if (userId)   subEnv.GITHUB_USER_ID  = userId;
+        if (name)     subEnv.GITHUB_NAME     = name;
+
+        // GIT_AUTHOR_* / GIT_COMMITTER_* — work for every git call in the
+        // subprocess tree, including bare `git commit` via run_bash.
+        if (username && userId) {
+          const noreply = `${userId}+${username}@users.noreply.github.com`;
+          subEnv.GIT_AUTHOR_NAME    = name;
+          subEnv.GIT_COMMITTER_NAME = name;
+          subEnv.GIT_AUTHOR_EMAIL   = noreply;
+          subEnv.GIT_COMMITTER_EMAIL = noreply;
+        }
+      }
+    } catch {}
+  }
+
+  return new Promise((resolve) => {
     const proc = spawn('python3', [TOOL_EXECUTOR], {
       cwd: PROJECT_ROOT,
-      env: {
-        ...process.env,
-        DEEPERSEEK_BACKEND_URL: `http://localhost:${process.env.PORT || 3000}`,
-      },
+      env: subEnv,
     });
 
     let stdout = '';
@@ -74,18 +174,46 @@ async function executeTool(toolName, args = {}, onEvent = null) {
         logger.debug(`Tool stderr (${toolName}): ${stderr.slice(0, 500)}`);
       }
 
+      let parsed;
       try {
-        const parsed = JSON.parse(stdout.trim());
-        resolve(parsed);
+        parsed = JSON.parse(stdout.trim());
       } catch (e) {
-        logger.error(`Tool ${toolName} returned invalid JSON: ${stdout.slice(0, 200)}`);
-        resolve({
-          status: 'error',
-          result: null,
-          error: `Tool returned invalid JSON: ${stdout.slice(0, 200)} | stderr: ${stderr.slice(0, 200)}`,
-          metadata: { tool: toolName },
-        });
+        // If JSON parse fails but we have output, wrap it as a text result
+        const rawOut = stdout.trim();
+        if (rawOut) {
+          logger.warn(`Tool ${toolName} returned non-JSON output, wrapping as text`);
+          parsed = {
+            status: 'ok',
+            result: rawOut.slice(0, 8000),
+            error: null,
+            metadata: { tool: toolName, raw: true },
+          };
+        } else {
+          logger.error(`Tool ${toolName} returned no output. stderr: ${stderr.slice(0, 300)}`);
+          parsed = {
+            status: 'error',
+            result: null,
+            error: stderr
+              ? `Tool produced no output. stderr: ${stderr.slice(0, 400)}`
+              : 'Tool produced no output and no error details.',
+            metadata: { tool: toolName },
+          };
+        }
       }
+
+      // Truncate oversized results to prevent token exhaustion
+      const MAX_RESULT_CHARS = 60_000;
+      const resultStr = JSON.stringify(parsed.result);
+      if (resultStr.length > MAX_RESULT_CHARS) {
+        logger.warn(`Tool ${toolName} result truncated from ${resultStr.length} to ${MAX_RESULT_CHARS} chars`);
+        parsed = {
+          ...parsed,
+          result: resultStr.slice(0, MAX_RESULT_CHARS) + '\n… [output truncated to 60k chars]',
+          metadata: { ...parsed.metadata, truncated: true, original_length: resultStr.length },
+        };
+      }
+
+      resolve(parsed);
     });
 
     proc.on('error', (err) => {
@@ -105,7 +233,7 @@ async function executeTool(toolName, args = {}, onEvent = null) {
  * Spawn a sub-agent asynchronously or synchronously.
  * Called by the /api/agents/spawn endpoint (and by agent_spawn.py tool).
  */
-async function spawnAgent({ agentType, task, context = '', asyncMode = false, jobId = null, parentWs = null }) {
+async function spawnAgent({ agentType, task, context = '', asyncMode = false, jobId = null, parentWs = null, parentSessionId = null, ownerId = null, ownerEmail = null }) {
   const agentId = uuidv4();
   const agentConf = AGENTS_CONFIG.agents[agentType];
 
@@ -123,8 +251,11 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
     result: null,
     error: null,
     events: [],
+    owner_id:    ownerId    || null,
+    owner_email: ownerEmail || null,
   };
 
+  pruneAgentRegistry();
   agentRegistry.set(agentId, agentRecord);
   logger.agent(`Spawned agent ${agentId} (${agentType}): ${task.slice(0, 100)}`);
 
@@ -140,14 +271,18 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
 
   // Collect events for this agent
   const agentEvents = [];
+  // Forward sub-agent events to the parent session. Prefer the session-
+  // aware sendEvent (survives WS drops via replay buffer); fall back to
+  // raw parentWs only for legacy callers that still pass a socket handle.
+  const wsMod = require('./websocket');
   const onEvent = (event) => {
     agentRecord.events.push(event);
     agentEvents.push(event);
-    // Forward to parent WebSocket if available
-    if (parentWs && parentWs.readyState === 1) {
-      try {
-        parentWs.send(JSON.stringify({ agent_id: agentId, agent_type: agentType, ...event }));
-      } catch {}
+    const tagged = { agent_id: agentId, agent_type: agentType, ...event };
+    if (parentSessionId) {
+      wsMod.sendEvent(parentSessionId, tagged);
+    } else if (parentWs && parentWs.readyState === 1) {
+      try { parentWs.send(JSON.stringify(tagged)); } catch {}
     }
   };
 
@@ -160,6 +295,8 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
         model: agentConf.model,
         onEvent,
         maxRounds: 30,
+        ownerId,
+        ownerEmail,
       });
 
       agentRecord.status = 'completed';
@@ -193,9 +330,17 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
   }
 }
 
-function getAgentStatus(agentId) {
+function canAccessAgent(agent, user) {
+  if (!agent) return false;
+  if (!user)                  return !agent.owner_id;   // open mode
+  if (user.role === 'admin')  return true;              // service/internal callers
+  return agent.owner_id === user.id;                     // strict per-user
+}
+
+function getAgentStatus(agentId, user = null) {
   const agent = agentRegistry.get(agentId);
   if (!agent) return null;
+  if (!canAccessAgent(agent, user)) return null;
 
   const progress = agent.events.filter(e => e.type === 'tool_call').length;
 
@@ -212,20 +357,23 @@ function getAgentStatus(agentId) {
   };
 }
 
-function listAgents() {
-  return Array.from(agentRegistry.values()).map(a => ({
-    id: a.id,
-    type: a.type,
-    status: a.status,
-    started_at: a.started_at,
-    completed_at: a.completed_at,
-    task_preview: a.task.slice(0, 100),
-  }));
+function listAgents(user = null) {
+  return Array.from(agentRegistry.values())
+    .filter(a => canAccessAgent(a, user))
+    .map(a => ({
+      id: a.id,
+      type: a.type,
+      status: a.status,
+      started_at: a.started_at,
+      completed_at: a.completed_at,
+      task_preview: a.task.slice(0, 100),
+    }));
 }
 
-function killAgent(agentId) {
+function killAgent(agentId, user = null) {
   const agent = agentRegistry.get(agentId);
   if (!agent) return false;
+  if (!canAccessAgent(agent, user)) return false;
   agent.status = 'killed';
   agent.completed_at = new Date().toISOString();
   return true;

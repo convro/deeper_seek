@@ -3,7 +3,13 @@
 const fs = require('fs');
 const path = require('path');
 
-const WORKSPACE_ROOT = path.join(__dirname, '../../workspace/jobs');
+const WORKSPACE_ROOT = path.join(__dirname, '../../workspace');
+
+function canAccessJob(meta, user) {
+  if (!user) return !meta.owner_id;              // open mode
+  if (user.role === 'admin') return true;        // service/internal callers
+  return meta.owner_id === user.id;              // strict per-user
+}
 
 function listJobs(req, res) {
   try {
@@ -11,18 +17,30 @@ function listJobs(req, res) {
       return res.json({ jobs: [] });
     }
     const jobs = fs.readdirSync(WORKSPACE_ROOT)
-      .filter(d => fs.statSync(path.join(WORKSPACE_ROOT, d)).isDirectory())
+      .filter(d => {
+        if (!fs.statSync(path.join(WORKSPACE_ROOT, d)).isDirectory()) return false;
+        // Skip legacy 'jobs/' subdirectory and any dir without a meta.json
+        const metaPath = path.join(WORKSPACE_ROOT, d, 'context', 'meta.json');
+        return fs.existsSync(metaPath);
+      })
       .map(jobId => {
         const metaPath = path.join(WORKSPACE_ROOT, jobId, 'context', 'meta.json');
         let meta = { job_id: jobId };
         try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')); } catch {}
         return meta;
       })
+      .filter(meta => canAccessJob(meta, req.user))
       .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
     res.json({ jobs });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+}
+
+function readJobMeta(jobId) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(WORKSPACE_ROOT, jobId, 'context', 'meta.json'), 'utf-8'));
+  } catch { return {}; }
 }
 
 function getJob(req, res) {
@@ -39,6 +57,8 @@ function getJob(req, res) {
   try { meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')); } catch {}
   try { plan = fs.readFileSync(planPath, 'utf-8'); } catch {}
 
+  if (!canAccessJob(meta, req.user)) return res.status(403).json({ error: 'Forbidden' });
+
   res.json({ job_id: jobId, meta, plan, path: jobPath });
 }
 
@@ -49,6 +69,9 @@ function listFiles(req, res) {
 
   if (!fs.existsSync(dirPath)) {
     return res.status(404).json({ error: 'Not found' });
+  }
+  if (!canAccessJob(readJobMeta(jobId), req.user)) {
+    return res.status(403).json({ error: 'Forbidden' });
   }
 
   const files = [];
@@ -81,6 +104,10 @@ function readFile(req, res) {
   // Prevent path traversal
   if (!fullPath.startsWith(path.join(WORKSPACE_ROOT, jobId))) {
     return res.status(403).json({ error: 'Path traversal denied' });
+  }
+
+  if (!canAccessJob(readJobMeta(jobId), req.user)) {
+    return res.status(403).json({ error: 'Forbidden' });
   }
 
   if (!fs.existsSync(fullPath)) {

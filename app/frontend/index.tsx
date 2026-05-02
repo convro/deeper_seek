@@ -5,19 +5,177 @@ import React, {
 import { createRoot } from 'react-dom/client';
 
 import { DeeperSeekWS }   from './websocket';
-import { sendMessage, listConversations, getConversation, renameConversation, deleteConversation } from './api';
+import { sendMessage, regenerateMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation, fetchUserSettings, saveUserSettings, listGithubRepos, linkGithubRepo } from './api';
+import type { UserSettings, GithubRepo } from './api';
+import { SettingsModal } from './settings-modal';
 import { MessagesList, InputArea } from './chat';
 import { EventsDrawer, StatusDot, Spinner } from './components';
 import { Workspace } from './workspace';
 import { Agents }   from './agents';
+import { useAuth, AuthScreen, UserMenu } from './auth';
+import { Onboarding } from './onboarding';
 import type {
   ChatMessage, AgentEvent, ToolCallRecord, Conversation, Attachment, MessageStatus,
+  LiveAgent,
 } from './state';
 import { generateSessionId, generateId } from './state';
 
 const LOGO_URL = 'https://r.convro.eu/content/Stable/realises/ds73';
 
 type Tab = 'chat' | 'workspace' | 'agents';
+
+// ── GitHub repo link modal ────────────────────────────────────────────────
+interface GithubLinkModalProps {
+  sessionId: string;
+  currentRepo: string | null;
+  currentBranch: string | null;
+  onLinked: (repo: string | null, branch: string | null) => void;
+  onClose: () => void;
+}
+
+function GithubLinkModal({ sessionId, currentRepo, currentBranch, onLinked, onClose }: GithubLinkModalProps) {
+  const [repos, setRepos] = useState<GithubRepo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedRepo, setSelectedRepo] = useState(currentRepo || '');
+  const [branch, setBranch] = useState(currentBranch || '');
+  const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  useEffect(() => {
+    listGithubRepos()
+      .then(r => {
+        setRepos(r.repos || []);
+        setLoading(false);
+      })
+      .catch(e => {
+        setError(e.message || 'Failed to load repos');
+        setLoading(false);
+      });
+  }, []);
+
+  const filtered = repos.filter(r =>
+    !query || r.full_name.toLowerCase().includes(query.toLowerCase())
+  );
+
+  const handleSelect = (r: GithubRepo) => {
+    setSelectedRepo(r.full_name);
+    setBranch(r.default_branch || 'main');
+  };
+
+  const handleLink = async () => {
+    if (!selectedRepo) return;
+    setSaving(true);
+    try {
+      await linkGithubRepo(sessionId, selectedRepo, branch || 'main');
+      onLinked(selectedRepo, branch || 'main');
+      onClose();
+    } catch { setSaving(false); }
+  };
+
+  const handleUnlink = async () => {
+    setSaving(true);
+    try {
+      await linkGithubRepo(sessionId, null);
+      onLinked(null, null);
+      onClose();
+    } catch { setSaving(false); }
+  };
+
+  return (
+    <div className="settings-backdrop" onClick={onClose}>
+      <div className="gh-link-modal" onClick={e => e.stopPropagation()}>
+        <div className="settings-header">
+          <span className="settings-title">Link GitHub Repository</span>
+          <button className="settings-close-btn" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="gh-link-body">
+          {loading && <div className="gh-link-loading">Loading repositories…</div>}
+          {error && (
+            <div className="gh-link-error">
+              {error}
+              {error.includes('PAT') || error.includes('token') || repos.length === 0
+                ? ' — add your GitHub PAT in Settings first.'
+                : ''}
+            </div>
+          )}
+
+          {!loading && !error && repos.length === 0 && (
+            <div className="gh-link-error">No repositories found. Connect your GitHub account in Settings → GitHub first.</div>
+          )}
+
+          {!loading && repos.length > 0 && (
+            <>
+              <input
+                className="gh-link-search"
+                type="text"
+                placeholder="Search repos…"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                autoFocus
+              />
+              <div className="gh-repo-list">
+                {filtered.slice(0, 50).map(r => (
+                  <div
+                    key={r.full_name}
+                    className={`gh-repo-item ${selectedRepo === r.full_name ? 'selected' : ''}`}
+                    onClick={() => handleSelect(r)}
+                  >
+                    <div className="gh-repo-name">
+                      {r.private && (
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ marginRight: 4, opacity: 0.6 }}>
+                          <path d="M4 5V3.5A3.5 3.5 0 0 1 11 3.5V5h.5A1.5 1.5 0 0 1 13 6.5v7A1.5 1.5 0 0 1 11.5 15h-7A1.5 1.5 0 0 1 3 13.5v-7A1.5 1.5 0 0 1 4.5 5H4Zm1.5 0h5V3.5a2.5 2.5 0 0 0-5 0V5ZM8 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/>
+                        </svg>
+                      )}
+                      {r.full_name}
+                    </div>
+                    {r.description && <div className="gh-repo-desc">{r.description}</div>}
+                  </div>
+                ))}
+              </div>
+
+              {selectedRepo && (
+                <div className="gh-branch-row">
+                  <label className="gh-branch-label">Branch:</label>
+                  <input
+                    className="gh-branch-input"
+                    type="text"
+                    value={branch}
+                    onChange={e => setBranch(e.target.value)}
+                    placeholder="main"
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="settings-footer">
+          {currentRepo && (
+            <button className="gh-unlink-btn" onClick={handleUnlink} disabled={saving}>
+              Unlink
+            </button>
+          )}
+          <button className="settings-cancel-btn" onClick={onClose}>Cancel</button>
+          <button
+            className="settings-save-btn"
+            onClick={handleLink}
+            disabled={!selectedRepo || saving}
+          >
+            {saving ? 'Linking…' : 'Link'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Relative time helper ──────────────────────────────────────────────────
 function relTime(iso: string): string {
@@ -32,15 +190,46 @@ function relTime(iso: string): string {
 interface SidebarProps {
   conversations: Conversation[];
   activeId: string;
+  activeTab: Tab;
   onSelect: (c: Conversation) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
+  onTogglePin: (id: string, pinned: boolean) => void;
+  onTabChange: (tab: Tab) => void;
   loading: boolean;
+  userMenu?: React.ReactNode;
 }
 
+const TAB_DEFS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  {
+    id: 'chat', label: 'Chat',
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.457 1.457 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'workspace', label: 'Workspace',
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'agents', label: 'Agents',
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM4.5 7.5a.5.5 0 0 0 0 1h5.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3a.5.5 0 0 0 0-.708l-3-3a.5.5 0 1 0-.708.708L10.293 7.5H4.5Z"/>
+      </svg>
+    ),
+  },
+];
+
 function Sidebar({
-  conversations, activeId, onSelect, onNew, onDelete, onRename, loading,
+  conversations, activeId, activeTab, onSelect, onNew, onDelete, onRename, onTogglePin, onTabChange, loading, userMenu,
 }: SidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle,  setEditTitle]  = useState('');
@@ -60,24 +249,31 @@ function Sidebar({
   };
 
   const grouped = useMemo(() => {
-    const today: Conversation[] = [];
-    const week:  Conversation[] = [];
-    const older: Conversation[] = [];
+    const pinned: Conversation[] = [];
+    const today:  Conversation[] = [];
+    const week:   Conversation[] = [];
+    const older:  Conversation[] = [];
     const now = Date.now();
     for (const c of conversations) {
+      if (c.pinned) { pinned.push(c); continue; }
       const diff = now - new Date(c.updated_at || c.created_at).getTime();
       if (diff < 86_400_000)      today.push(c);
       else if (diff < 604_800_000) week.push(c);
       else                         older.push(c);
     }
-    return { today, week, older };
+    // Pinned newest-first by pin time, falling back to updated_at
+    pinned.sort((a, b) =>
+      new Date(b.pinned_at || b.updated_at || b.created_at).getTime() -
+      new Date(a.pinned_at || a.updated_at || a.created_at).getTime()
+    );
+    return { pinned, today, week, older };
   }, [conversations]);
 
-  const Group = ({ label, items }: { label: string; items: Conversation[] }) => {
+  const Group = ({ label, items, pinnedGroup = false }: { label: string; items: Conversation[]; pinnedGroup?: boolean }) => {
     if (!items.length) return null;
     return (
       <>
-        <div className="sidebar-group-label">{label}</div>
+        <div className={`sidebar-group-label ${pinnedGroup ? 'sidebar-group-pinned' : ''}`}>{label}</div>
         {items.map(c => (
           <ConvItem
             key={c.id}
@@ -91,6 +287,7 @@ function Sidebar({
             onStartEdit={startEdit}
             onCommitEdit={commitEdit}
             onDelete={onDelete}
+            onTogglePin={onTogglePin}
             setHoverId={setHoverId}
             setEditTitle={setEditTitle}
           />
@@ -124,10 +321,28 @@ function Sidebar({
         {!loading && conversations.length === 0 && (
           <div className="sidebar-empty">No conversations yet.<br />Start a new one above!</div>
         )}
+        <Group label="📌 Pinned"   items={grouped.pinned} pinnedGroup />
         <Group label="Today"       items={grouped.today} />
         <Group label="This week"   items={grouped.week}  />
         <Group label="Older"       items={grouped.older} />
       </div>
+
+      {/* Tab navigation — Chat / Workspace / Agents */}
+      <div className="sidebar-tabs">
+        {TAB_DEFS.map(t => (
+          <button
+            key={t.id}
+            className={`sidebar-tab-btn ${activeTab === t.id ? 'sidebar-tab-active' : ''}`}
+            onClick={() => onTabChange(t.id)}
+          >
+            {t.icon}
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* User menu (only present when auth is active) */}
+      {userMenu && <div className="sidebar-user">{userMenu}</div>}
     </div>
   );
 }
@@ -143,25 +358,33 @@ interface ConvItemProps {
   onStartEdit: (c: Conversation) => void;
   onCommitEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  onTogglePin: (id: string, pinned: boolean) => void;
   setHoverId: (id: string | null) => void;
   setEditTitle: (t: string) => void;
 }
 
 function ConvItem({
   c, active, hovered, editing, editTitle, editRef,
-  onSelect, onStartEdit, onCommitEdit, onDelete, setHoverId, setEditTitle,
+  onSelect, onStartEdit, onCommitEdit, onDelete, onTogglePin, setHoverId, setEditTitle,
 }: ConvItemProps) {
+  const isPinned = !!c.pinned;
   return (
     <div
-      className={`sidebar-item ${active ? 'active' : ''}`}
+      className={`sidebar-item ${active ? 'active' : ''} ${isPinned ? 'pinned' : ''}`}
       onClick={() => !editing && onSelect(c)}
       onMouseEnter={() => setHoverId(c.id)}
       onMouseLeave={() => setHoverId(null)}
     >
       <div className="sidebar-item-icon">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" opacity="0.6">
-          <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.457 1.457 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z"/>
-        </svg>
+        {isPinned ? (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z"/>
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" opacity="0.6">
+            <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.457 1.457 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z"/>
+          </svg>
+        )}
       </div>
       <div className="sidebar-item-content">
         {editing ? (
@@ -186,6 +409,15 @@ function ConvItem({
       </div>
       {(hovered || active) && !editing && (
         <div className="sidebar-item-actions" onClick={e => e.stopPropagation()}>
+          <button
+            className={`sidebar-action-btn ${isPinned ? 'pin-active' : ''}`}
+            onClick={() => onTogglePin(c.id, !isPinned)}
+            title={isPinned ? 'Unpin' : 'Pin to top'}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z"/>
+            </svg>
+          </button>
           <button
             className="sidebar-action-btn"
             onClick={() => onStartEdit(c)}
@@ -212,6 +444,9 @@ function ConvItem({
 
 // ── Main App ──────────────────────────────────────────────────────────────
 function App() {
+  // ── Auth state ────────────────────────────────────────────────────────
+  const [auth, authActions] = useAuth();
+
   // ── Conversations state ───────────────────────────────────────────────
   const [conversations,  setConversations]  = useState<Conversation[]>([]);
   const [activeConvId,   setActiveConvId]   = useState<string>(() => generateSessionId());
@@ -231,6 +466,13 @@ function App() {
   const [wsConnected, setWsConnected] = useState(false);
   const [activeTab,   setActiveTab]   = useState<Tab>('chat');
   const [eventsOpen,  setEventsOpen]  = useState(false);
+  // Live sub-agent map — keyed by agent_id. Updated from WS events; used by
+  // both the Agents sidebar tab (real-time, no polling lag) and the inline
+  // sub-agent badges in chat messages.
+  const [liveAgents,  setLiveAgents]  = useState<Map<string, LiveAgent>>(() => new Map());
+  // Correlation: agent_id → { msgId, callId } so we can tag the parent
+  // agent_spawn tool call when sub-agent events arrive.
+  const agentToCall   = useRef<Map<string, { msgId: string; callId: string }>>(new Map());
 
   // ── Msg helpers ───────────────────────────────────────────────────────
   const updateMsg = useCallback((id: string, patch: Partial<ChatMessage>) => {
@@ -265,14 +507,96 @@ function App() {
     ws.on('disconnected', () => setWsConnected(false));
 
     ws.on('*', (event) => {
-      setEvents(prev => [...prev.slice(-500), { ...event, timestamp: new Date().toISOString() }]);
-      if (event.type === 'tool_call') setEventsOpen(true);
+      // Don't pollute Tool Activity with heartbeat / streaming deltas /
+      // reasoning snapshots (reasoning is already shown in the chain-of-thought)
+      const SKIP = new Set(['pong', 'ping', 'connected', 'disconnected', 'llm_start',
+                            'content_delta', 'reasoning_delta', 'reasoning', 'content']);
+      if (!SKIP.has(event.type)) {
+        setEvents(prev => [...prev.slice(-500), { ...event, timestamp: new Date().toISOString() }]);
+      }
+
+      // ── Sub-agent live tracking ────────────────────────────────────
+      // Backend forwards sub-agent events with `agent_id` + `agent_type`
+      // attached. We aggregate them into `liveAgents` so both the sidebar
+      // tab and the inline chat badges render in real-time, no polling.
+      if (event.agent_id && event.agent_type) {
+        const aid = event.agent_id;
+        const now = new Date().toISOString();
+        setLiveAgents(prev => {
+          const next = new Map(prev);
+          const cur: LiveAgent = next.get(aid) ?? {
+            id:          aid,
+            type:        event.agent_type!,
+            status:      'running',
+            toolCount:   0,
+            startedAt:   now,
+            eventCount:  0,
+            lastEventAt: now,
+          };
+          const updated: LiveAgent = {
+            ...cur,
+            type:        event.agent_type || cur.type,
+            eventCount:  cur.eventCount + 1,
+            lastEventAt: now,
+          };
+          if (event.type === 'tool_call' && event.tool) {
+            updated.toolCount   = cur.toolCount + 1;
+            updated.currentTool = event.tool;
+          }
+          if (event.type === 'content_delta' && event.delta) {
+            updated.lastText = ((cur.lastText || '') + event.delta).slice(-400);
+          } else if (event.type === 'content' && event.content) {
+            updated.lastText = String(event.content).slice(-400);
+          }
+          if (event.type === 'done' || event.type === 'final') {
+            updated.status      = 'completed';
+            updated.completedAt = now;
+            if (event.content) updated.result = String(event.content);
+          }
+          if (event.type === 'error') {
+            updated.status      = 'failed';
+            updated.completedAt = now;
+            updated.error       = event.error || 'unknown error';
+          }
+          next.set(aid, updated);
+          return next;
+        });
+
+        // Tag the parent agent_spawn tool call so the chat bubble can find
+        // the sub-agent's live state via state.spawnedAgentId.
+        const link = agentToCall.current.get(aid);
+        if (link) {
+          updateToolCall(link.msgId, link.callId, { spawnedAgentId: aid });
+        }
+      }
     });
 
     ws.on('llm_start', () => {
       if (pendingMsgId.current) updateMsg(pendingMsgId.current, { status: 'thinking' });
     });
 
+    // ── Streaming deltas (word-by-word) ───────────────────────────────
+    ws.on('content_delta', (event) => {
+      const id = pendingMsgId.current;
+      if (!id || !event.delta) return;
+      setMessages(prev => prev.map(m =>
+        m.id === id
+          ? { ...m, content: (m.content || '') + event.delta, status: 'streaming' as MessageStatus }
+          : m
+      ));
+    });
+
+    ws.on('reasoning_delta', (event) => {
+      const id = pendingMsgId.current;
+      if (!id || !event.delta) return;
+      setMessages(prev => prev.map(m =>
+        m.id === id
+          ? { ...m, reasoning: (m.reasoning || '') + event.delta }
+          : m
+      ));
+    });
+
+    // ── Full snapshots (backward compat / sub-agents) ─────────────────
     ws.on('content', (event) => {
       if (pendingMsgId.current && event.content) {
         updateMsg(pendingMsgId.current, { content: event.content, status: 'streaming' });
@@ -299,28 +623,45 @@ function App() {
       if (!event.call_id) return;
       const msgId = pendingToolIds.current.get(event.call_id);
       if (!msgId) return;
+      // Correlation: agent_spawn returns { agent_id } in result. Stash the
+      // mapping so subsequent sub-agent events (which carry agent_id) can be
+      // attached back to this exact tool call for inline rendering.
+      const r = event.result as { agent_id?: string } | undefined;
+      const spawnedId = r && typeof r === 'object' ? r.agent_id : undefined;
+      if (spawnedId) {
+        agentToCall.current.set(spawnedId, { msgId, callId: event.call_id });
+      }
       updateToolCall(msgId, event.call_id, {
         result: event.result, error: event.error,
         status: event.status === 'error' ? 'error' : 'done',
         duration_ms: event.duration_ms,
+        ...(spawnedId ? { spawnedAgentId: spawnedId } : {}),
       });
     });
 
     const finalize = (event: AgentEvent) => {
+      // Sub-agent completion events are tagged with agent_id by the backend
+      // and must NOT terminate the main turn's UI state. They are absorbed
+      // by the liveAgents tracker above.
+      if (event.agent_id) return;
       const id = pendingMsgId.current;
       if (!id) return;
       if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
-      if (event.content) {
-        updateMsg(id, {
-          content: event.content, status: 'done',
-          rounds: event.rounds, usage: event.usage,
-        });
-      } else {
-        updateMsg(id, { status: 'done' });
-      }
+      // With streaming, content was already delivered via content_delta events.
+      // Use event.content only if present (non-streaming agents), otherwise
+      // just flip status to 'done' preserving whatever was already streamed.
+      setMessages(prev => prev.map(m => {
+        if (m.id !== id) return m;
+        return {
+          ...m,
+          ...(event.content ? { content: event.content } : {}),
+          status: 'done' as MessageStatus,
+          rounds: event.rounds ?? m.rounds,
+          usage:  event.usage  ?? m.usage,
+        };
+      }));
       pendingMsgId.current = null;
       setProcessing(false);
-      // Refresh conversation list to update title/timestamp
       loadConversations();
     };
 
@@ -328,6 +669,8 @@ function App() {
     ws.on('final', finalize);
 
     ws.on('error', (event) => {
+      // Sub-agent errors must not flip the main assistant bubble to error.
+      if (event.agent_id) return;
       if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
       const id = pendingMsgId.current;
       if (id) {
@@ -352,16 +695,173 @@ function App() {
     setConvsLoading(false);
   }, []);
 
-  // ── Init ──────────────────────────────────────────────────────────────
+  // ── Pin .app-root to the visual viewport (iOS keyboard fix) ─────────
+  // On iOS Safari, opening the keyboard shrinks the visual viewport and
+  // pans (scrolls) it so the focused input stays visible.  Fixed-position
+  // elements are anchored to the *layout* viewport (unchanged), so they
+  // appear to slide off-screen.  We compensate by tracking both the
+  // visual-viewport height *and* its scroll offset, then applying them
+  // directly to .app-root (which is position:fixed).
+  //
+  // NOTE: deps include auth state — on first mount the auth screen may
+  // be rendered (no .app-root yet), so the effect must re-run once the
+  // user logs in and .app-root actually appears in the DOM.
   useEffect(() => {
+    const vv = window.visualViewport;
+    const root = document.querySelector('.app-root') as HTMLElement | null;
+    if (!root) return;
+
+    // Capture the full-screen height *before* any keyboard opens.
+    // We track the maximum height seen so orientation changes are covered.
+    let fullHeight = vv ? vv.height : window.innerHeight;
+
+    const update = () => {
+      const h   = vv ? vv.height   : window.innerHeight;
+      const top = vv ? vv.offsetTop : 0;
+
+      // Update baseline whenever viewport grows (keyboard closed / rotated)
+      if (h > fullHeight) fullHeight = h;
+
+      root.style.height = h + 'px';
+      root.style.top    = top + 'px';
+
+      // Detect virtual keyboard — compare against the stored full height
+      // (window.innerHeight can shrink on some iOS versions, making the
+      //  old comparison useless)
+      const kbOpen = h < fullHeight * 0.85;
+      document.body.classList.toggle('keyboard-open', kbOpen);
+
+      // Keep messages pinned to bottom when keyboard opens
+      if (kbOpen) {
+        const ml = document.querySelector('.messages-list');
+        if (ml) ml.scrollTop = ml.scrollHeight;
+      }
+
+      // Kill any residual document-level scroll iOS may have introduced
+      window.scrollTo(0, 0);
+    };
+
+    update();
+
+    if (vv) {
+      vv.addEventListener('resize', update, { passive: true });
+      vv.addEventListener('scroll', update, { passive: true });
+    } else {
+      window.addEventListener('resize', update, { passive: true });
+    }
+
+    return () => {
+      if (vv) {
+        vv.removeEventListener('resize', update);
+        vv.removeEventListener('scroll', update);
+      } else {
+        window.removeEventListener('resize', update);
+      }
+    };
+  }, [auth.ready, auth.user?.id]);
+
+  // ── Swipe gesture to open/close mobile sidebar ─────────────────────
+  useEffect(() => {
+    const isMobile = () => window.innerWidth <= 768;
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+    let direction: 'open' | 'close' | null = null;
+
+    const EDGE_ZONE = 30;        // px from left edge to start "open" swipe
+    const MIN_DISTANCE = 50;     // px swipe to trigger open/close
+    const MAX_Y_DRIFT = 80;      // ignore mostly-vertical swipes
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (!isMobile()) return;
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+
+      const sidebarEl = document.querySelector('.sidebar-wrapper.sidebar-mobile');
+      const sidebarOpen = sidebarEl?.classList.contains('sidebar-mobile-open');
+
+      if (!sidebarOpen && startX < EDGE_ZONE) {
+        // Start tracking "open" swipe from left edge
+        tracking = true;
+        direction = 'open';
+      } else if (sidebarOpen) {
+        // Start tracking "close" swipe anywhere
+        tracking = true;
+        direction = 'close';
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!tracking) return;
+      const dx = e.touches[0].clientX - startX;
+      const dy = Math.abs(e.touches[0].clientY - startY);
+      // Cancel if mostly vertical
+      if (dy > MAX_Y_DRIFT) { tracking = false; return; }
+      // Prevent page scroll while swiping sidebar
+      if (Math.abs(dx) > 10) e.preventDefault();
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!tracking) return;
+      tracking = false;
+      const endX = e.changedTouches[0].clientX;
+      const dx = endX - startX;
+      const dy = Math.abs(e.changedTouches[0].clientY - startY);
+
+      if (dy > MAX_Y_DRIFT) return;
+
+      if (direction === 'open' && dx > MIN_DISTANCE) {
+        setMobileSidebar(true);
+      } else if (direction === 'close' && dx < -MIN_DISTANCE) {
+        setMobileSidebar(false);
+      }
+      direction = null;
+    };
+
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd, { passive: true });
+
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+    };
+  }, []);
+
+  // ── Init ──────────────────────────────────────────────────────────────
+  // Wait for auth to settle before fetching — otherwise the very first
+  // /api/chat/sessions call fires before the bearer token is restored
+  // from localStorage, returns 401, and trips the global "auth required"
+  // listener which immediately logs the user out.
+  useEffect(() => {
+    if (!auth.ready) return;
+    if (auth.mode === 'multi_user' && !auth.user) return;
     loadConversations();
     setupWs(activeConvId);
     return () => wsRef.current?.disconnect();
-  }, []); // eslint-disable-line
+  }, [auth.ready, auth.user?.id]); // eslint-disable-line
+
+  // ── Reset all turn-scoped state (pending refs, live agents, timers) ───
+  // Shared by newConversation / switchConversation so switching mid-turn
+  // never leaves stale correlation entries that could hijack the next turn.
+  const resetTurnState = useCallback(() => {
+    if (processingTimeoutRef.current) {
+      clearTimeout(processingTimeoutRef.current);
+      processingTimeoutRef.current = null;
+    }
+    pendingMsgId.current = null;
+    pendingToolIds.current.clear();
+    agentToCall.current.clear();
+    setLiveAgents(new Map());
+    setProcessing(false);
+  }, []);
 
   // ── Create new conversation ───────────────────────────────────────────
   const newConversation = useCallback(() => {
     const id = generateSessionId();
+    resetTurnState();
     setActiveConvId(id);
     setMessages([]);
     setEvents([]);
@@ -375,11 +875,12 @@ function App() {
     }, ...prev]);
     setMobileSidebar(false);
     setupWs(id);
-  }, [setupWs]);
+  }, [setupWs, resetTurnState]);
 
   // ── Switch conversation ───────────────────────────────────────────────
   const switchConversation = useCallback(async (conv: Conversation) => {
     if (conv.id === activeConvId && !mobileSidebar) return;
+    resetTurnState();
     setActiveConvId(conv.id);
     setMessages([]);
     setEvents([]);
@@ -400,7 +901,7 @@ function App() {
       );
       setMessages(msgs);
     } catch {}
-  }, [activeConvId, mobileSidebar, setupWs]);
+  }, [activeConvId, mobileSidebar, setupWs, resetTurnState]);
 
   // ── Rename ────────────────────────────────────────────────────────────
   const handleRename = useCallback(async (id: string, title: string) => {
@@ -410,6 +911,28 @@ function App() {
         prev.map(c => c.id === id ? { ...c, title } : c)
       );
     } catch {}
+  }, []);
+
+  // ── Pin / unpin ───────────────────────────────────────────────────────
+  // Optimistic toggle — update local state first, then sync with backend.
+  // On error we roll back so the sidebar stays consistent with the server.
+  const handleTogglePin = useCallback(async (id: string, pinned: boolean) => {
+    const now = new Date().toISOString();
+    setConversations(prev =>
+      prev.map(c =>
+        c.id === id ? { ...c, pinned, pinned_at: pinned ? now : null } : c
+      )
+    );
+    try {
+      await togglePinConversation(id, pinned);
+    } catch {
+      // Roll back on failure
+      setConversations(prev =>
+        prev.map(c =>
+          c.id === id ? { ...c, pinned: !pinned, pinned_at: !pinned ? now : null } : c
+        )
+      );
+    }
   }, []);
 
   // ── Delete ────────────────────────────────────────────────────────────
@@ -460,7 +983,8 @@ function App() {
     setEvents([]);
     setProcessing(true);
 
-    // Frontend safety timeout — 10 minutes max
+    // Frontend safety timeout — must exceed backend LOOP_TIMEOUT_MS (20min)
+    // so the server's own timeout + final 'error' event always wins the race.
     if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
     processingTimeoutRef.current = setTimeout(() => {
       if (pendingMsgId.current) {
@@ -471,7 +995,7 @@ function App() {
         pendingMsgId.current = null;
         setProcessing(false);
       }
-    }, 10 * 60 * 1000);
+    }, 22 * 60 * 1000);
 
     try {
       await sendMessage(text, activeConvId, undefined, attachments);
@@ -491,14 +1015,170 @@ function App() {
     }
   }, [processing, activeConvId, updateMsg]);
 
-  // ── Tabs ──────────────────────────────────────────────────────────────
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'chat',      label: 'Chat'      },
-    { id: 'workspace', label: 'Workspace' },
-    { id: 'agents',    label: 'Agents'    },
-  ];
+  // ── Silent retry (ChatGPT/Claude-style regenerate) ───────────────────
+  // Instead of injecting a visible "try again" user bubble, we:
+  //   1. Reset the target assistant message in-place (clear content, tools,
+  //      reasoning; flip status back to 'thinking').
+  //   2. Point pendingMsgId at it so the streaming WS events rewrite the
+  //      same bubble.
+  //   3. Hit /api/chat/regenerate — backend pops the stale assistant turn,
+  //      optionally threads in ephemeral feedback, and re-runs the loop.
+  // The UI shows ONLY the regenerated response. No extra user turn appears.
+  const performSilentRetry = useCallback(async (assistantMsgId: string, feedback?: string) => {
+    if (processing) return;
+    const target = messages.find(m => m.id === assistantMsgId);
+    if (!target || target.role !== 'assistant') return;
+
+    // Reset the bubble in-place
+    updateMsg(assistantMsgId, {
+      content: '',
+      reasoning: '',
+      toolCalls: [],
+      status: 'thinking',
+      rounds: undefined,
+      usage: undefined,
+    });
+
+    // Wire streaming back to this bubble
+    pendingMsgId.current = assistantMsgId;
+    pendingToolIds.current.clear();
+    agentToCall.current.clear();
+    setLiveAgents(new Map());
+    setEvents([]);
+    setProcessing(true);
+
+    if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
+    processingTimeoutRef.current = setTimeout(() => {
+      if (pendingMsgId.current) {
+        updateMsg(pendingMsgId.current, {
+          content: 'The request timed out on the client. The server may still be working — try refreshing.',
+          status: 'error',
+        });
+        pendingMsgId.current = null;
+        setProcessing(false);
+      }
+    }, 22 * 60 * 1000);
+
+    try {
+      await regenerateMessage(activeConvId, feedback);
+    } catch (err: any) {
+      if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
+      updateMsg(assistantMsgId, { content: `Error: ${err.message}`, status: 'error' });
+      pendingMsgId.current = null;
+      setProcessing(false);
+    }
+  }, [processing, messages, activeConvId, updateMsg]);
+
+  const handleRetry = useCallback((assistantMsgId: string) => {
+    performSilentRetry(assistantMsgId);
+  }, [performSilentRetry]);
+
+  const handleRetryWithFeedback = useCallback((assistantMsgId: string, feedback: string) => {
+    performSilentRetry(assistantMsgId, feedback);
+  }, [performSilentRetry]);
+
+  // ── Current conversation title (for header display) ──────────────────
+  const activeConvTitle = useMemo(
+    () => conversations.find(c => c.id === activeConvId)?.title ?? '',
+    [conversations, activeConvId],
+  );
+
+  // ── Empty-state greeting name ─────────────────────────────────────────
+  // The soul's `name` answer would be ideal but loading it client-side is
+  // an extra round-trip; the username (or email handle) is good enough for
+  // a "Cześć, X" greeting. The model still sees the full soul in the
+  // system prompt so it knows the preferred form of address inside replies.
+  const greetingName = useMemo(() => {
+    if (!auth.user) return null;
+    return auth.user.username || auth.user.email.split('@')[0] || null;
+  }, [auth.user]);
+
+  // ── Tab change (also closes mobile sidebar) ───────────────────────────
+  const handleTabChange = useCallback((tab: Tab) => {
+    setActiveTab(tab);
+    setMobileSidebar(false);
+  }, []);
+
+  // ── Edit profile (re-trigger onboarding) ─────────────────────────────
+  // Must live ABOVE all conditional returns below — React rules of hooks
+  // require the hook count to stay constant across renders. Putting this
+  // useCallback inside the post-gate body crashes with React error #310
+  // the moment the user leaves onboarding (hook count grows by one).
+  const handleEditProfile = useCallback(async () => {
+    try {
+      await resetSoul();
+      await authActions.refresh();   // soul_complete flips back to false → onboarding gate triggers
+    } catch {
+      // swallow — user can retry from the menu
+    }
+  }, [authActions]);
+
+  // ── Settings modal ────────────────────────────────────────────────────
+  const [showSettings, setShowSettings] = useState(false);
+  const [userSettings, setUserSettings] = useState<UserSettings>({ extended_thinking: true, agent_extended_thinking: true });
+
+  // ── GitHub repo link modal ────────────────────────────────────────────
+  const [showGithubLink, setShowGithubLink] = useState(false);
+
+  // Track github_repo / github_branch for the active conversation
+  const activeConv = useMemo(() => conversations.find(c => c.id === activeConvId) ?? null, [conversations, activeConvId]);
+  const activeGithubRepo   = activeConv?.github_repo   ?? null;
+  const activeGithubBranch = activeConv?.github_branch ?? null;
+
+  const handleGithubLinked = (repo: string | null, branch: string | null) => {
+    setConversations(prev =>
+      prev.map(c =>
+        c.id === activeConvId
+          ? { ...c, github_repo: repo, github_branch: branch }
+          : c
+      )
+    );
+  };
+
+  useEffect(() => {
+    if (auth.mode !== 'multi_user' || !auth.user) return;
+    fetchUserSettings().then(r => setUserSettings(r.settings)).catch(() => {});
+  }, [auth.mode, auth.user?.id]);
+
+  const handleSaveSettings = useCallback(async (s: UserSettings) => {
+    await saveUserSettings(s);
+    // Merge instead of replace — preserve github_username/github_pat which are
+    // managed by OAuth flow and never sent through the settings save endpoint.
+    setUserSettings(prev => ({ ...prev, ...s }));
+  }, []);
 
   // ── Render ────────────────────────────────────────────────────────────
+
+  // Auth gate — wait for bootstrap, then show login if needed
+  if (!auth.ready) {
+    return (
+      <div className="app-boot">
+        <Spinner size={32} />
+      </div>
+    );
+  }
+  if (auth.mode === 'multi_user' && !auth.user) {
+    return (
+      <AuthScreen
+        state={auth}
+        onLogin={authActions.login}
+        onRegister={authActions.register}
+      />
+    );
+  }
+
+  // Soul onboarding gate — authenticated but hasn't yet completed/skipped.
+  // After saving or skipping we re-bootstrap auth so soul_complete flips true
+  // and this branch stops matching.
+  if (auth.mode === 'multi_user' && auth.user && auth.user.soul_complete === false) {
+    return <Onboarding onDone={() => { authActions.refresh(); }} />;
+  }
+
+  // Shared user-menu element (only rendered in multi_user mode)
+  const userMenu = auth.mode === 'multi_user' && auth.user
+    ? <UserMenu user={auth.user} onLogout={authActions.logout} onEditProfile={handleEditProfile} onSettings={() => setShowSettings(true)} />
+    : null;
+
   return (
     <div className="app-root">
 
@@ -515,11 +1195,15 @@ function App() {
         <Sidebar
           conversations={conversations}
           activeId={activeConvId}
+          activeTab={activeTab}
           onSelect={switchConversation}
           onNew={newConversation}
           onDelete={handleDelete}
           onRename={handleRename}
+          onTogglePin={handleTogglePin}
+          onTabChange={handleTabChange}
           loading={convsLoading}
+          userMenu={userMenu}
         />
       </div>
 
@@ -528,11 +1212,15 @@ function App() {
         <Sidebar
           conversations={conversations}
           activeId={activeConvId}
+          activeTab={activeTab}
           onSelect={switchConversation}
           onNew={newConversation}
           onDelete={handleDelete}
           onRename={handleRename}
+          onTogglePin={handleTogglePin}
+          onTabChange={handleTabChange}
           loading={convsLoading}
+          userMenu={userMenu}
         />
       </div>
 
@@ -565,25 +1253,40 @@ function App() {
             {/* Logo (visible on mobile when sidebar is closed) */}
             <div className="header-logo-mobile">
               <img src={LOGO_URL} alt="DeeperSeek" className="header-logo-img" />
-              <span className="header-logo-text">DeeperSeek</span>
+              <span className="header-logo-text">
+                {'DeeperSeek'.split('').map((ch, i) => (
+                  <span key={i} className="header-logo-letter" style={{ animationDelay: `${i * 0.35}s` }}>{ch}</span>
+                ))}
+              </span>
             </div>
           </div>
 
-          {/* Center: tabs */}
-          <nav className="header-tabs">
-            {tabs.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setActiveTab(t.id)}
-                className={`tab-btn ${activeTab === t.id ? 'tab-active' : ''}`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </nav>
+          {/* Center: current conversation name */}
+          <div className="header-conv-name">
+            {activeConvTitle && activeConvTitle !== 'New conversation' ? activeConvTitle : ''}
+          </div>
 
-          {/* Right: status */}
+          {/* Right: GitHub repo badge + status */}
           <div className="header-right">
+            {auth.mode === 'multi_user' && activeTab === 'chat' && (
+              <button
+                className={`gh-repo-badge ${activeGithubRepo ? 'linked' : ''}`}
+                onClick={() => setShowGithubLink(true)}
+                title={activeGithubRepo ? `Linked: ${activeGithubRepo} (${activeGithubBranch})` : 'Link GitHub repo'}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                </svg>
+                {activeGithubRepo ? (
+                  <span className="gh-repo-badge-name">
+                    {activeGithubRepo.split('/')[1] || activeGithubRepo}
+                    <span className="gh-repo-badge-branch"> / {activeGithubBranch}</span>
+                  </span>
+                ) : (
+                  <span className="gh-repo-badge-name">Link repo</span>
+                )}
+              </button>
+            )}
             <StatusDot connected={wsConnected} />
             <span className="header-status-label">
               {wsConnected ? 'Live' : 'Connecting…'}
@@ -596,7 +1299,14 @@ function App() {
           {activeTab === 'chat' && (
             <>
               <div className="messages-wrapper">
-                <MessagesList messages={messages} />
+                <MessagesList
+                  messages={messages}
+                  onRetry={handleRetry}
+                  onRetryWithFeedback={handleRetryWithFeedback}
+                  onPickSuggestion={(t) => handleSend(t)}
+                  greetingName={greetingName}
+                  liveAgents={liveAgents}
+                />
               </div>
               <EventsDrawer
                 events={events}
@@ -611,9 +1321,27 @@ function App() {
             </>
           )}
           {activeTab === 'workspace' && <Workspace />}
-          {activeTab === 'agents'    && <Agents />}
+          {activeTab === 'agents'    && <Agents liveAgents={liveAgents} />}
         </main>
       </div>
+
+      {showSettings && (
+        <SettingsModal
+          settings={userSettings}
+          onSave={handleSaveSettings}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {showGithubLink && (
+        <GithubLinkModal
+          sessionId={activeConvId}
+          currentRepo={activeGithubRepo}
+          currentBranch={activeGithubBranch}
+          onLinked={handleGithubLinked}
+          onClose={() => setShowGithubLink(false)}
+        />
+      )}
     </div>
   );
 }
