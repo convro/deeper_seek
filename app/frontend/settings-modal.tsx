@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import type { UserSettings, DiscordStatus } from './api';
 import { connectGithubOAuth, disconnectGithub, getDiscordBookmarklet, connectDiscordWithToken, disconnectDiscord, verifyDiscord } from './api';
 
@@ -208,6 +208,8 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
   const isConnected = !!(local.github_username);
   const isDiscordConnected = !!(local.discord_username);
 
+  const [activeSection, setActiveSection] = useState<'appearance' | 'model' | 'integrations'>('appearance');
+
   return (
     <div className="settings-backdrop" onClick={onClose}>
       <div className="settings-modal" onClick={e => e.stopPropagation()}>
@@ -216,9 +218,50 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
           <button className="settings-close-btn" onClick={onClose} title="Close">✕</button>
         </div>
 
-        <div className="settings-body">
+        <div className="settings-layout">
 
-          {/* ── Appearance ────────────────────────────── */}
+          {/* ── Left nav ─────────────────────────────── */}
+          <nav className="settings-nav">
+            <button
+              className={`settings-nav-btn ${activeSection === 'appearance' ? 'active' : ''}`}
+              onClick={() => setActiveSection('appearance')}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/>
+                <circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/>
+                <circle cx="8.5"  cy="7.5"  r=".5" fill="currentColor"/>
+                <circle cx="6.5"  cy="12.5" r=".5" fill="currentColor"/>
+                <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>
+              </svg>
+              Appearance
+            </button>
+            <button
+              className={`settings-nav-btn ${activeSection === 'model' ? 'active' : ''}`}
+              onClick={() => setActiveSection('model')}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a4 4 0 0 1 4 4 4 4 0 0 1-4 4 4 4 0 0 1-4-4 4 4 0 0 1 4-4"/>
+                <path d="M6.5 14a5.5 5.5 0 0 0-3.5 5v1h18v-1a5.5 5.5 0 0 0-3.5-5"/>
+                <path d="M12 10v4m-4 0h8"/>
+              </svg>
+              Model
+            </button>
+            <button
+              className={`settings-nav-btn ${activeSection === 'integrations' ? 'active' : ''}`}
+              onClick={() => setActiveSection('integrations')}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 11l-5-5-5 5"/>
+                <path d="M17 18l-5-5-5 5"/>
+              </svg>
+              Integrations
+            </button>
+          </nav>
+
+          {/* ── Right panel ──────────────────────────── */}
+          <div className="settings-panel">
+
+          {activeSection === 'appearance' && (
           <div className="settings-section">
             <div className="settings-section-label">Appearance</div>
             <div className="theme-picker">
@@ -250,8 +293,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
               })}
             </div>
           </div>
+          )}
 
-          {/* ── Model ─────────────────────────────────── */}
+          {activeSection === 'model' && (
           <div className="settings-section">
             <div className="settings-section-label">Model</div>
 
@@ -309,7 +353,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
               </button>
             </div>
           </div>
+          )}
 
+          {activeSection === 'integrations' && (<>
           {/* ── GitHub ────────────────────────────────── */}
           <div className="settings-section">
             <div className="settings-section-label">GitHub</div>
@@ -510,8 +556,10 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
               </div>
             )}
           </div>
+          </>)}
 
-        </div>
+          </div>{/* end .settings-panel */}
+        </div>{/* end .settings-layout */}
 
         <div className="settings-footer">
           <button className="settings-cancel-btn" onClick={onClose}>Cancel</button>

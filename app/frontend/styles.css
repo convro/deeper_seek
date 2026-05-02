@@ -22,6 +22,9 @@
   --accent2:  #4f46e5;
   --accent-glow: rgba(99, 102, 241, 0.18);
 
+  /* Active item tint (sidebar, nav) */
+  --active-bg: rgba(99, 102, 241, 0.11);
+
   /* Status */
   --green:    #2ea043;
   --green-dim: rgba(46, 160, 67, 0.12);
@@ -65,6 +68,7 @@
   --accent:       #6366f1;
   --accent2:      #4f46e5;
   --accent-glow:  rgba(99, 102, 241, 0.15);
+  --active-bg:    rgba(99, 102, 241, 0.13);
 }
 
 /* ── Theme: Tokyo Night ───────────────────────────────────────────────────── */
@@ -83,6 +87,7 @@
   --accent:       #7aa2f7;
   --accent2:      #4d6fcc;
   --accent-glow:  rgba(122, 162, 247, 0.18);
+  --active-bg:    rgba(122, 162, 247, 0.13);
 }
 
 /* ── Reset ──────────────────────────────────────────────────────────────── */
@@ -344,8 +349,7 @@ img { max-width: 100%; }
 }
 .sidebar-item:hover { background: var(--bg4); }
 .sidebar-item.active {
-  background: var(--bg5);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--active-bg);
 }
 
 .sidebar-item-icon {
@@ -355,6 +359,10 @@ img { max-width: 100%; }
   align-items: center;
 }
 .sidebar-item.active .sidebar-item-icon { color: var(--accent); }
+.sidebar-item.active .sidebar-item-title {
+  color: var(--text);
+  font-weight: 500;
+}
 
 .sidebar-item-content {
   flex: 1;
@@ -362,7 +370,7 @@ img { max-width: 100%; }
 }
 .sidebar-item-title {
   font-size: 13px;
-  color: var(--text);
+  color: var(--text2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1616,8 +1624,7 @@ body.keyboard-open .messages-wrapper::after { display: none; }
 }
 .ws-job-item:hover { background: var(--bg3); }
 .ws-job-item.ws-active {
-  background: var(--bg4);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--active-bg);
 }
 .ws-job-id {
   font-size: 12.5px;
@@ -3093,24 +3100,27 @@ body.keyboard-open .auth-tagline { display: none; }
 .settings-modal {
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  width: 440px;
+  border-radius: 13px;
+  width: 720px;
   max-width: calc(100vw - 32px);
+  max-height: 86vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+  box-shadow: 0 28px 72px rgba(0,0,0,0.55);
+  overflow: hidden;
 }
 .settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 20px 14px;
+  padding: 16px 20px 13px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .settings-title {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
-  color: var(--text1);
+  color: var(--text);
   letter-spacing: 0.01em;
 }
 .settings-close-btn {
@@ -3123,25 +3133,77 @@ body.keyboard-open .auth-tagline { display: none; }
   border-radius: 4px;
   transition: color 0.12s, background 0.12s;
 }
-.settings-close-btn:hover { color: var(--text1); background: var(--bg4); }
+.settings-close-btn:hover { color: var(--text); background: var(--bg4); }
 
-.settings-body {
-  padding: 20px;
+/* Two-column layout: nav sidebar + content panel */
+.settings-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.settings-nav {
+  width: 168px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg2);
+  padding: 14px 10px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 2px;
 }
+.settings-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  color: var(--text2);
+  font-size: 12.5px;
+  font-family: var(--font);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.1s, color 0.1s;
+}
+.settings-nav-btn:hover { background: var(--bg4); color: var(--text); }
+.settings-nav-btn.active { background: var(--active-bg); color: var(--text); font-weight: 500; }
+.settings-nav-btn svg { flex-shrink: 0; opacity: 0.7; }
+.settings-nav-btn.active svg { opacity: 1; color: var(--accent); }
+
+.settings-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 22px 24px;
+  min-width: 0;
+}
+
+/* Section inside a panel */
 .settings-section {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  margin-bottom: 24px;
 }
+.settings-section:last-child { margin-bottom: 0; }
 .settings-section-label {
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text3);
+}
+
+/* Legacy .settings-body kept for any un-migrated usage */
+.settings-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
 }
 .settings-row {
   display: flex;
