@@ -887,6 +887,8 @@ export function MessagesList({
 
 // ── Input area (with attachments) ─────────────────────────────────────────
 
+const SCHED_PREFIX = 'scheduler:';
+
 interface InputAreaProps {
   onSend: (text: string, attachments?: Attachment[]) => void;
   disabled: boolean;
@@ -896,17 +898,37 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
   const [value,       setValue]       = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attLoading,  setAttLoading]  = useState(false);
+  const [schedDuration, setSchedDuration] = useState(30);
+  const [schedWake,     setSchedWake]     = useState(20);
+  const [schedLabel,    setSchedLabel]    = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const isSchedulerMode = value.trimStart().toLowerCase().startsWith(SCHED_PREFIX);
+
   const submit = useCallback(() => {
-    const t = value.trim();
+    let t = value.trim();
     if ((!t && attachments.length === 0) || disabled) return;
+
+    if (t.toLowerCase().startsWith(SCHED_PREFIX)) {
+      const taskText = t.slice(SCHED_PREFIX.length).trim();
+      if (!taskText) return;
+      const labelPart = schedLabel.trim() ? `\n- label: "${schedLabel.trim()}"` : '';
+      t = (
+        `Użyj scheduler_tool z następującymi parametrami:\n` +
+        `- task: "${taskText}"\n` +
+        `- duration_min: ${schedDuration}\n` +
+        `- wake_every_sec: ${schedWake}` +
+        labelPart
+      );
+    }
+
     onSend(t, attachments.length > 0 ? attachments : undefined);
     setValue('');
     setAttachments([]);
+    setSchedLabel('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-  }, [value, attachments, disabled, onSend]);
+  }, [value, attachments, disabled, onSend, schedDuration, schedWake, schedLabel]);
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Ctrl+Enter or Cmd+Enter → send; plain Enter → newline (natural textarea behavior)
@@ -1024,6 +1046,54 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
         </div>
       )}
 
+      {/* Scheduler quick-settings panel */}
+      {isSchedulerMode && (
+        <div className="sched-qp">
+          <div className="sched-qp-header">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                 stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+            <span>Scheduler</span>
+            <span className="sched-qp-hint">Ctrl+Enter to launch</span>
+          </div>
+          <div className="sched-qp-fields">
+            <label className="sched-qp-field">
+              <span>Duration</span>
+              <div className="sched-qp-num">
+                <input
+                  type="number" value={schedDuration} min={1} max={480}
+                  onChange={e => setSchedDuration(Math.max(1, Math.min(480, +e.target.value || 30)))}
+                />
+                <span>min</span>
+              </div>
+            </label>
+            <label className="sched-qp-field">
+              <span>Wake every</span>
+              <div className="sched-qp-num">
+                <input
+                  type="number" value={schedWake} min={5} max={3600}
+                  onChange={e => setSchedWake(Math.max(5, Math.min(3600, +e.target.value || 20)))}
+                />
+                <span>sec</span>
+              </div>
+            </label>
+            <label className="sched-qp-field sched-qp-field-label">
+              <span>Label</span>
+              <input
+                type="text" value={schedLabel} maxLength={60}
+                placeholder="optional name…"
+                onChange={e => setSchedLabel(e.target.value)}
+              />
+            </label>
+          </div>
+          <div className="sched-qp-preview">
+            ~{Math.round(schedDuration * 60 / schedWake)} cycles · every {schedWake}s · {schedDuration} min total
+          </div>
+        </div>
+      )}
+
       {/* Input row */}
       <div className={`input-row ${disabled ? 'input-row-disabled' : ''}`}>
         {/* Attachment button */}
@@ -1053,7 +1123,7 @@ export function InputArea({ onSend, disabled }: InputAreaProps) {
           onKeyDown={onKey}
           onFocus={() => { setTimeout(() => window.scrollTo(0, 0), 100); }}
           disabled={disabled}
-          placeholder={disabled ? 'DeeperSeek is working…' : 'Message DeeperSeek… (or drop files here)'}
+          placeholder={disabled ? 'DeeperSeek is working…' : 'Message DeeperSeek…  (scheduler: to launch a background task)'}
           rows={1}
           className="input-textarea"
         />

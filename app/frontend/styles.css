@@ -4770,3 +4770,94 @@ body.keyboard-open .auth-tagline { display: none; }
   font-family: var(--mono);
   opacity: 0.8;
 }
+
+/* ── Scheduler Quick Panel (scheduler: prefix in input) ──────────────────── */
+
+.sched-qp {
+  border-bottom: 1px solid #1c1c1c;
+  padding: 10px 14px 8px;
+  background: #0c0c0c;
+  animation: sched-qp-in 0.15s ease;
+}
+@keyframes sched-qp-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.sched-qp-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6366f1;
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.sched-qp-hint {
+  margin-left: auto;
+  font-size: 10px;
+  color: #333;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.sched-qp-fields {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sched-qp-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #555;
+  cursor: default;
+  white-space: nowrap;
+}
+.sched-qp-field span:first-child {
+  color: #444;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sched-qp-num {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sched-qp-num input,
+.sched-qp-field-label input[type="text"] {
+  background: #141414;
+  border: 1px solid #252525;
+  border-radius: 5px;
+  color: #d4d4d4;
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+  padding: 3px 7px;
+  transition: border-color 0.12s;
+  -moz-appearance: textfield;
+}
+.sched-qp-num input::-webkit-inner-spin-button,
+.sched-qp-num input::-webkit-outer-spin-button { -webkit-appearance: none; }
+.sched-qp-num input { width: 52px; text-align: center; }
+.sched-qp-field-label input[type="text"] { width: 130px; }
+.sched-qp-num input:focus,
+.sched-qp-field-label input[type="text"]:focus { border-color: #6366f1; }
+.sched-qp-num span { font-size: 10px; color: #444; font-family: var(--mono); }
+
+.sched-qp-preview {
+  margin-top: 7px;
+  font-size: 10px;
+  color: #2a2a2a;
+  font-family: var(--mono);
+}
