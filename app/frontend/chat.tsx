@@ -591,6 +591,10 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, onCancelSched
     : [];
 
   const contentToShow = (() => {
+    // During active thinking/streaming there's no final content yet — don't
+    // fall back to raw reasoning text here, it causes a flash before the
+    // proper ThinkingBlock + final response renders.
+    if (isThinking || message.status === 'streaming') return message.content || '';
     if (!message.content && message.reasoning) return message.reasoning;
     if (message.content && message.reasoning) {
       if (message.content.length < 100 && message.reasoning.length > message.content.length * 3) {

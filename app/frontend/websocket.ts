@@ -14,8 +14,38 @@ export class DeeperSeekWS {
   private reconnectDelay = 1000;
   private shouldReconnect = true;
 
+  private onVisible: () => void;
+  private onOnline: () => void;
+
   constructor(sessionId: string) {
     this.sessionId = sessionId;
+
+    // Force immediate reconnect when the page becomes visible again (iOS PWA
+    // freezes JS when the screen goes off, which kills the WS connection).
+    this.onVisible = () => {
+      if (!this.shouldReconnect) return;
+      if (document.visibilityState !== 'visible') return;
+      const state = this.ws?.readyState;
+      if (state === WebSocket.CLOSED || state === WebSocket.CLOSING || state == null) {
+        if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+        this.reconnectDelay = 1000;
+        this.connect().catch(() => {});
+      }
+    };
+
+    // Same logic when network comes back after being offline.
+    this.onOnline = () => {
+      if (!this.shouldReconnect) return;
+      const state = this.ws?.readyState;
+      if (state === WebSocket.CLOSED || state === WebSocket.CLOSING || state == null) {
+        if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+        this.reconnectDelay = 1000;
+        this.connect().catch(() => {});
+      }
+    };
+
+    document.addEventListener('visibilitychange', this.onVisible);
+    window.addEventListener('online', this.onOnline);
   }
 
   connect(): Promise<void> {
@@ -31,13 +61,14 @@ export class DeeperSeekWS {
       this.ws.onopen = () => {
         this.reconnectDelay = 1000;
         this.emit('connected', { type: 'connected' });
-        // Heartbeat: send ping every 20s to keep connection alive through proxies
+        // Heartbeat: send ping every 15s to keep connection alive through proxies.
+        // 15s gives enough margin before the server's 30s keep-alive timeout.
         if (this.pingInterval) clearInterval(this.pingInterval);
         this.pingInterval = setInterval(() => {
           if (this.ws?.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({ type: 'ping' }));
           }
-        }, 20_000);
+        }, 15_000);
         resolve();
       };
 
@@ -59,15 +90,21 @@ export class DeeperSeekWS {
         }
       };
 
-      this.ws.onerror = (err) => {
-        this.emit('error', { type: 'error', error: 'WebSocket error' });
-        reject(err);
+      this.ws.onerror = () => {
+        // Transport-level errors (network drop, iOS suspension) are handled by
+        // onclose → auto-reconnect. Emitting an 'error' event here would
+        // incorrectly mark the pending AI message as errored. Server-level
+        // errors (auth failure, bad request) arrive as WS messages and are
+        // handled by onmessage → emit('error', ...) via the normal path.
+        reject(new Error('WebSocket connection failed'));
       };
     });
   }
 
   disconnect() {
     this.shouldReconnect = false;
+    document.removeEventListener('visibilitychange', this.onVisible);
+    window.removeEventListener('online', this.onOnline);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.pingInterval) { clearInterval(this.pingInterval); this.pingInterval = null; }
     this.ws?.close();

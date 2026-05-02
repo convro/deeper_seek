@@ -869,7 +869,8 @@ function App() {
       // Don't pollute Tool Activity with heartbeat / streaming deltas /
       // reasoning snapshots (reasoning is already shown in the chain-of-thought)
       const SKIP = new Set(['pong', 'ping', 'connected', 'disconnected', 'llm_start',
-                            'content_delta', 'reasoning_delta', 'reasoning', 'content']);
+                            'content_delta', 'reasoning_delta', 'reasoning', 'content',
+                            'replay_start', 'replay_end']);
       if (!SKIP.has(event.type)) {
         setEvents(prev => [...prev.slice(-500), { ...event, timestamp: new Date().toISOString() }]);
       }
