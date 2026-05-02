@@ -9,15 +9,16 @@ const router = express.Router();
 const PROJECT_ROOT = path.join(__dirname, '../..');
 const WORKSPACE_ROOT = path.join(PROJECT_ROOT, 'workspace');
 
-const chatController = require('./chat.controller');
-const agentController = require('./agent.controller');
+const chatController      = require('./chat.controller');
+const agentController     = require('./agent.controller');
 const workspaceController = require('./workspace.controller');
-const uploadController = require('./upload.controller');
-const authController = require('./auth.controller');
-const authMiddleware = require('./auth');
-const githubService = require('./github.service');
-const discordService = require('./discord.service');
-const soulService = require('./soul.service');
+const uploadController    = require('./upload.controller');
+const authController      = require('./auth.controller');
+const authMiddleware      = require('./auth');
+const githubService       = require('./github.service');
+const discordService      = require('./discord.service');
+const soulService         = require('./soul.service');
+const schedulerCtrl       = require('./scheduler.controller');
 
 // Multer setup for file uploads — namespaced per user when auth is active
 const storage = multer.diskStorage({
@@ -136,6 +137,12 @@ router.get('/github/oauth/callback', async (req, res) => {
     return safeClose('github-oauth-error', { error: e.message || 'Unknown error' });
   }
 });
+
+// ── Scheduler — INTERNAL endpoints (authenticated with DEEPERSEEK_INTERNAL_TOKEN) ──
+// Must be BEFORE authMiddleware because the Python worker has no user session cookie.
+router.post('/scheduler/register', schedulerCtrl.requireInternalToken, schedulerCtrl.register);
+router.post('/scheduler/tick',     schedulerCtrl.requireInternalToken, schedulerCtrl.tick);
+router.post('/scheduler/complete', schedulerCtrl.requireInternalToken, schedulerCtrl.complete);
 
 // ── Everything below requires auth (when AUTH_MODE=multi_user) ──────────
 router.use(authMiddleware);
@@ -288,6 +295,12 @@ router.post('/discord/disconnect', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// ── Scheduler — user-facing ──────────────────────────────────────────────────
+// GET  /api/scheduler/tasks
+router.get('/scheduler/tasks', schedulerCtrl.listTasks);
+// DELETE /api/scheduler/tasks/:taskId
+router.delete('/scheduler/tasks/:taskId', schedulerCtrl.cancelTask);
 
 // ── Agents ──────────────────────────────────────
 // POST /api/agents/spawn

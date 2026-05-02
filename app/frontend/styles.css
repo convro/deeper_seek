@@ -4569,3 +4569,204 @@ body.keyboard-open .auth-tagline { display: none; }
   align-self: flex-start;
 }
 .style-card-dismiss:hover { color: #666; }
+
+/* ── Scheduler Bubble ─────────────────────────────────────────────────────── */
+
+.sched-bubble {
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 10px;
+  padding: 14px 16px;
+  width: 100%;
+  max-width: 480px;
+  box-sizing: border-box;
+  font-family: var(--sans, sans-serif);
+}
+.sched-bubble.complete  { border-color: rgba(34,197,94,0.25); }
+.sched-bubble.cancelled { border-color: rgba(239,68,68,0.20); }
+.sched-bubble.running   { border-color: rgba(99,102,241,0.25); }
+
+/* Header */
+.sched-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.sched-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: #1a1a1a;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  color: #888;
+}
+.sched-bubble.running   .sched-icon { color: #6366f1; }
+.sched-bubble.complete  .sched-icon { color: #22c55e; }
+.sched-bubble.cancelled .sched-icon { color: #ef4444; }
+
+.sched-title {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sched-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e8e8e8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sched-status-badge {
+  font-size: 10px;
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #555;
+  line-height: 1;
+}
+.sched-status-badge.running   { color: #6366f1; }
+.sched-status-badge.complete  { color: #22c55e; }
+.sched-status-badge.cancelled { color: #ef4444; }
+
+.sched-cancel-btn {
+  background: none;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #555;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+  transition: color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+.sched-cancel-btn:hover { color: #ef4444; border-color: rgba(239,68,68,0.4); }
+
+/* Body: ring + stats */
+.sched-body {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.sched-ring-wrap {
+  position: relative;
+  width: 120px; height: 120px;
+  flex-shrink: 0;
+}
+.sched-ring {
+  width: 120px; height: 120px;
+  display: block;
+}
+.sched-countdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
+}
+.sched-time {
+  font-size: 17px;
+  font-family: var(--mono);
+  font-weight: 700;
+  color: #e8e8e8;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.sched-bubble.complete  .sched-time { color: #22c55e; }
+.sched-bubble.cancelled .sched-time { color: #ef4444; }
+.sched-time-label {
+  font-size: 9px;
+  color: #444;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: var(--mono);
+}
+
+/* Stats column */
+.sched-stats-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.sched-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+}
+.sched-stat-key {
+  font-size: 10px;
+  color: #555;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+.sched-stat-val {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: #aaa;
+  text-align: right;
+}
+
+/* Progress bar */
+.sched-progress-wrap {
+  height: 3px;
+  background: #1e1e1e;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.sched-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 1s linear, background 0.4s;
+}
+
+/* Current action */
+.sched-action {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  background: #0e0e0e;
+  border-radius: 6px;
+  border: 1px solid #1c1c1c;
+}
+.sched-action-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #6366f1;
+  flex-shrink: 0;
+  animation: sched-pulse 1.6s ease-in-out infinite;
+}
+@keyframes sched-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+.sched-action-text {
+  font-size: 11px;
+  color: #666;
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Done hint */
+.sched-done-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #22c55e;
+  text-align: center;
+  font-family: var(--mono);
+  opacity: 0.8;
+}

@@ -5,7 +5,7 @@ import React, {
 import { createRoot } from 'react-dom/client';
 
 import { DeeperSeekWS }   from './websocket';
-import { sendMessage, regenerateMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation, fetchUserSettings, saveUserSettings, listGithubRepos, linkGithubRepo, autoTitleConversation } from './api';
+import { sendMessage, regenerateMessage, listConversations, getConversation, renameConversation, deleteConversation, resetSoul, togglePinConversation, fetchUserSettings, saveUserSettings, listGithubRepos, linkGithubRepo, autoTitleConversation, cancelSchedulerTask } from './api';
 import type { UserSettings, GithubRepo } from './api';
 import { SettingsModal } from './settings-modal';
 import { MessagesList, InputArea } from './chat';
@@ -15,7 +15,7 @@ import { useAuth, AuthScreen, UserMenu } from './auth';
 import { Onboarding } from './onboarding';
 import type {
   ChatMessage, AgentEvent, ToolCallRecord, Conversation, Attachment, MessageStatus,
-  LiveAgent, Segment,
+  LiveAgent, Segment, SchedulerTask,
 } from './state';
 
 interface StyleQuestion { question: string; options: string[] }
@@ -1066,6 +1066,70 @@ function App() {
       setProcessing(false);
     });
 
+    // ── Scheduler events ──────────────────────────────────────────────────
+    ws.on('scheduler_start', (event) => {
+      const task: SchedulerTask = {
+        taskId:        event.task_id,
+        label:         event.label || 'Background Task',
+        durationMs:    event.duration_ms || 0,
+        startedAt:     event.started_at || Date.now(),
+        status:        'running',
+        currentAction: 'Starting…',
+        stats:         {},
+        elapsedMs:     0,
+        remainingMs:   event.duration_ms || 0,
+      };
+      const msg: ChatMessage = {
+        id:            `sched-${event.task_id}`,
+        role:          'assistant',
+        content:       '',
+        timestamp:     new Date().toISOString(),
+        status:        'done',
+        schedulerTask: task,
+      };
+      setMessages(prev => [...prev, msg]);
+    });
+
+    ws.on('scheduler_tick', (event) => {
+      setMessages(prev => prev.map(m => {
+        if (m.id !== `sched-${event.task_id}` || !m.schedulerTask) return m;
+        return {
+          ...m,
+          schedulerTask: {
+            ...m.schedulerTask,
+            elapsedMs:     event.elapsed_ms     ?? m.schedulerTask.elapsedMs,
+            remainingMs:   event.remaining_ms   ?? m.schedulerTask.remainingMs,
+            currentAction: event.current_action ?? m.schedulerTask.currentAction,
+            stats:         event.stats          ?? m.schedulerTask.stats,
+          },
+        };
+      }));
+    });
+
+    ws.on('scheduler_complete', (event) => {
+      setMessages(prev => prev.map(m => {
+        if (m.id !== `sched-${event.task_id}` || !m.schedulerTask) return m;
+        return {
+          ...m,
+          schedulerTask: {
+            ...m.schedulerTask,
+            status:        'complete',
+            remainingMs:   0,
+          },
+        };
+      }));
+    });
+
+    ws.on('scheduler_cancelled', (event) => {
+      setMessages(prev => prev.map(m => {
+        if (m.id !== `sched-${event.task_id}` || !m.schedulerTask) return m;
+        return {
+          ...m,
+          schedulerTask: { ...m.schedulerTask, status: 'cancelled' },
+        };
+      }));
+    });
+
     ws.connect().catch(() => {});
   }, [updateMsg, addToolCall, updateToolCall]);
 
@@ -1483,6 +1547,15 @@ function App() {
     performSilentRetry(assistantMsgId, feedback);
   }, [performSilentRetry]);
 
+  const handleCancelScheduler = useCallback(async (taskId: string) => {
+    setMessages(prev => prev.map(m =>
+      m.id === `sched-${taskId}` && m.schedulerTask
+        ? { ...m, schedulerTask: { ...m.schedulerTask, status: 'cancelled' } }
+        : m
+    ));
+    try { await cancelSchedulerTask(taskId); } catch {}
+  }, []);
+
   // ── Style card completion — send hidden answers, add only assistant bubble ─
   const handleStyleComplete = useCallback(async (answers: Record<number, string>, questions: StyleQuestion[]) => {
     setStyleCard(null);
@@ -1759,6 +1832,7 @@ function App() {
                   onRetry={handleRetry}
                   onRetryWithFeedback={handleRetryWithFeedback}
                   onPickSuggestion={(t) => handleSend(t)}
+                  onCancelScheduler={handleCancelScheduler}
                   greetingName={greetingName}
                   liveAgents={liveAgents}
                   rawCommandsMode={rawCommandsMode}

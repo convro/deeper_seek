@@ -58,6 +58,18 @@ export type Segment =
   | { type: 'text';  content: string }
   | { type: 'tools'; callIds: string[] };
 
+export interface SchedulerTask {
+  taskId:        string;
+  label:         string;
+  durationMs:    number;
+  startedAt:     number;           // unix ms
+  status:        'running' | 'complete' | 'cancelled';
+  currentAction: string;
+  stats:         Record<string, number>;
+  elapsedMs:     number;
+  remainingMs:   number;
+}
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;
@@ -72,6 +84,8 @@ export interface ChatMessage {
   segments?: Segment[];
   /** Attachments displayed inline — only on user messages */
   attachments?: Attachment[];
+  /** When present, render a SchedulerBubble instead of normal message content */
+  schedulerTask?: SchedulerTask;
 }
 
 export interface AgentEvent {

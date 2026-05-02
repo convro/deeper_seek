@@ -414,3 +414,10 @@ export async function uploadFile(file: File) {
 export async function listUploads() {
   return fetchJson(`${BASE}/upload/list`);
 }
+
+
+// ── Scheduler ─────────────────────────────────────────────────────────────────
+
+export async function cancelSchedulerTask(taskId: string): Promise<void> {
+  await fetchJson(`${BASE}/scheduler/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+}

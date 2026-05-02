@@ -92,8 +92,9 @@ async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
     const authService = require('./auth.service');
     subEnv.DEEPERSEEK_INTERNAL_TOKEN = authService.getInternalToken();
   } catch {}
-  if (context.ownerId)    subEnv.DEEPERSEEK_CURRENT_USER_ID = String(context.ownerId);
+  if (context.ownerId)    subEnv.DEEPERSEEK_CURRENT_USER_ID    = String(context.ownerId);
   if (context.ownerEmail) subEnv.DEEPERSEEK_CURRENT_USER_EMAIL = String(context.ownerEmail);
+  if (context.sessionId)  subEnv.DEEPERSEEK_CURRENT_SESSION_ID = String(context.sessionId);
 
   // Inject GitHub identity so ALL git operations (git_ops, run_bash, etc.)
   // are attributed to the right GitHub account, not the server's global config.

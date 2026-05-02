@@ -89,6 +89,8 @@ TOOL_MAP = {
     "tech_detect":        "tools/security/tech_detect.py",
     # Discord (user-token / self-bot integration)
     "discord_tool":       "tools/discord/discord_tool.py",
+    # Scheduler — start long-running autonomous background tasks
+    "scheduler_tool":     "tools/scheduler/scheduler_tool.py",
 }
 
 

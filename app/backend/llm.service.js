@@ -553,7 +553,7 @@ async function runAgentLoop({
       emit(onEvent, { type: 'tool_call', tool: toolName, args: toolArgs, call_id: toolCall.id });
       logger.tool(`Calling tool: ${toolName}(${JSON.stringify(toolArgs).slice(0, 200)})`);
 
-      const toolResult = await executeTool(toolName, toolArgs, onEvent, { ownerId, ownerEmail });
+      const toolResult = await executeTool(toolName, toolArgs, onEvent, { ownerId, ownerEmail, sessionId });
 
       emit(onEvent, {
         type:        'tool_result',

@@ -789,6 +789,59 @@ async function triggerAutoTitle(req, res) {
   });
 }
 
+/**
+ * Inject a complete assistant message into a session, streaming it via WebSocket
+ * exactly the same way a normal AI turn would appear: llm_start → content_delta
+ * chunks → done. Saves the message to disk so it persists across restarts.
+ *
+ * Used by the scheduler when a background task finishes and posts its report.
+ *
+ * @param {string} sessionId
+ * @param {string} content   — full report text
+ * @param {Array}  toolCalls — optional array of tool-call records from the worker
+ */
+async function injectAssistantMessage(sessionId, content, toolCalls = []) {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    logger.warn(`[inject] Session ${sessionId} not found, cannot inject message`);
+    return;
+  }
+
+  // Announce as a fresh AI turn so the frontend creates a new message bubble.
+  sendEvent(sessionId, { type: 'llm_start', model: 'scheduler-worker' });
+
+  // Stream in 40-char chunks so the text reveals naturally.
+  const CHUNK = 40;
+  for (let i = 0; i < content.length; i += CHUNK) {
+    sendEvent(sessionId, { type: 'content_delta', delta: content.slice(i, i + CHUNK) });
+    await new Promise(r => setTimeout(r, 12));
+  }
+
+  // Persist the message to the session.
+  session.messages.push({ role: 'assistant', content });
+  const msgIndex = session.messages.length - 1;
+
+  session.message_meta = (session.message_meta || []).filter(
+    m => m.msg_index < msgIndex
+  );
+  session.message_meta.push({
+    msg_index:  msgIndex,
+    tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+    rounds:     1,
+    segments:   [{ type: 'text', content }],
+  });
+
+  session.updated_at = new Date().toISOString();
+  saveSession(session);
+
+  sendEvent(sessionId, {
+    type:    'done',
+    content,
+    rounds:  1,
+    usage:   { prompt_tokens: 0, completion_tokens: 0, cache_hit_tokens: 0, model: 'scheduler-worker' },
+  });
+}
+
 module.exports = {
   sendMessage,
   regenerate,
@@ -802,4 +855,8 @@ module.exports = {
   getToolStatistics,
   formatToolHistoryForPrompt,
   triggerAutoTitle,
+  injectAssistantMessage,
+  sessions,
+  saveSession,
+  canAccessSession,
 };

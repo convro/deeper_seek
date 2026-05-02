@@ -3,6 +3,7 @@ import type { ChatMessage, ToolCallRecord, Attachment, LiveAgent, Segment } from
 import { generateLocalId } from './state';
 import { Spinner, TypingDots, ThinkingBlock, ToolCallBadge } from './components';
 import { Markdown, PreviewModal } from './markdown';
+import { SchedulerBubble } from './scheduler-bubble';
 
 const OUTPUT_DIRS = '(?:output|dist|build|public|www|site|src)';
 const JOB_ID      = '[a-zA-Z0-9_-]{4,}';
@@ -535,11 +536,12 @@ interface AssistantMessageProps {
   message: ChatMessage;
   onRetry?: (msgId: string) => void;
   onRetryWithFeedback?: (msgId: string, feedback: string) => void;
+  onCancelScheduler?: (taskId: string) => void;
   liveAgents?: Map<string, LiveAgent>;
   rawCommandsMode?: boolean;
 }
 
-function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents, rawCommandsMode = false }: AssistantMessageProps) {
+function AssistantMessage({ message, onRetry, onRetryWithFeedback, onCancelScheduler, liveAgents, rawCommandsMode = false }: AssistantMessageProps) {
   const isThinking = message.status === 'thinking';
   const isError    = message.status === 'error';
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
@@ -605,6 +607,28 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, liveAgents, r
 
   // Hover actions only appear once the response has actually landed.
   const showActions = (isDone || message.status === 'error') && contentToShow;
+
+  // ── Scheduler task bubble ─────────────────────────────────────────────────
+  if (message.schedulerTask) {
+    return (
+      <div className="msg-row msg-row-ai anim-fade-up">
+        <div className="msg-ai-avatar">
+          <img
+            src="https://r.convro.eu/content/Stable/realises/ds73"
+            alt="DS"
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            onError={e => {
+              (e.currentTarget as HTMLImageElement).style.display = 'none';
+              (e.currentTarget.parentNode as HTMLElement).textContent = '🧠';
+            }}
+          />
+        </div>
+        <div className="msg-ai-body">
+          <SchedulerBubble task={message.schedulerTask} onCancel={onCancelScheduler} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -769,6 +793,7 @@ interface MessagesListProps {
   onRetry?: (msgId: string) => void;
   onRetryWithFeedback?: (msgId: string, feedback: string) => void;
   onPickSuggestion?: (text: string) => void;
+  onCancelScheduler?: (taskId: string) => void;
   greetingName?: string | null;
   liveAgents?: Map<string, LiveAgent>;
   rawCommandsMode?: boolean;
@@ -798,7 +823,7 @@ function pickTwo<T>(arr: T[]): T[] {
 }
 
 export function MessagesList({
-  messages, onRetry, onRetryWithFeedback, onPickSuggestion, greetingName, liveAgents, rawCommandsMode,
+  messages, onRetry, onRetryWithFeedback, onPickSuggestion, onCancelScheduler, greetingName, liveAgents, rawCommandsMode,
 }: MessagesListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   // Pick suggestions once per mount so they don't reshuffle on every render.
@@ -850,6 +875,7 @@ export function MessagesList({
               message={msg}
               onRetry={onRetry}
               onRetryWithFeedback={onRetryWithFeedback}
+              onCancelScheduler={onCancelScheduler}
               liveAgents={liveAgents}
               rawCommandsMode={rawCommandsMode}
             />
