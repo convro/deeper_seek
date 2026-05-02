@@ -5066,17 +5066,17 @@ body.keyboard-open .auth-tagline { display: none; }
     border-right: none;
     border-bottom: 1px solid var(--border);
     gap: 4px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
   }
-  .settings-nav::-webkit-scrollbar { display: none; }
   .settings-nav-btn {
-    flex-shrink: 0;
-    padding: 6px 12px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 6px 4px;
     font-size: 12px;
     border-radius: 20px;
+    justify-content: center;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .settings-panel {
     padding: 16px;
