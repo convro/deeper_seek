@@ -242,10 +242,11 @@ async function runAgentLoop({
   }
 
   // Thinking mode: V4 models support thinking/non-thinking via API parameter.
-  // Extended thinking ON → thinking enabled (chain-of-thought before response)
-  // Extended thinking OFF → thinking disabled (fast direct response)
+  // Main AI: opt-out (thinking enabled unless user turns it off)
+  // Agents: opt-in (thinking disabled unless user explicitly enables it)
+  // Agent thinking default is false — agents are fast workers, not deep reasoners.
   const thinkingEnabled = agentType
-    ? (userSettings.agent_extended_thinking !== false)
+    ? (userSettings.agent_extended_thinking === true)
     : (userSettings.extended_thinking !== false);
 
   const temperature   = agentConfig?.temperature ?? sysConfig.llm.defaults.temperature;

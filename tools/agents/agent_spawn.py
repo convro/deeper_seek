@@ -15,12 +15,14 @@ def execute(agent_type: str, task: str, context: str = "",
             async_mode: bool = False, job_id: str = None, **kwargs) -> dict:
     start = time.time()
     try:
+        session_id = os.environ.get("DEEPERSEEK_CURRENT_SESSION_ID")
         payload = json.dumps({
             "agent_type": agent_type,
             "task": task,
             "context": context,
             "async_mode": async_mode,
             "job_id": job_id,
+            "session_id": session_id,
         }).encode("utf-8")
 
         headers = {"Content-Type": "application/json"}

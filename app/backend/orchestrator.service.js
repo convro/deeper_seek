@@ -287,6 +287,15 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
     }
   };
 
+  // Fetch user settings so agents respect preferences (e.g. agent_extended_thinking).
+  let userSettings = {};
+  if (ownerId) {
+    try {
+      const soulSvc = require('./soul.service');
+      userSettings = soulSvc.getUserSettings(ownerId) || {};
+    } catch {}
+  }
+
   const runFn = async () => {
     try {
       const { runAgentLoop } = require('./llm.service');
@@ -295,9 +304,10 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
         agentType,
         model: agentConf.model,
         onEvent,
-        maxRounds: 30,
+        maxRounds: 20,
         ownerId,
         ownerEmail,
+        userSettings,
       });
 
       agentRecord.status = 'completed';
