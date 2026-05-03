@@ -1695,6 +1695,28 @@ function App() {
   const [tokenReduction,    setTokenReduction]    = useState(false);
   const [rawCommandsMode,   setRawCommandsMode]   = useState(false);
 
+  // Load per-conversation toggles from localStorage when conversation changes
+  useEffect(() => {
+    const k = activeConvId;
+    setTokenReduction(localStorage.getItem(`conv:${k}:tokenReduction`) === 'true');
+    setRawCommandsMode(localStorage.getItem(`conv:${k}:rawCommandsMode`) === 'true');
+    setNoLimits(localStorage.getItem(`conv:${k}:noLimits`) === 'true');
+  }, [activeConvId]);
+
+  // Setters that also persist to localStorage
+  const setTokenReductionP  = useCallback((v: boolean) => {
+    setTokenReduction(v);
+    localStorage.setItem(`conv:${activeConvId}:tokenReduction`, String(v));
+  }, [activeConvId]);
+  const setRawCommandsModeP = useCallback((v: boolean) => {
+    setRawCommandsMode(v);
+    localStorage.setItem(`conv:${activeConvId}:rawCommandsMode`, String(v));
+  }, [activeConvId]);
+  const setNoLimitsP        = useCallback((v: boolean) => {
+    setNoLimits(v);
+    localStorage.setItem(`conv:${activeConvId}:noLimits`, String(v));
+  }, [activeConvId]);
+
   // ── Settings modal ────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
   const [userSettings, setUserSettings] = useState<UserSettings>({ extended_thinking: true, agent_extended_thinking: true, use_pro_model: false });
@@ -1899,16 +1921,16 @@ function App() {
           convTitle={activeConvTitle}
           messages={messages}
           tokenReduction={tokenReduction}
-          onToggleTokenReduction={setTokenReduction}
+          onToggleTokenReduction={setTokenReductionP}
           rawCommandsMode={rawCommandsMode}
-          onToggleRawCommands={setRawCommandsMode}
+          onToggleRawCommands={setRawCommandsModeP}
           githubRepo={activeGithubRepo}
           githubBranch={activeGithubBranch}
           onLinkRepo={() => { setShowSessionPanel(false); setShowGithubLink(true); }}
           showGithubLink={auth.mode === 'multi_user' && activeTab === 'chat'}
           wsConnected={wsConnected}
           noLimits={noLimits}
-          onToggleNoLimits={setNoLimits}
+          onToggleNoLimits={setNoLimitsP}
         />
       )}
 
