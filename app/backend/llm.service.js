@@ -391,20 +391,11 @@ async function runAgentLoop({
     // Must use finalContent (cumulative across all rounds) not msgContent
     // (current round only) — the frontend handler replaces, so sending only
     // the current round's text would erase previous rounds from the bubble.
-    
-    // BUG FIX: When msgContent is empty but msgReasoning is not empty,
-    // the model likely put the final answer into reasoning stream.
-    // Extract final answer from reasoning and emit as content.
-    let contentToEmit = finalContent;
-    if (!msgContent && msgReasoning) {
-      const extracted = extractFinalFromReasoning(msgReasoning);
-      if (extracted && extracted.trim() !== '') {
-        contentToEmit = extracted;
-        // Also update finalContent so done event has it
-        finalContent = extracted;
-      }
-    }
-    
+
+    // Emit content and reasoning as strictly separate streams.
+    // reasoning_content is NEVER promoted to content — the two streams
+    // are always kept apart regardless of length or content.
+    const contentToEmit = finalContent;
     if (contentToEmit) emit(onEvent, { type: 'content', content: contentToEmit });
     if (msgReasoning) emit(onEvent, { type: 'reasoning', content: msgReasoning });
 

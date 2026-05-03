@@ -588,23 +588,12 @@ function AssistantMessage({ message, onRetry, onRetryWithFeedback, onCancelSched
     : [];
 
   const contentToShow = (() => {
-    // During active thinking/streaming there's no final content yet — don't
-    // fall back to raw reasoning text here, it causes a flash before the
-    // proper ThinkingBlock + final response renders.
-    if (isThinking || message.status === 'streaming') return message.content || '';
-    if (!message.content && message.reasoning) return message.reasoning;
-    if (message.content && message.reasoning) {
-      if (message.content.length < 100 && message.reasoning.length > message.content.length * 3) {
-        return message.reasoning;
-      }
-      const contentLines = message.content.split('\n').filter(l => l.trim().length > 0);
-      const reasoningLines = message.reasoning.split('\n').filter(l => l.trim().length > 0);
-      const endsAbruptly = /[…:]\s*$|\.{3}\s*$|→\s*$/.test(message.content.trim());
-      if (endsAbruptly && reasoningLines.length > contentLines.length) return message.reasoning;
-    }
+    // Strict separation: reasoning NEVER appears as message content.
+    // reasoning goes in ThinkingBlock only; content goes in the message area.
     return message.content || '';
   })();
-  const showReasoningSeparately = !!(message.reasoning && contentToShow !== message.reasoning);
+  // Show ThinkingBlock whenever reasoning exists, unconditionally.
+  const showReasoningSeparately = !!message.reasoning;
 
   // Hover actions only appear once the response has actually landed.
   const showActions = (isDone || message.status === 'error') && contentToShow;
