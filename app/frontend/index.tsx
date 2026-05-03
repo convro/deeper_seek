@@ -875,6 +875,7 @@ function App() {
   // both the Agents sidebar tab (real-time, no polling lag) and the inline
   // sub-agent badges in chat messages.
   const [liveAgents,  setLiveAgents]  = useState<Map<string, LiveAgent>>(() => new Map());
+  const [noLimits,    setNoLimits]    = useState(false);
   // Correlation: agent_id → { msgId, callId } so we can tag the parent
   // agent_spawn tool call when sub-agent events arrive.
   const agentToCall   = useRef<Map<string, { msgId: string; callId: string }>>(new Map());
@@ -1693,7 +1694,6 @@ function App() {
   const [showSessionPanel,  setShowSessionPanel]  = useState(false);
   const [tokenReduction,    setTokenReduction]    = useState(false);
   const [rawCommandsMode,   setRawCommandsMode]   = useState(false);
-  const [noLimits,          setNoLimits]          = useState(false);
 
   // ── Settings modal ────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
