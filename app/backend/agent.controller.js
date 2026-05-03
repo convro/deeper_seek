@@ -4,7 +4,7 @@ const { spawnAgent, getAgentStatus, listAgents, killAgent } = require('./orchest
 const logger = require('./logger');
 
 async function spawn(req, res) {
-  const { agent_type, task, context, async_mode, job_id, session_id } = req.body;
+  const { agent_type, task, context, async_mode, job_id, session_id, no_limits } = req.body;
 
   if (!agent_type || !task) {
     return res.status(400).json({ error: 'Missing agent_type or task' });
@@ -22,6 +22,7 @@ async function spawn(req, res) {
       parentSessionId: session_id || null,
       ownerId:    req.user ? req.user.id    : null,
       ownerEmail: req.user ? req.user.email : null,
+      noLimits:   no_limits === true,
     });
 
     res.json(result);

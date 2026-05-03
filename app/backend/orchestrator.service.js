@@ -95,6 +95,7 @@ async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
   if (context.ownerId)    subEnv.DEEPERSEEK_CURRENT_USER_ID    = String(context.ownerId);
   if (context.ownerEmail) subEnv.DEEPERSEEK_CURRENT_USER_EMAIL = String(context.ownerEmail);
   if (context.sessionId)  subEnv.DEEPERSEEK_CURRENT_SESSION_ID = String(context.sessionId);
+  if (context.noLimits)   subEnv.DEEPERSEEK_NO_LIMITS          = 'true';
 
   // Inject GitHub identity so ALL git operations (git_ops, run_bash, etc.)
   // are attributed to the right GitHub account, not the server's global config.
@@ -235,7 +236,7 @@ async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
  * Spawn a sub-agent asynchronously or synchronously.
  * Called by the /api/agents/spawn endpoint (and by agent_spawn.py tool).
  */
-async function spawnAgent({ agentType, task, context = '', asyncMode = false, jobId = null, parentWs = null, parentSessionId = null, ownerId = null, ownerEmail = null }) {
+async function spawnAgent({ agentType, task, context = '', asyncMode = false, jobId = null, parentWs = null, parentSessionId = null, ownerId = null, ownerEmail = null, noLimits = false }) {
   const agentId = uuidv4();
   const agentConf = AGENTS_CONFIG.agents[agentType];
 
@@ -305,7 +306,8 @@ async function spawnAgent({ agentType, task, context = '', asyncMode = false, jo
         agentType,
         model: agentConf.model,
         onEvent,
-        maxRounds: 20,
+        maxRounds: noLimits ? 40 : 20,
+        noLimits,
         ownerId,
         ownerEmail,
         userSettings,

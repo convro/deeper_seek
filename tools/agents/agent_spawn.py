@@ -16,6 +16,7 @@ def execute(agent_type: str, task: str, context: str = "",
     start = time.time()
     try:
         session_id = os.environ.get("DEEPERSEEK_CURRENT_SESSION_ID")
+        no_limits  = os.environ.get("DEEPERSEEK_NO_LIMITS") == "true"
         payload = json.dumps({
             "agent_type": agent_type,
             "task": task,
@@ -23,6 +24,7 @@ def execute(agent_type: str, task: str, context: str = "",
             "async_mode": async_mode,
             "job_id": job_id,
             "session_id": session_id,
+            "no_limits": no_limits,
         }).encode("utf-8")
 
         headers = {"Content-Type": "application/json"}
