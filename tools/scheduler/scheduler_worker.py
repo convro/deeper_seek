@@ -1,17 +1,8 @@
 """
 scheduler_worker.py — Autonomous background task runner.
 
-Improvements over v1:
-  • Smart sleep: cycle fires immediately after wake interval minus actual cycle
-    duration — no drift, no artificial floor.
-  • Rolling context summary: the LLM updates a compact summary each cycle so
-    the prompt stays small and focused regardless of run length.
-  • Discord context cache: resolves own identity + target DM channels once,
-    stores in memory so every subsequent cycle knows exactly where to look
-    and which message IDs it already processed.
-  • Tool executor runs in a thread pool so slow tools don't block the loop.
-  • Better error recovery: individual tool errors are captured and reported
-    without crashing the cycle.
+Uses only the `requests` library (no openai SDK) so it works in any
+environment where the backend is running.
 """
 
 from __future__ import annotations
@@ -22,11 +13,10 @@ import subprocess
 import sys
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from typing import Any
 
 import requests
-from openai import OpenAI
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -46,11 +36,56 @@ TOOL_EXECUTOR_NAME = os.path.join('system', 'tool_executor.py')
 _executor = ThreadPoolExecutor(max_workers=4)
 
 
+# ── DeepSeek API (requests-based, no openai SDK required) ────────────────────
+
+DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions'
+
+
+def deepseek_chat(
+    api_key: str,
+    messages: list[dict],
+    model: str = 'deepseek-v4-flash',
+    tools: list[dict] | None = None,
+    tool_choice: str = 'auto',
+    max_tokens: int = 2048,
+    temperature: float = 0.35,
+    timeout: int = 90,
+) -> dict:
+    """POST to DeepSeek chat completions. Returns the parsed response dict."""
+    payload: dict[str, Any] = {
+        'model':       model,
+        'messages':    messages,
+        'max_tokens':  max_tokens,
+        'temperature': temperature,
+    }
+    if tools:
+        payload['tools']       = tools
+        payload['tool_choice'] = tool_choice
+
+    resp = requests.post(
+        DEEPSEEK_API_URL,
+        json=payload,
+        headers={
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type':  'application/json',
+        },
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _msg_content(msg: dict) -> str:
+    return msg.get('content') or ''
+
+def _msg_tool_calls(msg: dict) -> list[dict]:
+    return msg.get('tool_calls') or []
+
+
 # ── Tool execution ────────────────────────────────────────────────────────────
 
 def call_tool(tool_name: str, args: dict, project_root: str,
               timeout: int = 45) -> dict:
-    """Run a DeeperSeek tool in a subprocess. Returns result dict."""
     executor_path = os.path.join(project_root, TOOL_EXECUTOR_NAME)
     payload = json.dumps({'tool': tool_name, 'args': args})
     try:
@@ -71,25 +106,6 @@ def call_tool(tool_name: str, args: dict, project_root: str,
                 'error': f'{tool_name} timed out after {timeout}s'}
     except Exception as exc:
         return {'status': 'error', 'result': None, 'error': str(exc)}
-
-
-def call_tool_async(tool_name: str, args: dict, project_root: str,
-                    timeout: int = 45) -> dict:
-    """Submit tool call to thread pool with timeout."""
-    future = _executor.submit(call_tool, tool_name, args, project_root, timeout)
-    try:
-        return future.result(timeout=timeout + 5)
-    except FuturesTimeout:
-        return {'status': 'error', 'result': None,
-                'error': f'{tool_name} thread timed out'}
-    except Exception as exc:
-        return {'status': 'error', 'result': None, 'error': str(exc)}
-
-
-# ── LLM client ────────────────────────────────────────────────────────────────
-
-def make_client(api_key: str) -> OpenAI:
-    return OpenAI(api_key=api_key, base_url='https://api.deepseek.com')
 
 
 # ── Worker tool definitions ───────────────────────────────────────────────────
@@ -229,11 +245,6 @@ WORKER_TOOLS = [
 # ── Discord context resolution ────────────────────────────────────────────────
 
 def resolve_discord_context(project_root: str) -> dict:
-    """
-    One-time preflight: get own identity.
-    Returns a dict that gets injected into the system prompt and passed
-    to each cycle so the LLM knows its own user ID without re-fetching.
-    """
     ctx: dict = {}
     result = call_tool('discord_tool', {'action': 'get_me'}, project_root, timeout=15)
     if result.get('status') == 'ok' and isinstance(result.get('result'), dict):
@@ -309,20 +320,17 @@ def _fmt_args(args: dict) -> str:
 
 # ── Rolling context updater ───────────────────────────────────────────────────
 
-def update_context_summary(client: OpenAI, model: str, prev_summary: str,
+def update_context_summary(api_key: str, model: str, prev_summary: str,
                            cycle_narrative: str, tool_records: list[dict],
                            cycle: int) -> str:
-    """
-    Ask the LLM to update the rolling context summary in ≤150 words.
-    This replaces the full action log in the next cycle's prompt.
-    """
     tool_summary = '; '.join(
         f'{r["tool"]}→{r["summary"][:80]}'
         for r in tool_records
     ) or 'no tools used'
 
     try:
-        resp = client.chat.completions.create(
+        resp = deepseek_chat(
+            api_key=api_key,
             model=model,
             messages=[
                 {'role': 'system', 'content':
@@ -337,30 +345,27 @@ def update_context_summary(client: OpenAI, model: str, prev_summary: str,
             ],
             max_tokens=200,
             temperature=0.2,
+            timeout=20,
         )
-        return (resp.choices[0].message.content or '').strip()
+        return (resp['choices'][0]['message'].get('content') or '').strip()
     except Exception:
-        # If update fails, append a note to the existing summary
         note = f'[C{cycle}] {cycle_narrative[:100]}'
         return (prev_summary + '\n' + note).strip()[-800:]
 
 
 # ── Per-cycle LLM + tool loop ─────────────────────────────────────────────────
 
-def run_cycle(client: OpenAI, model: str, system_prompt: str,
+def run_cycle(api_key: str, model: str, system_prompt: str,
               project_root: str, max_tool_rounds: int = 10) -> tuple[str, list[dict]]:
-    """
-    Full LLM + tool loop for one wake cycle.
-    Returns (narrative, tool_records).
-    """
-    messages = [
+    messages: list[dict] = [
         {'role': 'system', 'content': system_prompt},
         {'role': 'user',   'content': 'Execute the next step of the task now.'},
     ]
     tool_records: list[dict] = []
 
     for _round in range(max_tool_rounds):
-        response = client.chat.completions.create(
+        resp = deepseek_chat(
+            api_key=api_key,
             model=model,
             messages=messages,
             tools=WORKER_TOOLS,
@@ -368,28 +373,32 @@ def run_cycle(client: OpenAI, model: str, system_prompt: str,
             max_tokens=2048,
             temperature=0.35,
         )
-        msg = response.choices[0].message
-        messages.append(msg)
+        msg = resp['choices'][0]['message']
+        # Append assistant message as plain dict (serialisable for next round)
+        messages.append({'role': 'assistant',
+                         'content': msg.get('content') or '',
+                         'tool_calls': msg.get('tool_calls') or []})
 
-        if not msg.tool_calls:
-            return (msg.content or '').strip(), tool_records
+        tool_calls = _msg_tool_calls(msg)
+        if not tool_calls:
+            return (_msg_content(msg)).strip(), tool_records
 
         # Execute tool calls — run independent ones in parallel
-        calls = [(tc.id, tc.function.name, tc.function.arguments)
-                 for tc in msg.tool_calls]
-
         futures = {}
-        for tc_id, tool_name, raw_args in calls:
+        for tc in tool_calls:
+            tc_id     = tc['id']
+            tool_name = tc['function']['name']
             try:
-                args = json.loads(raw_args)
+                args = json.loads(tc['function']['arguments'])
             except Exception:
                 args = {}
             tool_timeout = 60 if tool_name in ('web_fetch', 'web_browse', 'web_research') else 45
             fut = _executor.submit(call_tool, tool_name, args, project_root, tool_timeout)
             futures[tc_id] = (tool_name, args, fut)
 
-        # Collect results in original order and append tool messages
-        for tc_id, tool_name, raw_args in calls:
+        # Collect results in original order
+        for tc in tool_calls:
+            tc_id = tc['id']
             tool_name, args, fut = futures[tc_id]
             try:
                 result = fut.result(timeout=70)
@@ -419,15 +428,14 @@ def run_cycle(client: OpenAI, model: str, system_prompt: str,
     # Exhausted rounds — ask for summary
     messages.append({'role': 'user',
                      'content': 'Summarise what you just did in 1–2 sentences.'})
-    final = client.chat.completions.create(
-        model=model, messages=messages, max_tokens=200, temperature=0.2
-    )
-    return (final.choices[0].message.content or '').strip(), tool_records
+    final = deepseek_chat(api_key=api_key, model=model, messages=messages,
+                          max_tokens=200, temperature=0.2)
+    return (_msg_content(final['choices'][0]['message'])).strip(), tool_records
 
 
 # ── Final report ──────────────────────────────────────────────────────────────
 
-def generate_report(client: OpenAI, model: str, cfg: dict,
+def generate_report(api_key: str, model: str, cfg: dict,
                     context_summary: str, actions: list[dict],
                     elapsed_min: float) -> str:
     action_log = '\n'.join(
@@ -449,7 +457,8 @@ def generate_report(client: OpenAI, model: str, cfg: dict,
         'Start with "## Task Complete ✅". Use Markdown.'
     )
 
-    response = client.chat.completions.create(
+    resp = deepseek_chat(
+        api_key=api_key,
         model=model,
         messages=[
             {'role': 'system', 'content': 'You write concise, accurate task completion reports.'},
@@ -457,8 +466,9 @@ def generate_report(client: OpenAI, model: str, cfg: dict,
         ],
         max_tokens=2048,
         temperature=0.2,
+        timeout=60,
     )
-    return response.choices[0].message.content or '*(No report generated.)*'
+    return _msg_content(resp['choices'][0]['message']) or '*(No report generated.)*'
 
 
 # ── Backend communication ─────────────────────────────────────────────────────
@@ -506,7 +516,6 @@ def main() -> None:
     except Exception as exc:
         sys.exit(f'[scheduler_worker] Bad config: {exc}')
 
-    # Inject credentials into env so subprocesses inherit them
     for env_key, cfg_key in [
         ('DISCORD_TOKEN',              'discord_token'),
         ('GITHUB_TOKEN',               'github_token'),
@@ -518,7 +527,7 @@ def main() -> None:
             os.environ[env_key] = str(cfg[cfg_key])
 
     project_root   = _find_project_root(cfg)
-    client         = make_client(cfg['api_key'])
+    api_key        = cfg['api_key']
     model          = 'deepseek-v4-flash'
 
     duration_ms    = int(cfg['duration_min'] * 60 * 1000)
@@ -527,24 +536,24 @@ def main() -> None:
     deadline_ms    = start_ms + duration_ms
     total_cycles   = max(1, int(cfg['duration_min'] * 60 / wake_every_sec))
 
-    context_summary: str      = ''
-    discord_ctx:     dict     = {}
-    actions:         list     = []
-    all_tool_calls:  list     = []
-    stats:           dict     = {'cycles': 0, 'tool_calls': 0, 'errors': 0}
-    cycle                     = 0
+    context_summary: str = ''
+    discord_ctx:     dict = {}
+    actions:         list = []
+    all_tool_calls:  list = []
+    stats:           dict = {'cycles': 0, 'tool_calls': 0, 'errors': 0}
+    cycle                 = 0
 
     def _now_ms()       -> int: return int(time.time() * 1000)
     def _elapsed_ms()   -> int: return _now_ms() - start_ms
     def _remaining_ms() -> int: return max(0, deadline_ms - _now_ms())
 
-    # ── Discord pre-flight (cycle 0) ─────────────────────────────────────────
+    # Discord pre-flight (only when task involves Discord)
     if os.environ.get('DISCORD_TOKEN') and 'discord' in cfg['task'].lower():
         discord_ctx = resolve_discord_context(project_root)
         discord_ctx.setdefault('dm_channels',  {})
         discord_ctx.setdefault('last_msg_ids', {})
 
-    # ── Main loop ─────────────────────────────────────────────────────────────
+    # Main loop
     while _remaining_ms() > 0:
         cycle += 1
         stats['cycles'] = cycle
@@ -556,15 +565,13 @@ def main() -> None:
         system_prompt = build_system_prompt(
             cfg, cycle, total_cycles, elapsed_min, remaining_min,
             context_summary,
-            actions[-5:],       # only the 5 most-recent action records in prompt
+            actions[-5:],
             discord_ctx,
         )
 
         cycle_summary = f'Cycle {cycle} in progress…'
         try:
-            narrative, tool_records = run_cycle(
-                client, model, system_prompt, project_root
-            )
+            narrative, tool_records = run_cycle(api_key, model, system_prompt, project_root)
             stats['tool_calls'] += len(tool_records)
 
             ts = time.strftime('%H:%M:%S')
@@ -583,13 +590,11 @@ def main() -> None:
 
             cycle_summary = narrative[:250] if narrative else f'Cycle {cycle} done.'
 
-            # Update rolling context summary asynchronously (don't block tick)
+            # Update rolling context summary (non-blocking, 8s cap)
             fut_ctx = _executor.submit(
-                update_context_summary, client, model,
+                update_context_summary, api_key, model,
                 context_summary, cycle_summary, tool_records, cycle
             )
-
-            # Non-blocking: try to get result within 8s, else keep old summary
             try:
                 context_summary = fut_ctx.result(timeout=8)
             except Exception:
@@ -608,8 +613,7 @@ def main() -> None:
             stats         = dict(stats),
         )
 
-        # Smart sleep: fire the next cycle exactly wake_every_sec after this
-        # cycle started, minus however long the cycle actually took.
+        # Smart sleep: fire exactly wake_every_sec after cycle start
         cycle_duration = time.monotonic() - cycle_start
         sleep_secs = max(1, wake_every_sec - cycle_duration)
 
@@ -617,11 +621,11 @@ def main() -> None:
         while time.monotonic() < sleep_end and _remaining_ms() > 0:
             time.sleep(min(0.5, sleep_end - time.monotonic()))
 
-    # ── Final report ─────────────────────────────────────────────────────────
+    # Final report
     cfg['cycles_completed'] = cycle
     elapsed_min = _elapsed_ms() / 60_000
     try:
-        report = generate_report(client, model, cfg, context_summary, actions, elapsed_min)
+        report = generate_report(api_key, model, cfg, context_summary, actions, elapsed_min)
     except Exception as exc:
         report = (
             f'## Task Complete ✅\n\n'

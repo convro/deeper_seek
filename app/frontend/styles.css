@@ -3293,7 +3293,7 @@ body.keyboard-open .auth-tagline { display: none; }
   gap: 6px;
   background: var(--bg4);
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: 0;
   padding: 4px 10px;
   font-size: 12px;
   color: var(--text2);
@@ -3302,6 +3302,10 @@ body.keyboard-open .auth-tagline { display: none; }
   white-space: nowrap;
   max-width: 200px;
   overflow: hidden;
+}
+.gh-repo-badge-panel {
+  width: 100%;
+  max-width: 100%;
 }
 .gh-repo-badge:hover {
   border-color: var(--accent);

@@ -48,7 +48,14 @@ export function SchedulerBubble({ task, onCancel }: Props) {
       return;
     }
     intervalRef.current = setInterval(() => {
-      setLocalRemaining(r => Math.max(0, r - 1000));
+      setLocalRemaining(r => {
+        const next = Math.max(0, r - 1000);
+        if (next <= 0 && intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+        return next;
+      });
       setLocalElapsed(e => e + 1000);
     }, 1000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
