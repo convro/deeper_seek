@@ -369,7 +369,7 @@ function AssistantActions({ text, onRetry, onRetryWithFeedback }: AssistantActio
     </div>
 
     {feedbackOpen && onRetryWithFeedback && (
-      <RetryFeedbackModal
+      <RetryFeedbackSheet
         onCancel={() => setFeedbackOpen(false)}
         onSubmit={(text) => { setFeedbackOpen(false); onRetryWithFeedback(text); }}
       />
@@ -378,7 +378,7 @@ function AssistantActions({ text, onRetry, onRetryWithFeedback }: AssistantActio
   );
 }
 
-function RetryFeedbackModal({ onCancel, onSubmit }: {
+function RetryFeedbackSheet({ onCancel, onSubmit }: {
   onCancel: () => void;
   onSubmit: (text: string) => void;
 }) {
@@ -393,35 +393,32 @@ function RetryFeedbackModal({ onCancel, onSubmit }: {
   };
 
   return (
-    <div className="retry-modal-backdrop" onClick={onCancel}>
-      <div className="retry-modal" onClick={e => e.stopPropagation()}>
-        <h3 className="retry-modal-title">Co poprawić w odpowiedzi?</h3>
-        <p className="retry-modal-sub">
-          Krótko — co było nie tak, czego brakowało, co zmienić.
-        </p>
+    <>
+      <div className="rfb-backdrop" onClick={onCancel} />
+      <div className="rfb-sheet">
+        <div className="rfb-handle-wrap"><div className="rfb-handle" /></div>
+        <p className="rfb-title">Co poprawić w odpowiedzi?</p>
+        <p className="rfb-sub">Krótko — co było nie tak, czego brakowało, co zmienić.</p>
         <textarea
           ref={ref}
-          className="retry-modal-textarea"
+          className="rfb-textarea"
           value={text}
           onChange={e => setText(e.target.value)}
           onKeyDown={e => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
             if (e.key === 'Escape') onCancel();
           }}
-          placeholder={'np. „za długie”, „chcę więcej kodu, mniej teorii”, „brakuje obsługi błędów”…'}
-          rows={4}
+          placeholder="np. 'za dlugie', 'wiecej kodu, mniej teorii', 'brakuje obslugi bledow'..."
           maxLength={500}
         />
-        <div className="retry-modal-actions">
-          <button className="retry-modal-btn-secondary" onClick={onCancel}>Anuluj</button>
-          <button
-            className="retry-modal-btn-primary"
-            onClick={submit}
-            disabled={!text.trim()}
-          >Spróbuj ponownie</button>
+        <div className="rfb-actions">
+          <button className="rfb-btn-secondary" onClick={onCancel}>Anuluj</button>
+          <button className="rfb-btn-primary" onClick={submit} disabled={!text.trim()}>
+            Spróbuj ponownie
+          </button>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
