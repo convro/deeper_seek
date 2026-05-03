@@ -50,19 +50,40 @@ function createClient() {
  */
 function loadSystemPrompt(agentType = null, ownerId = null, githubContext = null, toolHistoryText = null) {
   const projectRoot = path.join(__dirname, '../..');
-  const basePath = path.join(projectRoot, 'runtime/base_prompt.txt');
-  let systemPrompt = fs.readFileSync(basePath, 'utf-8');
+
+  // ── Sub-agents get a lean, focused prompt — NOT the full base_prompt.txt ──
+  // base_prompt.txt is 700+ lines aimed at the main AI. Giving it to sub-agents
+  // makes them behave like a second main AI (text-heavy, tool-shy) instead of
+  // a focused specialist. Agents only need: their identity + clear instructions.
+  if (agentType) {
+    const identityPath = path.join(projectRoot, `ai/agents/${agentType}/identity.txt`);
+    const identity = fs.existsSync(identityPath)
+      ? fs.readFileSync(identityPath, 'utf-8')
+      : `You are the ${agentType} sub-agent.`;
+
+    return `${identity}
+
+---
+
+## SUB-AGENT OPERATING INSTRUCTIONS
+
+You are a specialized sub-agent. A parent AI has delegated a specific task to you.
+
+**Non-negotiable rules:**
+1. USE YOUR TOOLS. Do not write a text response pretending to do work — actually call tools.
+2. Complete the FULL task, not just the first step.
+3. If a tool fails, try an alternative approach before giving up.
+4. Your final response is read by the parent AI. Be concise but complete — include key findings, file paths, or results.
+5. Do not ask for clarification. Make reasonable assumptions and proceed.
+6. If you produce files or code, run/verify them before reporting success.`;
+  }
+
+  // ── Main AI gets the full base_prompt.txt ──────────────────────────────────
+  let systemPrompt = fs.readFileSync(path.join(projectRoot, 'runtime/base_prompt.txt'), 'utf-8');
 
   // Append GitHub workspace context when a repo is linked to the session
   if (githubContext) {
     systemPrompt = `${systemPrompt}\n\n---\n\n${githubContext}`;
-  }
-
-  if (agentType) {
-    const identityPath = path.join(projectRoot, `ai/agents/${agentType}/identity.txt`);
-    if (fs.existsSync(identityPath)) {
-      systemPrompt = `${fs.readFileSync(identityPath, 'utf-8')}\n\n---\n\n${systemPrompt}`;
-    }
   }
 
   if (ownerId) {
@@ -188,7 +209,6 @@ async function runAgentLoop({
   }
   
   const systemPrompt = loadSystemPrompt(agentType, ownerId, githubContext, toolHistoryText);
-  const toolDefs = buildToolDefinitions();
   const sysConfig = JSON.parse(
     fs.readFileSync(path.join(__dirname, '../../config/system.json'), 'utf-8')
   );
@@ -197,6 +217,15 @@ async function runAgentLoop({
     ? JSON.parse(fs.readFileSync(path.join(__dirname, '../../config/agents.json'), 'utf-8'))
         .agents[agentType]
     : null;
+
+  // Build tool list — filter to agent's allowed subset if agentType is set.
+  // Without filtering, every agent gets all 55+ tools and behaves like a
+  // second main AI instead of a focused specialist.
+  let toolDefs = buildToolDefinitions();
+  if (agentConfig?.tools && !agentConfig.tools.includes('all')) {
+    const allowed = new Set(agentConfig.tools);
+    toolDefs = toolDefs.filter(t => allowed.has(t.function.name));
+  }
 
   // Model: Flash (default) or Pro depending on user setting.
   // Agents always use Flash for cost efficiency.

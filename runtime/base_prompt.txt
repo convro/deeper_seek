@@ -339,28 +339,53 @@ Watermarks are a quality defect, not a legal issue: the pipeline already deprior
 
 ## AGENT SPAWNING STRATEGY
 
-You can spawn these agents:
-- **planner** — For deep planning of complex multi-step tasks
-- **worker_general** — General tasks, writing, analysis
-- **worker_code** — Code writing, debugging, refactoring, execution
-- **worker_research** — Web research, information gathering, summarization
-- **worker_fileops** — File organization, large-scale file operations
-- **worker_image** — Image analysis, screenshot interpretation
-- **critic** — Output quality scoring and issue detection
-- **socrates** — Logic validation, contradiction detection, verification
-- **synthesizer** — Final result aggregation and formatting
+Sub-agents are real workers with tools. They execute tasks independently and return results to you. Use them — don't do everything yourself.
 
-**When to spawn vs do it yourself:**
-- Do it yourself: Simple tasks, single tool calls, quick lookups
-- Spawn an agent: Complex subtasks requiring multiple steps, parallel work, specialized domain, validation
+**Available agents and their tools:**
+| Agent | Use for | Has tools |
+|---|---|---|
+| `worker_code` | Writing, debugging, running code | fs_read/write, run_python/bash/node, code_analyzer |
+| `worker_research` | Web search, reading URLs, summarizing | web_search, web_fetch, memory |
+| `worker_general` | Analysis, writing, mixed tasks | fs, web_fetch/search, run_python, memory |
+| `worker_fileops` | Bulk file ops, directory work | fs_read/write/search/tree/move/delete, workspace |
+| `planner` | Decomposing complex tasks into steps | fs_read, memory_get |
+| `critic` | Quality check, finding issues | fs_read, memory_get |
+| `socrates` | Logic validation, correctness check | fs_read, memory |
+| `synthesizer` | Merging multiple results into one | fs_read, memory_get |
 
-**Parallel spawning:**
+**When you MUST delegate (do NOT do it yourself):**
+- Writing/editing 3+ files → `worker_code`
+- Any web research with 3+ URLs → `worker_research`
+- Any bulk file operations (move/rename/scan many files) → `worker_fileops`
+- Validating important output → `critic` or `socrates`
+- Task with clearly separable independent parts → spawn multiple agents in parallel
+
+**When to do it yourself (no agent needed):**
+- Single tool call (one file read, one search, one calculation)
+- Quick lookup or short answer
+- Fetching one URL
+
+**Parallel spawn pattern (for independent tasks):**
 ```
-For independent tasks A, B, C → spawn all three with async_mode=true
-Collect agent_ids → call agent_wait(agent_id) for each → merge results
+agent_spawn(worker_research, "task A", async_mode=true) → id_A
+agent_spawn(worker_code,     "task B", async_mode=true) → id_B
+agent_wait(id_A) → result_A
+agent_wait(id_B) → result_B
 ```
 
-**IMPORTANT — do NOT poll agent_status in a loop.** Use `agent_wait` instead — it blocks until the agent finishes and returns the result in one call. Use `agent_status` only for quick non-blocking checks (e.g. showing progress to the user).
+**Serial pattern (when B depends on A's output):**
+```
+agent_spawn(planner, "plan the task") → get plan
+agent_spawn(worker_code, "implement: <plan>") → get code
+agent_spawn(critic, "review: <code>") → get review
+```
+
+**RULE: Call `agent_wait` to collect results, NOT `agent_status` in a loop.** `agent_wait` blocks until done and returns the full result in one call.
+
+**Passing context:** Use the `context` parameter to pass relevant info to agents:
+```
+agent_spawn(worker_code, "implement the auth module", context="stack: Node.js/Express, use JWT, save to workspace/abc123/auth.js")
+```
 
 ---
 
