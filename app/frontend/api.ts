@@ -160,6 +160,7 @@ export async function sendMessage(
   sessionId: string,
   model?: string,
   attachments?: Attachment[],
+  noLimits?: boolean,
 ) {
   // Build attachment payload — strip blob URLs (not serializable)
   const attPayload = attachments && attachments.length > 0
@@ -179,6 +180,7 @@ export async function sendMessage(
       session_id: sessionId,
       model,
       attachments: attPayload,
+      no_limits: noLimits || false,
     }),
   });
 }
@@ -189,12 +191,13 @@ export async function sendMessage(
  * is passed as an ephemeral (non-persisted) nudge so the model knows what to
  * improve. Mirrors ChatGPT/Claude "regenerate" UX.
  */
-export async function regenerateMessage(sessionId: string, feedback?: string) {
+export async function regenerateMessage(sessionId: string, feedback?: string, noLimits?: boolean) {
   return fetchJson(`${BASE}/chat/regenerate`, {
     method: 'POST',
     body: JSON.stringify({
       session_id: sessionId,
       feedback: feedback && feedback.trim() ? feedback.trim() : undefined,
+      no_limits: noLimits || false,
     }),
   });
 }

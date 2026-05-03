@@ -584,11 +584,15 @@ interface SessionInfoPanelProps {
   githubBranch: string | null;
   onLinkRepo: () => void;
   showGithubLink: boolean;
+  wsConnected: boolean;
+  noLimits: boolean;
+  onToggleNoLimits: (v: boolean) => void;
 }
 
 function SessionInfoPanel({
   open, onClose, convTitle, messages, tokenReduction, onToggleTokenReduction,
   rawCommandsMode, onToggleRawCommands, githubRepo, githubBranch, onLinkRepo, showGithubLink,
+  wsConnected, noLimits, onToggleNoLimits,
 }: SessionInfoPanelProps) {
   const [eggClicks,  setEggClicks]  = useState(0);
   const [broken,     setBroken]     = useState(false);
@@ -702,10 +706,14 @@ function SessionInfoPanel({
 
         <div className="session-panel-body">
 
-          {/* Conversation title */}
+          {/* Conversation title + connection status */}
           <div className="session-panel-section">
-            <div className="session-panel-label">Rozmowa</div>
+            <div className="session-panel-label">Conversation</div>
             <div className="session-panel-title">{convTitle || '—'}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+              <StatusDot connected={wsConnected} />
+              <span style={{ fontSize: 12, color: 'var(--text3)' }}>{wsConnected ? 'Live' : 'Connecting…'}</span>
+            </div>
           </div>
 
           {/* GitHub repo link */}
@@ -735,7 +743,7 @@ function SessionInfoPanel({
           <div className="session-panel-section session-panel-row">
             <div className="session-panel-row-text">
               <div className="session-panel-label">Token Reduction Mode</div>
-              <div className="session-panel-sub">Skraca historię żeby zmieścić więcej w jednym wywołaniu</div>
+              <div className="session-panel-sub">Compresses history to fit more context per call</div>
             </div>
             <button
               className={`session-toggle ${tokenReduction ? 'on' : ''}`}
@@ -750,7 +758,7 @@ function SessionInfoPanel({
           <div className="session-panel-section session-panel-row">
             <div className="session-panel-row-text">
               <div className="session-panel-label">Raw Commands View</div>
-              <div className="session-panel-sub">Pokazuje tool calle jako bloki terminalowe zamiast badge'y</div>
+              <div className="session-panel-sub">Shows tool calls as terminal blocks instead of badges</div>
             </div>
             <button
               className={`session-toggle ${rawCommandsMode ? 'on' : ''}`}
@@ -761,14 +769,33 @@ function SessionInfoPanel({
             </button>
           </div>
 
+          {/* No Limits Mode toggle */}
+          <div className="session-panel-section session-panel-row">
+            <div className="session-panel-row-text">
+              <div className="session-panel-label">No Limits Mode</div>
+              <div className="session-panel-sub">
+                {noLimits
+                  ? 'Limits OFF — up to 400 rounds, extended timeouts, large tool outputs'
+                  : 'Normal limits — 50 rounds, 20 min timeout. Enable for complex ambitious tasks.'}
+              </div>
+            </div>
+            <button
+              className={`session-toggle ${noLimits ? 'on' : ''}`}
+              onClick={() => onToggleNoLimits(!noLimits)}
+              aria-label="Toggle no limits mode"
+            >
+              <span className="session-toggle-knob" />
+            </button>
+          </div>
+
           {/* Cost cards */}
           <div className="session-panel-section session-cost-grid">
             <div className="session-cost-card">
-              <div className="session-cost-label">Koszt rozmowy</div>
+              <div className="session-cost-label">Conversation cost</div>
               <div className="session-cost-val">{fmtUsd(totalCost)}</div>
             </div>
             <div className="session-cost-card">
-              <div className="session-cost-label">Ostatnia wiadomość</div>
+              <div className="session-cost-label">Last message</div>
               <div className="session-cost-val">{lastCost !== null ? fmtUsd(lastCost) : '—'}</div>
             </div>
           </div>
@@ -1481,8 +1508,8 @@ function App() {
     setEvents([]);
     setProcessing(true);
 
-    // Frontend safety timeout — must exceed backend LOOP_TIMEOUT_MS (20min)
-    // so the server's own timeout + final 'error' event always wins the race.
+    // Frontend safety timeout — must exceed backend LOOP_TIMEOUT_MS.
+    // No Limits mode extends this to 4h; normal mode uses 22min.
     if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
     processingTimeoutRef.current = setTimeout(() => {
       if (pendingMsgId.current) {
@@ -1493,10 +1520,10 @@ function App() {
         pendingMsgId.current = null;
         setProcessing(false);
       }
-    }, 22 * 60 * 1000);
+    }, noLimits ? 4 * 60 * 60 * 1000 : 22 * 60 * 1000);
 
     try {
-      await sendMessage(text, activeConvId, undefined, attachments);
+      await sendMessage(text, activeConvId, undefined, attachments, noLimits);
       // Update conversation in the list
       setConversations(prev =>
         prev.map(c =>
@@ -1511,7 +1538,7 @@ function App() {
       pendingMsgId.current = null;
       setProcessing(false);
     }
-  }, [processing, activeConvId, updateMsg]);
+  }, [processing, activeConvId, updateMsg, noLimits]);
 
   // ── Silent retry (ChatGPT/Claude-style regenerate) ───────────────────
   // Instead of injecting a visible "try again" user bubble, we:
@@ -1555,17 +1582,17 @@ function App() {
         pendingMsgId.current = null;
         setProcessing(false);
       }
-    }, 22 * 60 * 1000);
+    }, noLimits ? 4 * 60 * 60 * 1000 : 22 * 60 * 1000);
 
     try {
-      await regenerateMessage(activeConvId, feedback);
+      await regenerateMessage(activeConvId, feedback, noLimits);
     } catch (err: any) {
       if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
       updateMsg(assistantMsgId, { content: `Error: ${err.message}`, status: 'error' });
       pendingMsgId.current = null;
       setProcessing(false);
     }
-  }, [processing, messages, activeConvId, updateMsg]);
+  }, [processing, messages, activeConvId, updateMsg, noLimits]);
 
   const handleRetry = useCallback((assistantMsgId: string) => {
     performSilentRetry(assistantMsgId);
@@ -1666,6 +1693,7 @@ function App() {
   const [showSessionPanel,  setShowSessionPanel]  = useState(false);
   const [tokenReduction,    setTokenReduction]    = useState(false);
   const [rawCommandsMode,   setRawCommandsMode]   = useState(false);
+  const [noLimits,          setNoLimits]          = useState(false);
 
   // ── Settings modal ────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
@@ -1828,13 +1856,7 @@ function App() {
             {activeConvTitle && activeConvTitle.length > 7 ? activeConvTitle : ''}
           </div>
 
-          {/* Right: status */}
-          <div className="header-right">
-            <StatusDot connected={wsConnected} />
-            <span className="header-status-label">
-              {wsConnected ? 'Live' : 'Connecting…'}
-            </span>
-          </div>
+          <div className="header-right" />
         </header>
 
         {/* Content */}
@@ -1884,6 +1906,9 @@ function App() {
           githubBranch={activeGithubBranch}
           onLinkRepo={() => { setShowSessionPanel(false); setShowGithubLink(true); }}
           showGithubLink={auth.mode === 'multi_user' && activeTab === 'chat'}
+          wsConnected={wsConnected}
+          noLimits={noLimits}
+          onToggleNoLimits={setNoLimits}
         />
       )}
 

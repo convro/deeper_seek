@@ -202,14 +202,15 @@ async function executeTool(toolName, args = {}, onEvent = null, context = {}) {
         }
       }
 
-      // Truncate oversized results to prevent token exhaustion
-      const MAX_RESULT_CHARS = 60_000;
+      // Truncate oversized results to prevent token exhaustion.
+      // No Limits mode raises the cap to 500k chars to handle large codebases/outputs.
+      const MAX_RESULT_CHARS = context.noLimits ? 500_000 : 60_000;
       const resultStr = JSON.stringify(parsed.result);
       if (resultStr.length > MAX_RESULT_CHARS) {
         logger.warn(`Tool ${toolName} result truncated from ${resultStr.length} to ${MAX_RESULT_CHARS} chars`);
         parsed = {
           ...parsed,
-          result: resultStr.slice(0, MAX_RESULT_CHARS) + '\n… [output truncated to 60k chars]',
+          result: resultStr.slice(0, MAX_RESULT_CHARS) + `\n… [output truncated to ${MAX_RESULT_CHARS / 1000}k chars]`,
           metadata: { ...parsed.metadata, truncated: true, original_length: resultStr.length },
         };
       }

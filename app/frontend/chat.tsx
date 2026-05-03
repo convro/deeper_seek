@@ -397,8 +397,8 @@ function RetryFeedbackSheet({ onCancel, onSubmit }: {
       <div className="rfb-backdrop" onClick={onCancel} />
       <div className="rfb-sheet">
         <div className="rfb-handle-wrap"><div className="rfb-handle" /></div>
-        <p className="rfb-title">Co poprawić w odpowiedzi?</p>
-        <p className="rfb-sub">Krótko — co było nie tak, czego brakowało, co zmienić.</p>
+        <p className="rfb-title">What should be improved?</p>
+        <p className="rfb-sub">Brief feedback — what was wrong, what was missing, what to change.</p>
         <textarea
           ref={ref}
           className="rfb-textarea"
@@ -408,13 +408,13 @@ function RetryFeedbackSheet({ onCancel, onSubmit }: {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
             if (e.key === 'Escape') onCancel();
           }}
-          placeholder="np. 'za dlugie', 'wiecej kodu, mniej teorii', 'brakuje obslugi bledow'..."
+          placeholder="e.g. 'too long', 'more code less theory', 'missing error handling'..."
           maxLength={500}
         />
         <div className="rfb-actions">
-          <button className="rfb-btn-secondary" onClick={onCancel}>Anuluj</button>
+          <button className="rfb-btn-secondary" onClick={onCancel}>Cancel</button>
           <button className="rfb-btn-primary" onClick={submit} disabled={!text.trim()}>
-            Spróbuj ponownie
+            Retry
           </button>
         </div>
       </div>
@@ -793,14 +793,14 @@ interface MessagesListProps {
 // rotating pool so the same user doesn't always see the same prompts.
 // User explicitly asked for "2 not 3" — keep the area uncluttered.
 const SUGGESTION_POOL: string[] = [
-  'Zaplanuj projekt na ten tydzień i rozbij na kroki',
-  'Zrób research po sieci i streszcz mi to po polsku',
-  'Przeglądnij ten kod i powiedz co z nim nie tak',
-  'Napisz mi prompt który robi X — masz wymyślić X',
-  'Wytłumacz mi <coś co cię nudzi> w 5 minut',
-  'Postaw prosty landing page i daj mi link do podglądu',
-  'Pomóż mi nazwać tę rzecz — bez korpo-żargonu',
-  'Pogadajmy luźno — co byś zrobił na moim miejscu w X',
+  'Plan a project for this week and break it into actionable steps',
+  'Research the web and give me a clear summary',
+  'Review this code and tell me what is wrong with it',
+  'Write a prompt that does X — you decide what X is',
+  'Explain <something boring to you> in under 5 minutes',
+  'Build a simple landing page and give me a preview link',
+  'Help me name this thing — no corporate jargon',
+  "Let's brainstorm — what would you do in my situation with X",
 ];
 
 function pickTwo<T>(arr: T[]): T[] {
@@ -833,11 +833,11 @@ export function MessagesList({
           onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
         />
         <div className="empty-title">
-          {greetingName ? `Cześć, ${greetingName}.` : 'DeeperSeek'}
+          {greetingName ? `Hey, ${greetingName}.` : 'DeeperSeek'}
         </div>
         <div className="empty-subtitle">
           {greetingName
-            ? 'Na czym dziś działamy?'
+            ? 'What are we working on today?'
             : 'Autonomous AI agent with tools, memory, and multi-agent orchestration.'}
         </div>
         <div className="empty-suggestions">

@@ -306,7 +306,8 @@ function buildContextMessages(messages) {
 // ── Handlers ───────────────────────────────────────────────────────────────
 
 async function sendMessage(req, res) {
-  const { message, session_id, model, attachments } = req.body;
+  const { message, session_id, model, attachments, no_limits } = req.body;
+  const noLimits = no_limits === true;
 
   if (!message && !(attachments && attachments.length)) {
     return res.status(400).json({ error: 'Missing message' });
@@ -442,12 +443,13 @@ async function sendMessage(req, res) {
         model: model || null,
         onEvent,
         signal: abortController.signal,
-        maxRounds: 50,
+        maxRounds: noLimits ? 400 : 50,
+        noLimits,
         ownerId:    req.user ? req.user.id    : null,
         ownerEmail: req.user ? req.user.email : null,
         userSettings,
         githubContext,
-        sessionId, // Pass sessionId for tool history injection
+        sessionId,
       });
 
       // Only persist if we got actual content
@@ -507,7 +509,8 @@ async function sendMessage(req, res) {
  *   - Streams events on the same per-session WebSocket as sendMessage.
  */
 async function regenerate(req, res) {
-  const { session_id, feedback, model } = req.body || {};
+  const { session_id, feedback, model, no_limits } = req.body || {};
+  const noLimitsRegen = no_limits === true;
   if (!session_id) return res.status(400).json({ error: 'Missing session_id' });
 
   const session = sessions.get(session_id);
@@ -596,12 +599,13 @@ async function regenerate(req, res) {
         model: model || null,
         onEvent,
         signal: abortController.signal,
-        maxRounds: 50,
+        maxRounds: noLimitsRegen ? 400 : 50,
+        noLimits: noLimitsRegen,
         ownerId:    req.user ? req.user.id    : null,
         ownerEmail: req.user ? req.user.email : null,
         userSettings: regenUserSettings,
         githubContext: regenGithubContext,
-        sessionId: session_id, // Pass sessionId for tool history injection
+        sessionId: session_id,
       });
 
       if (result.content) {

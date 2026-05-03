@@ -189,6 +189,7 @@ async function runAgentLoop({
   onEvent = null,
   signal = null,
   maxRounds = 50,
+  noLimits = false,
   ownerId = null,
   ownerEmail = null,
   userSettings = {},
@@ -257,12 +258,16 @@ async function runAgentLoop({
     ...messages,
   ];
 
+  // No Limits mode: remove round caps, extend all timeouts, allow large tool outputs
+  const effectiveLoopTimeout    = noLimits ? 4 * 60 * 60 * 1000 : LOOP_TIMEOUT_MS;  // 4h vs 20m
+  const effectiveApiTimeout     = noLimits ? 30 * 60 * 1000      : API_CALL_TIMEOUT_MS; // 30m vs 10m
+  const effectiveLoopDetectMax  = noLimits ? 50                   : LOOP_DETECTION_MAX;
+  const MAX_TEXT_ONLY_CONTINUATIONS = noLimits ? 20 : (thinkingEnabled ? 2 : 5);
+
   let totalUsage = { prompt_tokens: 0, completion_tokens: 0, cache_hit_tokens: 0, model: selectedModel };
   let rounds = 0;
-  const loopDeadline = Date.now() + LOOP_TIMEOUT_MS;
+  const loopDeadline = Date.now() + effectiveLoopTimeout;
   const recentToolSignatures = [];
-  // Thinking mode needs fewer nudges (model is more decisive); direct mode needs more.
-  const MAX_TEXT_ONLY_CONTINUATIONS = thinkingEnabled ? 2 : 5;
   let consecutiveTextOnly = 0;
 
   emit(onEvent, { type: 'llm_start', model: selectedModel, agent: agentType });
@@ -313,7 +318,7 @@ async function runAgentLoop({
       finishReason = null;
 
       const callController = new AbortController();
-      const callTimer = setTimeout(() => callController.abort(), API_CALL_TIMEOUT_MS);
+      const callTimer = setTimeout(() => callController.abort(), effectiveApiTimeout);
       if (signal) signal.addEventListener('abort', () => callController.abort(), { once: true });
 
       let retryThis = false;
@@ -372,7 +377,7 @@ async function runAgentLoop({
 
         // Abort / timeout
         if (err.name === 'AbortError' || err.code === 'ERR_CANCELED' || callController.signal.aborted) {
-          const msg = `DeepSeek API call timed out after ${API_CALL_TIMEOUT_MS / 60000} minutes`;
+          const msg = `DeepSeek API call timed out after ${effectiveApiTimeout / 60000} minutes`;
           logger.error(msg);
           emit(onEvent, { type: 'error', error: msg });
           finalContent = finalContent || 'Request timed out. Please try again or break the task into smaller steps.';
@@ -557,7 +562,7 @@ async function runAgentLoop({
       }
       const sigWindow   = recentToolSignatures.slice(-LOOP_DETECTION_WINDOW);
       const repeatCount = sigWindow.filter(s => s === sig).length;
-      const maxAllowed  = POLLING_TOOLS.has(toolName) ? POLLING_LOOP_MAX : LOOP_DETECTION_MAX;
+      const maxAllowed  = POLLING_TOOLS.has(toolName) ? POLLING_LOOP_MAX : effectiveLoopDetectMax;
       if (repeatCount >= maxAllowed) {
         logger.warn(`Loop detected: ${toolName} called ${repeatCount}× with identical args`);
         emit(onEvent, {
@@ -574,7 +579,7 @@ async function runAgentLoop({
       emit(onEvent, { type: 'tool_call', tool: toolName, args: toolArgs, call_id: toolCall.id });
       logger.tool(`Calling tool: ${toolName}(${JSON.stringify(toolArgs).slice(0, 200)})`);
 
-      const toolResult = await executeTool(toolName, toolArgs, onEvent, { ownerId, ownerEmail, sessionId });
+      const toolResult = await executeTool(toolName, toolArgs, onEvent, { ownerId, ownerEmail, sessionId, noLimits });
 
       emit(onEvent, {
         type:        'tool_result',
