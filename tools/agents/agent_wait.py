@@ -8,7 +8,7 @@ import urllib.request
 import os
 
 BACKEND_URL = os.environ.get("DEEPERSEEK_BACKEND_URL", "http://localhost:3000")
-MAX_WAIT_SECONDS = 300  # 5 minutes max wait
+MAX_WAIT_SECONDS = 1200  # 20 minutes max wait
 POLL_INTERVAL = 2       # seconds between checks
 
 

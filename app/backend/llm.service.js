@@ -19,7 +19,7 @@ const BASE_URL = 'https://api.deepseek.com';
 
 // Timeout budgets
 const LOOP_TIMEOUT_MS     = 20 * 60 * 1000; // 20 min overall budget per loop
-const API_CALL_TIMEOUT_MS =  5 * 60 * 1000; // 5 min per single API call (streaming)
+const API_CALL_TIMEOUT_MS = 10 * 60 * 1000; // 10 min per single API call (streaming)
 const LOOP_DETECTION_WINDOW = 12;
 const LOOP_DETECTION_MAX    = 6;
 // Polling tools (e.g. agent_status) are inherently repetitive — higher threshold

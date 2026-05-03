@@ -38,7 +38,7 @@ def execute(agent_type: str, task: str, context: str = "",
             method="POST",
         )
 
-        with urllib.request.urlopen(req, timeout=600) as resp:
+        with urllib.request.urlopen(req, timeout=1200) as resp:
             result = json.loads(resp.read().decode("utf-8"))
 
         return {

@@ -1115,7 +1115,7 @@
         "agent_type",
         "task"
       ],
-      "timeout_ms": 300000
+      "timeout_ms": 1200000
     },
     "agent_status": {
       "module": "tools/agents/agent_status.py",
@@ -1141,14 +1141,14 @@
         },
         "timeout": {
           "type": "integer",
-          "description": "Max seconds to wait (default 300)",
-          "default": 300
+          "description": "Max seconds to wait (default 1200)",
+          "default": 1200
         }
       },
       "required": [
         "agent_id"
       ],
-      "timeout_ms": 310000
+      "timeout_ms": 1210000
     },
     "task_split": {
       "module": "tools/orchestration/task_split.py",
